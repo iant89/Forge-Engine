@@ -56,6 +56,7 @@ export const ICONS = {
   ),
   stats: svg('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', 22),
   profiler: svg('<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5V13l2.5 1.5M9 2.5h6M12 2.5V6"/>', 22),
+  terminal: svg('<path d="M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/><path d="m6 9 3 3-3 3M11 15h5"/>', 22),
   grip: svg('<path d="M20 8L8 20M20 14l-6 6M20 19l-1 1"/>', 16),
 };
 

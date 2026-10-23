@@ -52,7 +52,7 @@ export function sampleClip(
 ): void {
   const clampedT = t < 0 ? 0 : t > clip.duration ? clip.duration : t;
   for (const track of clip.tracks) {
-    sampleTrack(track, clampedT, output);
+    if (track.path !== "weights") sampleTrack(track, clampedT, output);
   }
 }
 
@@ -68,6 +68,12 @@ export function initIdentity(output: Float32Array, nodeCount: number): void {
   }
 }
 
+/** Sample one morph-weight track into `output[0..components)`. */
+export function sampleTrackValues(track: AnimationTrack, t: number, output: Float32Array): void {
+  if (track.path !== "weights") return;
+  sampleTrack(track, t, output);
+}
+
 // ──────────────────────── internal ────────────────────────
 
 function sampleTrack(track: AnimationTrack, t: number, output: Float32Array): void {
@@ -75,8 +81,8 @@ function sampleTrack(track: AnimationTrack, t: number, output: Float32Array): vo
   const keys = times.length;
   if (keys === 0) return;
 
-  const c = componentsPerKey(track.path);
-  const outOffset = track.nodeIndex * NODE_STRIDE + pathOffset(track.path);
+  const c = componentsPerKey(track.path, track.components);
+  const outOffset = track.path === "weights" ? 0 : track.nodeIndex * NODE_STRIDE + pathOffset(track.path);
 
   // Single key: just copy the value (or the middle sample for CUBICSPLINE).
   if (keys === 1) {
@@ -134,6 +140,7 @@ function pathOffset(path: TrackPath): number {
     case "translation": return 0;
     case "rotation": return 3;
     case "scale": return 7;
+    case "weights": return 0;
   }
 }
 

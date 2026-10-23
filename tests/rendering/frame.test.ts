@@ -1055,6 +1055,64 @@ group("depth prepass and SSAO", () => {
     await f.dispose();
   });
 
+  test("reuses the resolved prepass depth for transparent intersections and the HDR post haze", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.enabled = false;
+    f.scene.settings.ssao.enabled = false;
+    f.scene.settings.fog.mode = "linear";
+    f.scene.settings.fog.start = 2;
+    f.scene.settings.fog.end = 20;
+    f.scene.settings.fog.density = 0.01;
+
+    const glass = new Material({ label: "depth-faded-glass", color: 0x88aacc, opacity: 0.45, transparent: true });
+    const glassEntity = f.scene.createTransformedEntity("depth-faded-glass", new Vec3(0, 0.75, -1));
+    const glassRenderable = new Renderable();
+    glassRenderable.geometry = f.boxGeometry;
+    glassRenderable.material = glass;
+    glassRenderable.transparent = true;
+    f.scene.world.addComponent(glassEntity.id, glassRenderable);
+
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assertContains(f.renderer.passNames, "forge.depth.resolve");
+    assert.equal(frameFlags(f) & (1 << 8), 1 << 8);
+    const resolve = f.mock.passes.find((p) => p.label === "forge.depth.resolve");
+    assert.ok(resolve);
+    assert.equal(resolve!.colorTargets[0]?.includes(":r32float:"), true);
+    assert.equal(resolve!.depthTarget, null);
+    assert.equal(f.mock.passes.find((p) => p.label === "forge.main")!.depthStoreOp, "store");
+    const graph = f.renderer.graph.inspect();
+    const tonemap = graph.passes.find((p) => p.name === "forge.tonemap");
+    assert.ok(tonemap);
+    assert.ok(tonemap!.reads.includes("depth.resolve"));
+    assert.equal(graph.passes.find((p) => p.name === "forge.depth.resolve")!.reads.includes("scene.depth"), true);
+
+    glass.dispose();
+    await f.dispose();
+  });
+
+  test("keeps depth post-processing opt-in to HDR fog and out of LDR fog frames", async () => {
+    const f = await fixture();
+    f.scene.settings.shadow.enabled = false;
+    f.scene.settings.ssao.enabled = false;
+    f.scene.settings.fog.mode = "linear";
+    f.scene.settings.hdr = false;
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assert.notEqual(f.renderer.passNames.includes("forge.depth.resolve"), true);
+    assert.notEqual(f.renderer.passNames.includes("forge.tonemap"), true);
+    assert.equal(frameFlags(f) & (1 << 8), 0);
+
+    f.scene.settings.hdr = true;
+    f.scene.settings.fog.mode = "none";
+    f.renderer.renderScene(f.scene);
+    assert.deepEqual(f.mock.errors, []);
+    assert.notEqual(f.renderer.passNames.includes("forge.depth.resolve"), true);
+    assert.equal(frameFlags(f) & (1 << 8), 0);
+
+    await f.dispose();
+  });
+
   test("contact shadows resolve prepass depth before the forward pass", async () => {
     const f = await fixture();
     f.scene.settings.shadow.contactShadows = true;

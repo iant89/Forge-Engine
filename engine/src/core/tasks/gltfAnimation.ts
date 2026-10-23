@@ -9,9 +9,8 @@
  * merges `DecodedGltfAnimation[]` onto it after calling `decodeGltfAnimations`. This avoids
  * changing the existing mesh-decode task contract while animations are new.
  *
- * Supports: STEP, LINEAR, CUBICSPLINE interpolation; translation, rotation, scale channels.
- * Excluded: morph target weights (CHANNEL_WEIGHTS) — they require mesh morph data that is
- * not yet decoded by the static mesh path.
+ * Supports: STEP, LINEAR, CUBICSPLINE interpolation; translation, rotation, scale, and morph
+ * target weight channels.
  */
 
 import { AssetError } from "../errors.js";
@@ -25,7 +24,7 @@ export interface DecodedAnimationChannel {
   /** Index into the scene's node array (the target node). */
   targetNode: number;
   /** The animated property. */
-  targetPath: "translation" | "rotation" | "scale";
+  targetPath: "translation" | "rotation" | "scale" | "weights";
   /** Index into the animation's sampler array. */
   samplerIndex: number;
 }
@@ -35,6 +34,8 @@ export interface DecodedAnimationSampler {
   input: Float32Array;
   /** Packed output values (3 floats/key for translation/scale, 4 for rotation; ×3 for CUBICSPLINE). */
   output: Float32Array;
+  /** Components packed into one key; weights may have more than one scalar per key. */
+  components?: number;
   interpolation: "STEP" | "LINEAR" | "CUBICSPLINE";
 }
 
@@ -222,6 +223,12 @@ function decodeOneAnimation(
 
       const input = readAccessorFloat32(doc, buffers, sampler.input, source);
       const output = readAccessorFloat32(doc, buffers, sampler.output, source);
+      const outputAccessor = doc.accessors?.[indexAt(sampler.output, (doc.accessors ?? []).length, `animation ${animIndex} sampler ${si} output`, source)];
+      const rawComponents = COMPONENTS[outputAccessor?.type ?? ""] ?? 0;
+      const components = interp === "CUBICSPLINE"
+        ? (input.length > 0 ? output.length / (input.length * 3) : rawComponents)
+        : (input.length > 0 ? output.length / input.length : rawComponents);
+      if (!Number.isInteger(components) || components < 1) fail(source, `animation ${animIndex} sampler ${si} output does not pack whole values per key`);
 
       // Validate: input must be monotonically increasing timestamps.
       for (let k = 1; k < input.length; k++) {
@@ -233,7 +240,7 @@ function decodeOneAnimation(
       const lastT = input.length > 0 ? input[input.length - 1]! : 0;
       if (lastT > duration) duration = lastT;
 
-      samplers.push({ input, output, interpolation: interp as "STEP" | "LINEAR" | "CUBICSPLINE" });
+      samplers.push({ input, output, components, interpolation: interp as "STEP" | "LINEAR" | "CUBICSPLINE" });
     }
 
     // ── channels ──
@@ -250,9 +257,7 @@ function decodeOneAnimation(
       }
 
       const path = channel.target.path;
-      if (path !== "translation" && path !== "rotation" && path !== "scale") {
-        // Morph target weights — silently skip for now.
-        if (path === "weights") continue;
+      if (path !== "translation" && path !== "rotation" && path !== "scale" && path !== "weights") {
         fail(source, `animation ${animIndex} channel ${ci} has unsupported target path ${path}`);
       }
 
@@ -260,7 +265,7 @@ function decodeOneAnimation(
 
       channels.push({
         targetNode,
-        targetPath: path as "translation" | "rotation" | "scale",
+        targetPath: path as "translation" | "rotation" | "scale" | "weights",
         samplerIndex: channel.sampler,
       });
     }

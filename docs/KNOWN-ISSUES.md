@@ -5,37 +5,10 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Diagnostics (Phase 21)
 
-* **The timeline strip is a three-second window with no scrub or zoom.** The demo's strip draws the
-  last 180 frames as category-stacked columns with a lane chart of the selected frame, and hover/click
-  selects and pins a frame, but the history cannot be paused, scrubbed or zoomed, so a spike older
-  than three seconds is gone by the time you reach for it. The GPU marker is the frame *total*: the
-  per-pass device times that the text report shows have no lane of their own. Columns are
-  category-coloured only while the profiler collects slices (`detailed`, on when `gpuTimestamps` is);
-  without them each column is still the frame's CPU time, drawn entirely as `other`.
-  (capability: diagnostics.frameTimeline)
-* **The Inspector is one read-only window, one tab at a time.** The toolbar's Inspector button opens
-  a floating window with a tab per diagnostic API — ECS, systems, render graph, GPU resources,
-  physics, terrain, particles, streaming and world — each with a filter, a summary strip and a detail
-  pane for the selected row, refreshing at 2 Hz while it is open. It is a single instance: you cannot
-  open two tabs side by side, pin a row for comparison, or dock it next to the Profiler's own report.
-  It inspects and never edits (no field is writable, no snapshot is mutated), and rows are capped per
-  tab so a large scene must be narrowed with the filter rather than scrolled. A tab whose subsystem is
-  absent from the scene says so in a note instead of showing an empty list.
-  (capability: diagnostics.inspectorPanel)
-* **Physics overlays stop at collider wireframes.** The Inspector's Physics tab lists bodies and its
-  overlay draws bounded collider wireframes with optional AABBs and velocity vectors, but contact
-  manifolds have no overlay: two bodies resting on each other show their shapes and not the contacts
-  between them, which is the case a physics overlay is usually opened for.
-  (capability: diagnostics.physicsDebugDraw)
 * **GPU particle worlds report counters, not particles.** The Inspector's Particles tab shows
   backend, capacity, alive/emitted counts, emitter settings and a bounded sample of particles for CPU
   worlds, and draws their bounds; a GPU world's particle buffer is not read back, so it gets counters
   and emitter settings with no particle rows and no overlay. (capability: diagnostics.particleDebugger)
-* **The Phase 21 console is an embeddable API, not a visible demo terminal yet.** `DeveloperConsole`
-  offers safe, registered commands for engine stats and the diagnostic APIs, with bounded history,
-  input and output. A host application must supply the terminal UI and connect any additional custom
-  commands. This supports programmatic diagnosis without engine-source edits but does not close the
-  usability/UI portion of the milestone. (capability: diagnostics.developerConsole)
 
 ## Benchmarks (Phase 22)
 
@@ -58,9 +31,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
   still need multiple fallback draws. `stats.shadowsDrawn`, `shadowInstancesDrawn` and the population
   shadow counters expose the work; world-scale submission remains future work (`docs/RENDERING.md` §4, §4h).
   (roadmap: 24.3)
-* **The prepass depth has four consumers so far.** Contact-shadow resolve, SSAO, the soft-particle
-  fade and the object culler's HiZ pyramid read it; no transparency technique and no depth-based post
-  effect uses it. (`docs/RENDERING.md` §4a) (capability: rendering.depthReuse)
 * **Object culling is still per batch for ordinary non-instanced renderables, and uploads are not
   eliminated.** `forge.objects.cull` drops the *draw* of a batch the frame cannot see — since 13.6
   by writing a zero-instance indirect record — while `collectBatches` and the instance/object arenas
@@ -84,11 +54,6 @@ the honest detail lives; nothing here is hidden behind a green gate.
   arena compaction, moving the authoritative verdict to the GPU can increase CPU command work versus
   early CPU rejection; the `gpuDriven*` counters make that transitional cost explicit rather than
   calling it a speedup. (`docs/RENDERING.md` §4d) (capability: rendering.gpuDrivenWorld)
-* **Transparent and overlay surfaces remain outside the depth prepass.** Opaque material alpha-test,
-  fading coverage and water now use material-aware/deformed prepass variants, but blended surfaces do
-  not provide authoritative early-Z and are still drawn only by `forge.main`. Orthographic cameras
-  now run SSAO with a constant pixels-per-metre kernel. Blended-depth reuse remains a separate
-  renderer limitation. (capability: rendering.depthReuse)
 * **The cluster grid's preparation and counting pass are still CPU work, every frame.** The *fill*
   (the lists) runs on the device by default — `forge.lights.assign`, one compute pass, no read-back
   (`docs/RENDERING.md` §4c) — and the CPU fallback uploads the lists' used prefix (≈ 43 KB for the
@@ -123,23 +88,20 @@ The worker round-trip and resource-eviction test gaps are gone (`tests/core/task
 workers. `MeshBvh` now backs triangle-accurate scene picking and large-mesh frustum refinement;
 PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
 
-* **Core glTF import is geometry-first.** `decodeGltfMesh` handles static, uncompressed triangle
-  primitives and returns typed vertex/index arrays, bounds, node transforms, scene roots and material
-  factors, and (Phase 16.1a) skins with four-influence JOINTS_0/WEIGHTS_0 streams. Extra
-  JOINTS_n/WEIGHTS_n sets are ignored when all-zero and rejected when they carry weight; strip them
-  with `npm run gltf:strip-skin-sets` (`--force` drops weighted ones, losing accuracy). Textures
-  (16.1c, `loadGltfTextures`) bind baseColor / emissive / metallicRoughness / normal / occlusion maps
-  with per-texture samplers, on TEXCOORD_0 only: a map with `texCoord: 1` is dropped with a warning
-  (deferred to ROADMAP 16.1g), and KHR_texture_transform and KTX2 images are ignored. alpha MASK
-  cutouts still cast full-quad shadows (the shadow pass has no material). glTF assets are mirrored
-  from glTF's right-handed frame into the engine's left-handed one at import (x → -x, warns once per
-  file); a file baked with `npm run gltf:fix-handedness` loads as-is but is mirrored in other glTF
-  viewers. The Mars showcase's own Perseverance loader (`examples/src/assets/glb.ts`) does not apply
-  this conversion. It does not import morph targets/instancing or decode Draco/meshopt
-  compression; those are tracked for the extended glTF importer (16.1b, 16.1d, 16.1e). Skinned primitives cull against posed bounds
-  (per-joint bind boxes carried by the live joint matrices), which are conservative: a box per joint
-  can be looser than the deformed mesh.
-  (capability: assets.gltfAdvanced)
+* **Core glTF import is geometry-first, not a complete scene-format importer.** `decodeGltfMesh` and
+  `instantiateGltfScene` now cover uncompressed and meshopt/host-Draco triangle geometry, morph targets
+  and animated weights, four-influence skins, `EXT_mesh_gpu_instancing`, TEXCOORD_0/TEXCOORD_1 texture
+  routing, images/materials, node transforms and scenes. The remaining importer tail intentionally
+  leaves KHR_texture_transform, KTX2/Basis image decoding, cameras and lights outside this slice;
+  supplied Draco decoders stay on the caller's thread because their WASM state is not transferable.
+  glTF assets are mirrored from glTF's right-handed frame into the engine's left-handed one at import
+  (x → -x, warns once per file); a file baked with `npm run gltf:fix-handedness` loads as-is but is
+  mirrored in other glTF viewers. The Mars showcase's own Perseverance loader
+  (`examples/src/assets/glb.ts`) still does not apply this conversion and has not yet migrated to the
+  engine importer (ROADMAP 16.1i). alpha MASK cutouts still cast full-quad shadows (the shadow pass
+  has no material). Skinned primitives cull against posed bounds (per-joint bind boxes carried by the
+  live joint matrices), which are conservative: a box per joint can be looser than the deformed mesh.
+  (roadmap: 16.1)
 
 * **Streaming loader cancellation is cooperative.** `AssetStreamer` (Phase 15.3) gates when loads
   *start* — priority, concurrency cap and per-frame upload budget — and safely disposes a completed
@@ -272,17 +234,20 @@ WASM backend is still a future solver seam.
   batch (no visible difference: that list is already frustum-tested per instance). The mock device runs
   the CPU twins without HiZ. The distance fade is a scale-down about the instance pivot, not a dither:
   a half-buried rock sinks as it shrinks, and a very large prototype visibly shrinks rather than
-  dissolving. (roadmap: 14)
+  dissolving. Broader world-scale visibility compaction remains tracked under GPU-driven world work.
+  (roadmap: 24.3)
 * **Population raycasts are resident and prototype-geometry only.** `PopulationWorld.raycast()`
   uses the resident chunk/type blocks and each type's CPU triangle geometry, so evicted chunks and
   CPU-only population types without a geometry/material submission cannot be picked. The returned
   `RayHit.tag` decodes through `PopulationWorld.raycastInfo()` while the hit is current; this is a
-  deliberate query boundary, not an ECS entity fallback. (roadmap: 14)
+  deliberate query boundary, not an ECS entity fallback. Broader world-scale population query coverage
+  remains a separate future concern. (roadmap: 24.3)
 * **Worker generation has a deterministic inline fallback.** With an engine `TaskScheduler`, the
   complete canonical-surface + scatter job runs through `population.chunk` on the worker path. A
   scheduler that is unavailable/disposed, an unsupported custom terrain stage, or a live Mars Stage A
   field cache falls back to the same pure inline body; the fallback preserves placement but does not
-  provide off-main-thread performance. (roadmap: 14)
+  provide off-main-thread performance. Broader worker failure/recovery policy remains tracked separately.
+  (roadmap: 28.7)
 
 ## Scripting (Phase 18)
 

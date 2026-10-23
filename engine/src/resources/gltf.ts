@@ -8,9 +8,9 @@
  * self-contained JSON document or a GLB byte buffer directly.
  *
  * Triangle primitives, interleaved/sparse accessors, normalized integer attributes, node transforms,
- * scene roots and core PBR material factors are preserved. Draco/meshopt-compressed geometry and
- * image/animation/skin decoding are explicit follow-up work rather than silently producing empty
- * geometry.
+ * scene roots, morph/instancing metadata, injectable Draco and bundled meshopt decompression, core PBR
+ * material factors, and worker-safe skin/animation arrays are preserved. Image decoding/material GPU
+ * assembly remains a separate main-thread resource step.
  */
 
 import { AssetError, UsageError } from "../core/errors.js";
@@ -18,11 +18,14 @@ import { TaskPriority, type TaskScheduler } from "../core/tasks/scheduler.js";
 import { builtinTaskHandlersReady } from "../core/tasks/registry.js";
 import {
   decodeGltfMeshTask,
+  installGltfMeshoptDecoder,
+  installGltfDracoDecoder,
   GLTF_MESH_DECODE_TASK,
   isGlbBuffer,
   transferablesForGltfMeshPayload,
   type DecodedGltfAsset,
   type GltfMeshDecodePayload,
+  type GltfDracoDecoder,
 } from "../core/tasks/gltfMesh.js";
 
 export type {
@@ -33,11 +36,15 @@ export type {
   DecodedGltfSampler,
   DecodedGltfTexture,
   DecodedGltfNode,
+  DecodedGltfInstancing,
   DecodedGltfPrimitive,
+  DecodedGltfMorphTarget,
   DecodedGltfPrimitiveSkin,
   DecodedGltfScene,
   DecodedGltfSkin,
   GltfMeshDecodePayload,
+  GltfMeshoptDecoder,
+  GltfDracoDecoder,
 } from "../core/tasks/gltfMesh.js";
 export { transferablesForGltfMesh } from "../core/tasks/gltfMesh.js";
 
@@ -62,6 +69,8 @@ export interface DecodeGltfMeshOptions {
   signal?: AbortSignal;
   /** External buffers by glTF buffer index (data URIs remain decoded inside the worker). */
   buffers?: readonly (ArrayBuffer | null)[];
+  /** Optional browser/WASM Draco implementation; meshopt is bundled and initialized automatically. */
+  dracoDecoder?: GltfDracoDecoder;
   /**
    * "convert" (default) mirrors right-handed glTF into the engine's left-handed frame (x → -x, with
    * winding, tangents, node/skin/animation transforms to match) and warns once per source; files
@@ -125,10 +134,25 @@ function makeContainerPayload(input: GltfMeshInput, options: DecodeGltfMeshOptio
   return { format: "gltf", json, buffers: [...(options.buffers ?? [])], source };
 }
 
+let meshoptReady: Promise<void> | null = null;
+async function ensureMeshoptDecoder(): Promise<void> {
+  if (!meshoptReady) {
+    meshoptReady = import("meshoptimizer/decoder").then(async ({ MeshoptDecoder }) => {
+      await MeshoptDecoder.ready;
+      installGltfMeshoptDecoder(MeshoptDecoder);
+    });
+  }
+  await meshoptReady;
+}
+
 /** Decode mesh primitives to transferable arrays; pass `scheduler` to run parsing on its worker pool. */
 export async function decodeGltfMesh(input: GltfMeshInput, options: DecodeGltfMeshOptions = {}): Promise<DecodedGltfAsset> {
+  await ensureMeshoptDecoder();
+  // A decoder object is host state, not a structured-cloneable task payload. Keep Draco decodes on
+  // the calling thread when a host supplies one; meshopt-only assets still use the worker path.
+  installGltfDracoDecoder(options.dracoDecoder ?? null);
   const payload = makePayload(input, options);
-  if (!options.scheduler) return warnHandedness(decodeGltfMeshTask(payload));
+  if (!options.scheduler || options.dracoDecoder) return warnHandedness(decodeGltfMeshTask(payload));
   if (options.signal?.aborted) throw new AssetError("glTF mesh decode cancelled before submission", payload.source ?? "<memory glTF>", "E_ASSET_CANCELLED");
   await builtinTaskHandlersReady();
   const key = options.key ?? `asset.gltf.decode:${nextDecodeKey++}`;

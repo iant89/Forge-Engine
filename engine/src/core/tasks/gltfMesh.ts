@@ -9,10 +9,10 @@
  * Scope: triangle primitives, core vertex attributes/accessors (including interleaving, normalization
  * and sparse overlays), node transforms, scene roots, material factors/references and — since Phase
  * 16.1a — skins: `skins[]`, `node.skin` and one JOINTS_0/WEIGHTS_0 set per primitive (four
- * influences, the GPU skinning path's limit). Compressed geometry extensions (Draco/meshopt), morph
- * targets, extra influence sets with non-zero weights (all-zero JOINTS_n/WEIGHTS_n, n >= 1, are
- * ignored) and GPU instancing are rejected explicitly; image
- * decoding/material upload and animation import are outside this mesh-decoder slice.
+ * influences, the GPU skinning path's limit), morph target deltas/default weights,
+ * EXT_mesh_gpu_instancing transform streams, and injectable KHR_draco_mesh_compression /
+ * EXT_meshopt_compression decoding seams. Image decoding/material upload remains a main-thread
+ * resource step; animation import shares the resolved accessor data through `gltfAnimation.ts`.
  */
 
 import { convertGltfAssetHandedness, GLTF_HANDEDNESS_MARKER } from "./gltfHandedness.js";
@@ -39,11 +39,34 @@ export interface GltfMeshDecodePayload {
   handedness?: "convert" | "preserve";
 }
 
+/** Synchronous meshopt seam used by the worker and the inline decoder after `ready` resolves. */
+export interface GltfMeshoptDecoder {
+  decodeGltfBuffer(target: Uint8Array, count: number, size: number, source: Uint8Array, mode: string, filter?: string): void;
+}
+
+/** Optional Draco seam. A host can install a browser/WASM decoder without making the core task DOM-dependent. */
+export interface GltfDracoDecoder {
+  decode(data: Uint8Array, attributes: Record<string, number>, source: string): { attributes: Record<string, Float32Array>; indices: Uint32Array | Uint16Array; vertexCount: number };
+}
+
+let meshoptDecoder: GltfMeshoptDecoder | null = null;
+let dracoDecoder: GltfDracoDecoder | null = null;
+
+export function installGltfMeshoptDecoder(decoder: GltfMeshoptDecoder | null): void {
+  meshoptDecoder = decoder;
+}
+
+export function installGltfDracoDecoder(decoder: GltfDracoDecoder | null): void {
+  dracoDecoder = decoder;
+}
+
 export interface DecodedGltfPrimitive {
   /** glTF primitive mode; this decoder currently emits triangle lists only (4). */
   mode: 4;
   /** Vertex semantics (e.g. POSITION, NORMAL, TEXCOORD_0) as unpacked float arrays. */
   attributes: Record<string, Float32Array>;
+  /** Morph target deltas, in glTF target order. Missing semantics are valid and remain absent. */
+  morphTargets: DecodedGltfMorphTarget[];
   indices: Uint16Array | Uint32Array | null;
   materialIndex: number | null;
   vertexCount: number;
@@ -56,6 +79,11 @@ export interface DecodedGltfPrimitive {
   skin: DecodedGltfPrimitiveSkin | null;
   /** [minX, minY, minZ, maxX, maxY, maxZ]. */
   bounds: Float32Array;
+}
+
+export interface DecodedGltfMorphTarget {
+  /** POSITION/NORMAL are VEC3 deltas; glTF TANGENT morph deltas are also VEC3 (without the base tangent's w sign). */
+  attributes: Record<string, Float32Array>;
 }
 
 export interface DecodedGltfPrimitiveSkin {
@@ -79,6 +107,18 @@ export interface DecodedGltfSkin {
 export interface DecodedGltfMesh {
   name: string;
   primitives: DecodedGltfPrimitive[];
+  /** Default morph weights authored on the mesh, or null when the mesh has no targets. */
+  weights: Float32Array | null;
+}
+
+export interface DecodedGltfInstancing {
+  /** One transform per instance. TRANSLATION is required by EXT_mesh_gpu_instancing. */
+  translations: Float32Array;
+  /** Optional quaternion array, four floats per instance. */
+  rotations: Float32Array | null;
+  /** Optional scale array, three floats per instance. */
+  scales: Float32Array | null;
+  count: number;
 }
 
 export interface DecodedGltfNode {
@@ -91,6 +131,10 @@ export interface DecodedGltfNode {
   rotation: Float32Array | null;
   scale: Float32Array | null;
   matrix: Float32Array | null;
+  /** Node-level morph weights override the mesh defaults. */
+  weights: Float32Array | null;
+  /** EXT_mesh_gpu_instancing transform attributes, expanded to transferable arrays. */
+  instancing: DecodedGltfInstancing | null;
 }
 
 export interface DecodedGltfMaterial {
@@ -102,15 +146,20 @@ export interface DecodedGltfMaterial {
   metallicFactor: number;
   roughnessFactor: number;
   baseColorTexture: number | null;
+  baseColorTexCoord: number;
   metallicRoughnessTexture: number | null;
+  metallicRoughnessTexCoord: number;
   normalTexture: number | null;
+  normalTexCoord: number;
   /** `normalTexture.scale` (default 1). */
   normalScale: number;
   /** `emissiveFactor` (default 0,0,0) and `emissiveTexture` (sRGB). */
   emissiveFactor: Float32Array;
   emissiveTexture: number | null;
+  emissiveTexCoord: number;
   /** `occlusionTexture` (R channel) and its `strength` (default 1). */
   occlusionTexture: number | null;
+  occlusionTexCoord: number;
   occlusionStrength: number;
 }
 
@@ -301,13 +350,30 @@ function parseJson(json: string, source: string): GltfDocument {
   if (doc.asset?.minVersion && compareVersion(doc.asset.minVersion, "2.0") > 0) {
     fail(source, `glTF minVersion ${doc.asset.minVersion} is newer than 2.0`);
   }
-  for (const extension of doc.extensionsRequired ?? []) {
-    if (extension === "KHR_draco_mesh_compression" || extension === "EXT_meshopt_compression") {
-      fail(source, `required geometry compression extension ${extension} is not supported`, "E_ASSET_GLTF_EXTENSION");
-    }
-  }
+  // Geometry extensions are decoded at the accessor/primitive sites below. Keeping this check
+  // permissive lets an asset declare EXT_mesh_gpu_instancing or a supported compression extension
+  // without being rejected before its data can be inspected.
   if (!Array.isArray(doc.meshes)) fail(source, "glTF has no meshes array");
   return doc;
+}
+
+function validateRequiredExtensions(doc: GltfDocument, source: string): void {
+  const required = doc.extensionsRequired ?? [];
+  if (!Array.isArray(required) || required.some((extension) => typeof extension !== "string" || extension.length === 0)) {
+    fail(source, "glTF extensionsRequired must be an array of non-empty strings", "E_ASSET_GLTF_EXTENSION");
+  }
+  for (const extension of required) {
+    if (extension === "EXT_mesh_gpu_instancing") continue;
+    if (extension === "EXT_meshopt_compression") {
+      if (!meshoptDecoder) fail(source, "glTF requires EXT_meshopt_compression but no meshopt decoder is installed", "E_ASSET_GLTF_EXTENSION");
+      continue;
+    }
+    if (extension === "KHR_draco_mesh_compression") {
+      if (!dracoDecoder) fail(source, "glTF requires KHR_draco_mesh_compression but no Draco decoder is installed", "E_ASSET_GLTF_EXTENSION");
+      continue;
+    }
+    fail(source, `glTF requires unsupported extension ${extension}`, "E_ASSET_GLTF_EXTENSION");
+  }
 }
 
 function compareVersion(a: string, b: string): number {
@@ -376,7 +442,9 @@ function indexAt(value: number, length: number, label: string, source: string): 
 
 function finiteArray(value: readonly number[] | undefined, length: number, label: string, source: string): Float32Array | null {
   if (value === undefined) return null;
-  if (value.length !== length || value.some((v) => !Number.isFinite(v))) fail(source, `${label} must contain ${length} finite numbers`);
+  if (!Array.isArray(value) || value.length !== length || value.some((v) => !Number.isFinite(v))) {
+    fail(source, `${label} must contain ${length} finite numbers`);
+  }
   return Float32Array.from(value);
 }
 
@@ -410,6 +478,61 @@ interface AccessorData {
   componentType: number;
 }
 
+const meshoptCache = new WeakMap<object, Map<number, Uint8Array>>();
+
+function meshoptFilterName(filter: unknown, source: string, viewIndex: number): string | undefined {
+  if (filter === undefined || filter === "NONE") return undefined;
+  if (filter === "OCTAHEDRAL" || filter === "QUATERNION" || filter === "EXPONENTIAL" || filter === "COLOR") return filter;
+  fail(source, `bufferView ${viewIndex} has unsupported EXT_meshopt_compression filter ${String(filter)}`, "E_ASSET_GLTF_EXTENSION");
+}
+
+function decodedBufferView(
+  doc: GltfDocument,
+  buffers: ArrayBuffer[],
+  viewIndex: number,
+  source: string,
+): { buffer: ArrayBuffer; byteOffset: number; byteLength: number; byteStride: number | undefined; compressed: boolean; mode?: string } {
+  const view = doc.bufferViews![viewIndex]!;
+  const extension = view.extensions?.EXT_meshopt_compression as {
+    buffer?: number; byteOffset?: number; byteLength?: number; byteStride?: number; count?: number; mode?: string; filter?: string;
+  } | undefined;
+  if (!extension) {
+    const buffer = buffers[indexAt(view.buffer, buffers.length, `bufferView ${viewIndex} buffer`, source)]!;
+    return { buffer, byteOffset: view.byteOffset ?? 0, byteLength: view.byteLength, byteStride: view.byteStride, compressed: false };
+  }
+  if (!meshoptDecoder) fail(source, `bufferView ${viewIndex} uses EXT_meshopt_compression but no meshopt decoder is installed`, "E_ASSET_GLTF_EXTENSION");
+  const count = extension.count;
+  const stride = extension.byteStride;
+  const byteLength = extension.byteLength;
+  const mode = extension.mode;
+  const compressedBufferIndex = extension.buffer;
+  const compressedOffset = extension.byteOffset ?? 0;
+  if (!Number.isSafeInteger(compressedBufferIndex) || compressedBufferIndex! < 0 ||
+      !Number.isSafeInteger(compressedOffset) || compressedOffset < 0 ||
+      !Number.isSafeInteger(count) || count! < 1 || !Number.isSafeInteger(stride) || stride! < 1 || stride! > 256 ||
+      !Number.isSafeInteger(byteLength) || byteLength! < 1 || !Number.isSafeInteger(count! * stride!) ||
+      (mode !== "ATTRIBUTES" && mode !== "TRIANGLES" && mode !== "INDICES")) {
+    fail(source, `bufferView ${viewIndex} has invalid EXT_meshopt_compression metadata`, "E_ASSET_GLTF_EXTENSION");
+  }
+  let cache = meshoptCache.get(doc);
+  if (!cache) meshoptCache.set(doc, cache = new Map());
+  let decoded = cache.get(viewIndex);
+  if (!decoded) {
+    const compressedBuffer = buffers[indexAt(compressedBufferIndex!, buffers.length, `bufferView ${viewIndex} meshopt buffer`, source)]!;
+    if (compressedOffset + byteLength! > compressedBuffer.byteLength) {
+      fail(source, `bufferView ${viewIndex} meshopt payload is outside its buffer`, "E_ASSET_GLTF_EXTENSION");
+    }
+    decoded = new Uint8Array(count! * stride!);
+    try {
+      meshoptDecoder.decodeGltfBuffer(decoded, count!, stride!, new Uint8Array(compressedBuffer, compressedOffset, byteLength!), mode!, meshoptFilterName(extension.filter, source, viewIndex));
+    } catch (error) {
+      fail(source, `bufferView ${viewIndex} meshopt decode failed: ${error instanceof Error ? error.message : String(error)}`, "E_ASSET_GLTF_EXTENSION");
+    }
+    cache.set(viewIndex, decoded);
+  }
+  return { buffer: decoded.buffer as ArrayBuffer, byteOffset: decoded.byteOffset, byteLength: decoded.byteLength, byteStride: stride, compressed: true, mode };
+}
+
 function readAccessor(doc: GltfDocument, buffers: ArrayBuffer[], accessorIndex: number, source: string, ctx?: TaskContext): AccessorData {
   const accessors = doc.accessors ?? [];
   const accessor = accessors[indexAt(accessorIndex, accessors.length, "accessor", source)]!;
@@ -424,13 +547,14 @@ function readAccessor(doc: GltfDocument, buffers: ArrayBuffer[], accessorIndex: 
   if (accessor.bufferView !== undefined) {
     const viewIndex = indexAt(accessor.bufferView, (doc.bufferViews ?? []).length, `accessor ${accessorIndex} bufferView`, source);
     const bufferView = doc.bufferViews![viewIndex]!;
-    if (bufferView.extensions?.EXT_meshopt_compression) {
-      fail(source, `bufferView ${viewIndex} uses unsupported EXT_meshopt_compression`, "E_ASSET_GLTF_EXTENSION");
+    const decodedView = decodedBufferView(doc, buffers, viewIndex, source);
+    if (decodedView.compressed && decodedView.mode !== "ATTRIBUTES") {
+      fail(source, `accessor ${accessorIndex} uses meshopt mode ${decodedView.mode}; expected ATTRIBUTES`, "E_ASSET_GLTF_EXTENSION");
     }
-    const buffer = buffers[indexAt(bufferView.buffer, buffers.length, `bufferView ${viewIndex} buffer`, source)]!;
-    const baseOffset = bufferView.byteOffset ?? 0;
+    const buffer = decodedView.buffer;
+    const baseOffset = decodedView.byteOffset;
     const accessorOffset = accessor.byteOffset ?? 0;
-    const stride = bufferView.byteStride ?? elementBytes;
+    const stride = decodedView.byteStride ?? elementBytes;
     if (!Number.isSafeInteger(baseOffset) || !Number.isSafeInteger(accessorOffset) || baseOffset < 0 || accessorOffset < 0 ||
         !Number.isSafeInteger(bufferView.byteLength) || bufferView.byteLength < 0) {
       fail(source, `accessor ${accessorIndex} has a negative or invalid offset/byteLength`);
@@ -441,7 +565,7 @@ function readAccessor(doc: GltfDocument, buffers: ArrayBuffer[], accessorIndex: 
     }
     if ((baseOffset + accessorOffset) % componentBytes !== 0) fail(source, `accessor ${accessorIndex} is not aligned to ${componentBytes} bytes`);
     const endWithinView = accessor.count === 0 ? accessorOffset : accessorOffset + (accessor.count - 1) * stride + elementBytes;
-    if (endWithinView > bufferView.byteLength || baseOffset + endWithinView > buffer.byteLength) {
+    if (endWithinView > decodedView.byteLength || baseOffset + endWithinView > buffer.byteLength) {
       fail(source, `accessor ${accessorIndex} reads past bufferView ${viewIndex}`);
     }
     const data = new DataView(buffer);
@@ -505,6 +629,40 @@ function readAccessor(doc: GltfDocument, buffers: ArrayBuffer[], accessorIndex: 
   return { values: output, count: accessor.count, components, componentType: accessor.componentType };
 }
 
+function readMorphTargets(
+  doc: GltfDocument,
+  buffers: ArrayBuffer[],
+  targets: Record<string, number>[] | undefined,
+  vertexCount: number,
+  meshIndex: number,
+  primitiveIndex: number,
+  source: string,
+  ctx?: TaskContext,
+): DecodedGltfMorphTarget[] {
+  if (!targets || targets.length === 0) return [];
+  return targets.map((target, targetIndex) => {
+    if (!target || typeof target !== "object" || Array.isArray(target)) {
+      fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} morph target ${targetIndex} is malformed`, "E_ASSET_GLTF_EXTENSION");
+    }
+    const attributes: Record<string, Float32Array> = {};
+    for (const [semantic, accessorIndex] of Object.entries(target)) {
+      if (semantic !== "POSITION" && semantic !== "NORMAL" && semantic !== "TANGENT") {
+        fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} morph target ${targetIndex} has unsupported semantic ${semantic}`, "E_ASSET_GLTF_EXTENSION");
+      }
+      if (!Number.isInteger(accessorIndex)) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} morph target ${targetIndex} ${semantic} has an invalid accessor`, "E_ASSET_GLTF_EXTENSION");
+      const decoded = readAccessor(doc, buffers, accessorIndex, source, ctx);
+      // glTF morph TANGENT stores only xyz deltas; the base tangent's w handedness sign is not a delta.
+      const components = 3;
+      if (decoded.count !== vertexCount || decoded.components !== components || decoded.componentType !== 5126) {
+        fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} morph target ${targetIndex} ${semantic} must be FLOAT VEC3 with ${vertexCount} vertices`, "E_ASSET_GLTF_EXTENSION");
+      }
+      attributes[semantic] = decoded.values;
+    }
+    if (Object.keys(attributes).length === 0) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} morph target ${targetIndex} is empty`, "E_ASSET_GLTF_EXTENSION");
+    return { attributes };
+  });
+}
+
 function readIndices(doc: GltfDocument, buffers: ArrayBuffer[], accessorIndex: number, vertexCount: number, source: string, ctx?: TaskContext): Uint16Array | Uint32Array {
   const accessors = doc.accessors ?? [];
   const accessor = accessors[indexAt(accessorIndex, accessors.length, "index accessor", source)]!;
@@ -517,20 +675,25 @@ function readIndices(doc: GltfDocument, buffers: ArrayBuffer[], accessorIndex: n
   if (accessor.bufferView !== undefined) {
     const viewIndex = indexAt(accessor.bufferView, (doc.bufferViews ?? []).length, `index accessor ${accessorIndex} bufferView`, source);
     const bufferView = doc.bufferViews![viewIndex]!;
-    if (bufferView.byteStride !== undefined) fail(source, `index accessor ${accessorIndex} cannot use an interleaved bufferView`);
-    const buffer = buffers[indexAt(bufferView.buffer, buffers.length, `bufferView ${viewIndex} buffer`, source)]!;
-    const baseOffset = bufferView.byteOffset ?? 0;
+    const decodedView = decodedBufferView(doc, buffers, viewIndex, source);
+    if (decodedView.compressed && decodedView.mode !== "INDICES" && decodedView.mode !== "TRIANGLES") {
+      fail(source, `index accessor ${accessorIndex} uses meshopt mode ${decodedView.mode}; expected INDICES or TRIANGLES`, "E_ASSET_GLTF_EXTENSION");
+    }
+    if (!decodedView.compressed && bufferView.byteStride !== undefined) fail(source, `index accessor ${accessorIndex} cannot use an interleaved bufferView`);
+    const buffer = decodedView.buffer;
+    const baseOffset = decodedView.byteOffset;
     const accessorOffset = accessor.byteOffset ?? 0;
-    const end = accessorOffset + accessor.count * componentBytes;
+    const stride = decodedView.compressed ? decodedView.byteStride ?? componentBytes : componentBytes;
+    const end = accessor.count === 0 ? accessorOffset : accessorOffset + (accessor.count - 1) * stride + componentBytes;
     if (!Number.isSafeInteger(baseOffset) || !Number.isSafeInteger(accessorOffset) || baseOffset < 0 || accessorOffset < 0 ||
-        accessorOffset % componentBytes !== 0 || !Number.isSafeInteger(bufferView.byteLength) || bufferView.byteLength < 0 ||
-        end > bufferView.byteLength || baseOffset + end > buffer.byteLength) {
+        (baseOffset + accessorOffset) % componentBytes !== 0 || !Number.isSafeInteger(decodedView.byteLength) || decodedView.byteLength < 0 ||
+        end > decodedView.byteLength || baseOffset + end > buffer.byteLength) {
       fail(source, `index accessor ${accessorIndex} reads past or is misaligned in bufferView ${viewIndex}`);
     }
     const data = new DataView(buffer);
     for (let i = 0; i < accessor.count; i++) {
       if ((i & 4095) === 0) checkCancelled(ctx, source);
-      indices[i] = componentValue(data, baseOffset + accessorOffset + i * componentBytes, accessor.componentType);
+      indices[i] = componentValue(data, baseOffset + accessorOffset + i * stride, accessor.componentType);
     }
   } else if (!accessor.sparse) {
     fail(source, `index accessor ${accessorIndex} has neither a bufferView nor sparse values`);
@@ -590,16 +753,18 @@ function readMaterials(doc: GltfDocument, source: string): DecodedGltfMaterial[]
     const emissive = material.emissiveFactor ?? [0, 0, 0];
     if (emissive.length !== 3 || emissive.some((v) => !Number.isFinite(v) || v < 0)) fail(source, `material ${index} has invalid emissiveFactor`);
     if (![metallicFactor, roughnessFactor, alphaCutoff, normalScale, occlusionStrength].every(Number.isFinite)) fail(source, `material ${index} has non-finite PBR factors`);
-    const ref = (info: { index: number; texCoord?: number } | undefined, slot: string): number | null => {
+    const ref = (info: { index: number; texCoord?: number } | undefined, slot: string): { texture: number | null; texCoord: number } => {
       const texture = materialIndex(info?.index, doc, source);
       const texCoord = info?.texCoord ?? 0;
-      if (texture !== null && texCoord !== 0) {
-        // The engine's vertex format carries one UV set; binding the map to TEXCOORD_0 would be wrong.
-        console.warn(`[gltf] ${source}: material ${index} ${slot} uses texCoord ${texCoord}; only TEXCOORD_0 is supported, map ignored`);
-        return null;
-      }
-      return texture;
+      if (!Number.isSafeInteger(texCoord) || texCoord < 0) fail(source, `material ${index} ${slot} has an invalid texCoord ${texCoord}`);
+      if (texCoord > 1) fail(source, `material ${index} ${slot} uses TEXCOORD_${texCoord}; only TEXCOORD_0 and TEXCOORD_1 are supported`, "E_ASSET_GLTF_EXTENSION");
+      return { texture, texCoord };
     };
+    const baseColor = ref(pbr.baseColorTexture, "baseColorTexture");
+    const metallicRoughness = ref(pbr.metallicRoughnessTexture, "metallicRoughnessTexture");
+    const normal = ref(material.normalTexture, "normalTexture");
+    const emissiveMap = ref(material.emissiveTexture, "emissiveTexture");
+    const occlusion = ref(material.occlusionTexture, "occlusionTexture");
     return {
       name: material.name ?? `material-${index}`,
       alphaMode,
@@ -608,13 +773,18 @@ function readMaterials(doc: GltfDocument, source: string): DecodedGltfMaterial[]
       baseColorFactor: Float32Array.from(factor),
       metallicFactor,
       roughnessFactor,
-      baseColorTexture: ref(pbr.baseColorTexture, "baseColorTexture"),
-      metallicRoughnessTexture: ref(pbr.metallicRoughnessTexture, "metallicRoughnessTexture"),
-      normalTexture: ref(material.normalTexture, "normalTexture"),
+      baseColorTexture: baseColor.texture,
+      baseColorTexCoord: baseColor.texCoord,
+      metallicRoughnessTexture: metallicRoughness.texture,
+      metallicRoughnessTexCoord: metallicRoughness.texCoord,
+      normalTexture: normal.texture,
+      normalTexCoord: normal.texCoord,
       normalScale,
       emissiveFactor: Float32Array.from(emissive),
-      emissiveTexture: ref(material.emissiveTexture, "emissiveTexture"),
-      occlusionTexture: ref(material.occlusionTexture, "occlusionTexture"),
+      emissiveTexture: emissiveMap.texture,
+      emissiveTexCoord: emissiveMap.texCoord,
+      occlusionTexture: occlusion.texture,
+      occlusionTexCoord: occlusion.texCoord,
       occlusionStrength,
     };
   });
@@ -676,7 +846,59 @@ function readTextures(doc: GltfDocument, imageCount: number, samplerCount: numbe
   }));
 }
 
-function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
+function readInstancing(
+  node: NonNullable<GltfDocument["nodes"]>[number],
+  nodeIndex: number,
+  doc: GltfDocument,
+  buffers: ArrayBuffer[],
+  source: string,
+  ctx?: TaskContext,
+): DecodedGltfInstancing | null {
+  const extension = node.extensions?.EXT_mesh_gpu_instancing;
+  if (extension === undefined) return null;
+  if (!extension || typeof extension !== "object" || Array.isArray(extension)) {
+    fail(source, `node ${nodeIndex} has malformed EXT_mesh_gpu_instancing`, "E_ASSET_GLTF_EXTENSION");
+  }
+  const attributes = (extension as { attributes?: Record<string, number> }).attributes;
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
+    fail(source, `node ${nodeIndex} EXT_mesh_gpu_instancing has no attributes object`, "E_ASSET_GLTF_EXTENSION");
+  }
+  const read = (semantic: string, components: number): { values: Float32Array; count: number } | null => {
+    const accessorIndex = attributes[semantic];
+    if (accessorIndex === undefined) return null;
+    if (!Number.isInteger(accessorIndex)) fail(source, `node ${nodeIndex} instancing ${semantic} has an invalid accessor`, "E_ASSET_GLTF_EXTENSION");
+    const decoded = readAccessor(doc, buffers, accessorIndex, source, ctx);
+    if (decoded.components !== components) fail(source, `node ${nodeIndex} instancing ${semantic} must be a VEC${components} accessor`, "E_ASSET_GLTF_EXTENSION");
+    if (decoded.componentType !== 5126 || (semantic === "ROTATION" && decoded.values.some((value, i) => i % 4 === 3 && !Number.isFinite(value)))) {
+      fail(source, `node ${nodeIndex} instancing ${semantic} must use FLOAT components`, "E_ASSET_GLTF_EXTENSION");
+    }
+    return { values: decoded.values, count: decoded.count };
+  };
+  const translations = read("TRANSLATION", 3);
+  if (!translations) fail(source, `node ${nodeIndex} EXT_mesh_gpu_instancing requires TRANSLATION`, "E_ASSET_GLTF_EXTENSION");
+  const rotations = read("ROTATION", 4);
+  const scales = read("SCALE", 3);
+  const count = translations.count;
+  if (count < 1) fail(source, `node ${nodeIndex} EXT_mesh_gpu_instancing has no instances`, "E_ASSET_GLTF_EXTENSION");
+  for (const [semantic, value] of [["ROTATION", rotations], ["SCALE", scales]] as const) {
+    if (value && value.count !== count) fail(source, `node ${nodeIndex} instancing ${semantic} has ${value.count} instances; expected ${count}`, "E_ASSET_GLTF_EXTENSION");
+  }
+  for (let i = 0; i < count; i++) {
+    const o = i * 4;
+    if (rotations) {
+      const x = rotations.values[o]!, y = rotations.values[o + 1]!, z = rotations.values[o + 2]!, w = rotations.values[o + 3]!;
+      const length = Math.hypot(x, y, z, w);
+      if (length < 1e-6) fail(source, `node ${nodeIndex} instancing ROTATION ${i} is a zero quaternion`, "E_ASSET_GLTF_EXTENSION");
+      rotations.values[o] = x / length;
+      rotations.values[o + 1] = y / length;
+      rotations.values[o + 2] = z / length;
+      rotations.values[o + 3] = w / length;
+    }
+  }
+  return { translations: translations.values, rotations: rotations?.values ?? null, scales: scales?.values ?? null, count };
+}
+
+function readNodes(doc: GltfDocument, buffers: ArrayBuffer[], source: string, ctx?: TaskContext): DecodedGltfNode[] {
   const raw = doc.nodes ?? [];
   const parentCounts = new Uint8Array(raw.length);
   const nodes = raw.map((node, index) => {
@@ -684,8 +906,6 @@ function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
       indexAt(node.skin, (doc.skins ?? []).length, `node ${index} skin`, source);
       if (node.mesh === undefined) fail(source, `node ${index} has a skin but no mesh`);
     }
-    if (node.weights !== undefined) fail(source, `node ${index} uses morph weights, which are not supported by the static mesh decoder`, "E_ASSET_GLTF_EXTENSION");
-    if (node.extensions?.EXT_mesh_gpu_instancing) fail(source, `node ${index} uses unsupported EXT_mesh_gpu_instancing`, "E_ASSET_GLTF_EXTENSION");
     const children = node.children ?? [];
     for (const child of children) {
       const childIndex = indexAt(child, raw.length, `node ${index} child`, source);
@@ -697,6 +917,9 @@ function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
     const rotation = finiteArray(node.rotation, 4, `node ${index} rotation`, source);
     const scale = finiteArray(node.scale, 3, `node ${index} scale`, source);
     const matrix = finiteArray(node.matrix, 16, `node ${index} matrix`, source);
+    const weights = node.weights === undefined ? null : finiteArray(node.weights, Array.isArray(node.weights) ? node.weights.length : -1, `node ${index} weights`, source);
+    if (weights && node.mesh === undefined) fail(source, `node ${index} has morph weights but no mesh`, "E_ASSET_GLTF_EXTENSION");
+    const instancing = readInstancing(node, index, doc, buffers, source, ctx);
     return {
       name: node.name ?? `node-${index}`,
       meshIndex: node.mesh === undefined ? null : indexAt(node.mesh, (doc.meshes ?? []).length, `node ${index} mesh`, source),
@@ -706,6 +929,8 @@ function readNodes(doc: GltfDocument, source: string): DecodedGltfNode[] {
       rotation,
       scale,
       matrix,
+      weights,
+      instancing,
     };
   });
   const color = new Uint8Array(raw.length);
@@ -763,8 +988,10 @@ function resultTransferables(result: DecodedGltfAsset): Transferable[] {
     if (view && view.buffer instanceof ArrayBuffer) buffers.add(view.buffer);
   };
   for (const mesh of result.meshes) {
+    add(mesh.weights);
     for (const primitive of mesh.primitives) {
       for (const attribute of Object.values(primitive.attributes)) add(attribute);
+      for (const target of primitive.morphTargets) for (const attribute of Object.values(target.attributes)) add(attribute);
       add(primitive.indices);
       add(primitive.bounds);
       add(primitive.skin?.joints ?? null);
@@ -780,6 +1007,10 @@ function resultTransferables(result: DecodedGltfAsset): Transferable[] {
     add(node.rotation);
     add(node.scale);
     add(node.matrix);
+    add(node.weights);
+    add(node.instancing?.translations ?? null);
+    add(node.instancing?.rotations ?? null);
+    add(node.instancing?.scales ?? null);
   }
   for (const material of result.materials) {
     add(material.baseColorFactor);
@@ -806,6 +1037,7 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
   }
   checkCancelled(ctx, source);
   const doc = parseJson(jsonText!, source);
+  validateRequiredExtensions(doc, source);
   const buffers = resolveBuffers(doc, payload.buffers, binary, source);
   const accessors = doc.accessors ?? [];
   let primitiveCount = 0;
@@ -815,18 +1047,63 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
 
   const meshes: DecodedGltfMesh[] = (doc.meshes ?? []).map((mesh, meshIndex) => {
     if (!Array.isArray(mesh.primitives) || mesh.primitives.length === 0) fail(source, `mesh ${meshIndex} has no primitives`);
-    if (mesh.weights !== undefined) fail(source, `mesh ${meshIndex} uses morph weights, which are not supported by the static mesh decoder`, "E_ASSET_GLTF_EXTENSION");
+    const meshWeights = mesh.weights === undefined ? null : finiteArray(mesh.weights, Array.isArray(mesh.weights) ? mesh.weights.length : -1, `mesh ${meshIndex} weights`, source);
+    if (meshWeights && mesh.primitives.some((primitive) => !primitive.targets || primitive.targets.length === 0)) {
+      fail(source, `mesh ${meshIndex} has default weights but no morph targets`, "E_ASSET_GLTF_EXTENSION");
+    }
     const primitives = mesh.primitives.map((primitive, primitiveIndex): DecodedGltfPrimitive => {
       checkCancelled(ctx, source);
-      if (primitive.targets?.length) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has morph targets, which are not supported by the static mesh decoder`, "E_ASSET_GLTF_EXTENSION");
       const mode = primitive.mode ?? 4;
       if (mode !== 4) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} uses mode ${mode}; only triangle lists (4) are supported`, "E_ASSET_GLTF_PRIMITIVE");
-      if (primitive.extensions?.KHR_draco_mesh_compression || primitive.extensions?.EXT_meshopt_compression) {
-        const ext = primitive.extensions.KHR_draco_mesh_compression ? "KHR_draco_mesh_compression" : "EXT_meshopt_compression";
-        fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} uses unsupported ${ext}`, "E_ASSET_GLTF_EXTENSION");
+      const rawDracoExtension = primitive.extensions?.KHR_draco_mesh_compression;
+      const dracoExtension = rawDracoExtension === undefined
+        ? undefined
+        : rawDracoExtension && typeof rawDracoExtension === "object" && !Array.isArray(rawDracoExtension)
+          ? rawDracoExtension as { bufferView?: number; attributes?: Record<string, number> }
+          : null;
+      const sourceAttributes = primitive.attributes ?? {};
+      let dracoAttributes: Record<string, Float32Array> | null = null;
+      let dracoIndices: Uint16Array | Uint32Array | null = null;
+      let dracoVertexCount = -1;
+      if (dracoExtension !== undefined) {
+        if (!dracoExtension || !dracoDecoder) {
+          if (!dracoExtension) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has malformed KHR_draco_mesh_compression metadata`, "E_ASSET_GLTF_EXTENSION");
+          fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} uses KHR_draco_mesh_compression but no Draco decoder is installed`, "E_ASSET_GLTF_EXTENSION");
+        }
+        if (!Number.isInteger(dracoExtension.bufferView) || !dracoExtension.attributes || typeof dracoExtension.attributes !== "object" || Array.isArray(dracoExtension.attributes) ||
+            Object.values(dracoExtension.attributes).some((id) => !Number.isSafeInteger(id) || id < 0)) {
+          fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has malformed KHR_draco_mesh_compression metadata`, "E_ASSET_GLTF_EXTENSION");
+        }
+        const viewIndex = indexAt(dracoExtension.bufferView!, (doc.bufferViews ?? []).length, `mesh ${meshIndex} primitive ${primitiveIndex} Draco bufferView`, source);
+        const view = decodedBufferView(doc, buffers, viewIndex, source);
+        const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+        try {
+          const decoded = dracoDecoder.decode(bytes, dracoExtension.attributes, source);
+          dracoAttributes = decoded.attributes;
+          dracoIndices = decoded.indices;
+          dracoVertexCount = decoded.vertexCount;
+        } catch (error) {
+          fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} Draco decode failed: ${error instanceof Error ? error.message : String(error)}`, "E_ASSET_GLTF_EXTENSION");
+        }
+        if (!Number.isSafeInteger(dracoVertexCount) || dracoVertexCount < 1 || !dracoAttributes || typeof dracoAttributes !== "object" ||
+            !(dracoIndices instanceof Uint16Array || dracoIndices instanceof Uint32Array)) {
+          fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} Draco decoder returned an invalid mesh`, "E_ASSET_GLTF_EXTENSION");
+        }
+        for (const [semantic, values] of Object.entries(dracoAttributes)) {
+          if (!(values instanceof Float32Array) || values.length === 0 || values.length % dracoVertexCount !== 0 || values.some((value) => !Number.isFinite(value))) {
+            fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} Draco attribute ${semantic} is not a packed finite Float32Array`, "E_ASSET_GLTF_EXTENSION");
+          }
+        }
+        let maxDracoIndex = 0;
+        for (const index of dracoIndices) {
+          if (!Number.isSafeInteger(index) || index < 0 || index >= dracoVertexCount) {
+            fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} Draco index ${index} is out of range`, "E_ASSET_GLTF_EXTENSION");
+          }
+          maxDracoIndex = Math.max(maxDracoIndex, index);
+        }
+        dracoIndices = maxDracoIndex <= 65535 ? Uint16Array.from(dracoIndices) : Uint32Array.from(dracoIndices);
       }
-      const sourceAttributes = primitive.attributes;
-      if (!sourceAttributes || typeof sourceAttributes !== "object" || !Number.isInteger(sourceAttributes.POSITION)) {
+      if (!dracoAttributes && (!sourceAttributes || typeof sourceAttributes !== "object" || !Number.isInteger(sourceAttributes.POSITION))) {
         fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} is missing POSITION`);
       }
       const label = `mesh ${meshIndex} primitive ${primitiveIndex}`;
@@ -837,6 +1114,14 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
       for (const semantic of Object.keys(sourceAttributes)) {
         const match = /^(JOINTS|WEIGHTS)_([1-9]\d*)$/.exec(semantic);
         if (match) extraSets.add(match[2]!);
+      }
+      if (dracoAttributes) {
+        for (const semantic of Object.keys(sourceAttributes)) {
+          if (/^(JOINTS|WEIGHTS)(?:_\d+)?$/.test(semantic)) {
+            fail(source, `${label} Draco ${semantic} is not supported by the four-influence path`, "E_ASSET_GLTF_EXTENSION");
+          }
+        }
+        extraSets.clear();
       }
       for (const n of extraSets) {
         const jointsAccessor = sourceAttributes[`JOINTS_${n}`];
@@ -856,11 +1141,17 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
       let skin: DecodedGltfPrimitiveSkin | null = null;
       let skinJoints: Float32Array | null = null;
       let skinWeights: Float32Array | null = null;
-      let count = -1;
-      for (const [semantic, accessorIndex] of Object.entries(sourceAttributes)) {
+      let count = dracoVertexCount;
+      const semanticNames = new Set([...Object.keys(sourceAttributes), ...Object.keys(dracoAttributes ?? {})]);
+      for (const semantic of semanticNames) {
         if (/^(JOINTS|WEIGHTS)_([1-9]\d*)$/.test(semantic)) continue; // validated and ignored above
-        if (!Number.isInteger(accessorIndex)) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} attribute ${semantic} has an invalid accessor`);
-        const decoded = readAccessor(doc, buffers, accessorIndex, source, ctx);
+        const accessorIndex = sourceAttributes[semantic];
+        const decoded = dracoAttributes?.[semantic]
+          ? { values: dracoAttributes[semantic]!, count: dracoVertexCount, components: dracoAttributes[semantic]!.length / dracoVertexCount, componentType: 5126 }
+          : (() => {
+              if (!Number.isInteger(accessorIndex)) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} attribute ${semantic} has an invalid accessor`);
+              return readAccessor(doc, buffers, accessorIndex, source, ctx);
+            })();
         if (count < 0) count = decoded.count;
         else if (decoded.count !== count) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} attribute ${semantic} has ${decoded.count} vertices; expected ${count}`);
         if (semantic === "POSITION" && decoded.components !== 3) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} POSITION must be VEC3`);
@@ -868,7 +1159,8 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
         if (semantic === "TANGENT" && decoded.components !== 4) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} TANGENT must be VEC4`);
         if (semantic.startsWith("TEXCOORD_") && decoded.components !== 2) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} ${semantic} must be VEC2`);
         if (semantic === "JOINTS_0") {
-          const accessor = accessors[accessorIndex]!;
+          if (dracoAttributes?.[semantic]) fail(source, `${label} Draco JOINTS_0 is not supported by the four-influence path`, "E_ASSET_GLTF_EXTENSION");
+          const accessor = accessors[accessorIndex!]!;
           if (decoded.components !== 4 || accessor.normalized || (accessor.componentType !== 5121 && accessor.componentType !== 5123)) {
             fail(source, `${label} JOINTS_0 must be unsigned byte or unsigned short VEC4, not normalized`);
           }
@@ -876,7 +1168,8 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
           continue;
         }
         if (semantic === "WEIGHTS_0") {
-          const accessor = accessors[accessorIndex]!;
+          if (dracoAttributes?.[semantic]) fail(source, `${label} Draco WEIGHTS_0 is not supported by the four-influence path`, "E_ASSET_GLTF_EXTENSION");
+          const accessor = accessors[accessorIndex!]!;
           if (decoded.components !== 4 || !(accessor.componentType === 5126 || (accessor.normalized && (accessor.componentType === 5121 || accessor.componentType === 5123)))) {
             fail(source, `${label} WEIGHTS_0 must be float or normalized unsigned byte/short VEC4`);
           }
@@ -885,17 +1178,25 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
         }
         attributes[semantic] = decoded.values;
       }
-      const positions = attributes.POSITION!;
+      const positions = attributes.POSITION;
+      if (!(positions instanceof Float32Array) || positions.length !== count * 3) {
+        fail(source, `${label} POSITION is missing or does not contain ${count} FLOAT VEC3 vertices`, "E_ASSET_GLTF_EXTENSION");
+      }
+      const morphTargets = readMorphTargets(doc, buffers, primitive.targets, count, meshIndex, primitiveIndex, source, ctx);
       if (skinJoints && skinWeights) {
         skin = { joints: Uint16Array.from(skinJoints), weights: skinWeights, vertexCount: count };
       }
       if (count < 1) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has no vertices`);
-      if (accessors[sourceAttributes.POSITION!]!.componentType !== 5126) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} POSITION must use FLOAT components`);
-      let indices: Uint16Array | Uint32Array | null = null;
+      if (!dracoAttributes && accessors[sourceAttributes.POSITION!]!.componentType !== 5126) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} POSITION must use FLOAT components`);
+      let indices: Uint16Array | Uint32Array | null = dracoIndices;
+      if (dracoIndices && (dracoIndices.length === 0 || dracoIndices.length % 3 !== 0)) {
+        fail(source, `${label} Draco index count must be a positive multiple of 3`, "E_ASSET_GLTF_EXTENSION");
+      }
       if (primitive.indices !== undefined) {
+        if (dracoIndices) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has both Draco and regular indices`, "E_ASSET_GLTF_EXTENSION");
         indices = readIndices(doc, buffers, primitive.indices, count, source, ctx);
         if (indices.length === 0 || indices.length % 3 !== 0) fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} index count must be a positive multiple of 3`);
-      } else if (count % 3 !== 0) {
+      } else if (!dracoIndices && count % 3 !== 0) {
         fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} vertex count must be a multiple of 3 when unindexed`);
       }
       const material = primitive.material === undefined ? null : indexAt(primitive.material, (doc.materials ?? []).length, "primitive material", source);
@@ -918,14 +1219,36 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
       decodedBytes += positions.byteLength + (indices?.byteLength ?? 0) + Object.entries(attributes)
         .filter(([semantic]) => semantic !== "POSITION")
         .reduce((sum, [, values]) => sum + values.byteLength, 0) + bounds.byteLength +
-        (skin ? skin.joints.byteLength + skin.weights.byteLength : 0);
+        (skin ? skin.joints.byteLength + skin.weights.byteLength : 0) +
+        morphTargets.reduce((sum, target) => sum + Object.values(target.attributes).reduce((inner, values) => inner + values.byteLength, 0), 0);
       ctx?.progress(totalPrimitives > 0 ? primitiveCount / totalPrimitives : 1, { mesh: meshIndex, primitive: primitiveIndex });
-      return { mode: 4, attributes, indices, materialIndex: material, vertexCount: count, bounds, skin };
+      return { mode: 4, attributes, morphTargets, indices, materialIndex: material, vertexCount: count, bounds, skin };
     });
-    return { name: mesh.name ?? `mesh-${meshIndex}`, primitives };
+    const targetCount = primitives[0]?.morphTargets.length ?? 0;
+    for (const [primitiveIndex, primitive] of primitives.entries()) {
+      if (primitive.morphTargets.length !== targetCount) {
+        fail(source, `mesh ${meshIndex} primitive ${primitiveIndex} has ${primitive.morphTargets.length} morph targets; expected ${targetCount}`, "E_ASSET_GLTF_EXTENSION");
+      }
+    }
+    if (meshWeights && meshWeights.length !== targetCount) {
+      fail(source, `mesh ${meshIndex} has ${meshWeights.length} weights; expected ${targetCount} morph targets`, "E_ASSET_GLTF_EXTENSION");
+    }
+    return { name: mesh.name ?? `mesh-${meshIndex}`, primitives, weights: meshWeights };
   });
 
-  const nodes = readNodes(doc, source);
+  for (const mesh of meshes) decodedBytes += mesh.weights?.byteLength ?? 0;
+  const nodes = readNodes(doc, buffers, source, ctx);
+  for (const node of nodes) decodedBytes += node.weights?.byteLength ?? 0;
+  nodes.forEach((node, nodeIndex) => {
+    if (node.weights === null || node.meshIndex === null) return;
+    const targetCount = meshes[node.meshIndex]!.primitives[0]?.morphTargets.length ?? 0;
+    if (node.weights.length !== targetCount) fail(source, `node ${nodeIndex} has ${node.weights.length} morph weights; expected ${targetCount}`, "E_ASSET_GLTF_EXTENSION");
+  });
+  for (const node of nodes) {
+    if (node.instancing) {
+      decodedBytes += node.instancing.translations.byteLength + (node.instancing.rotations?.byteLength ?? 0) + (node.instancing.scales?.byteLength ?? 0);
+    }
+  }
   const scenes: DecodedGltfScene[] = (doc.scenes ?? []).map((scene, index) => ({
     name: scene.name ?? `scene-${index}`,
     nodes: (scene.nodes ?? []).map((node) => indexAt(node, nodes.length, `scene ${index} node`, source)),
@@ -959,10 +1282,20 @@ export function decodeGltfMeshTask(payload: GltfMeshDecodePayload, ctx?: TaskCon
   }
   checkCancelled(ctx, source);
   const animations = decodeGltfAnimations(doc as Parameters<typeof decodeGltfAnimations>[0], buffers, nodes.length, source, (index, name, error) => {
-    // Phase 16.1f: an unsupported/broken animation must not fail the whole model load.
+    // A broken animation must not fail the whole model load; the valid clips remain usable.
     console.warn(`[gltf] ${source}: skipping animation ${index} (${name}): ${error instanceof Error ? error.message : String(error)}`);
   });
   for (const animation of animations) {
+    for (const channel of animation.channels) {
+      if (channel.targetPath !== "weights") continue;
+      const node = nodes[channel.targetNode]!;
+      if (node.meshIndex === null) fail(source, `animation ${animation.name} weights channel targets node ${channel.targetNode} without a mesh`, "E_ASSET_GLTF_EXTENSION");
+      const targetCount = meshes[node.meshIndex]!.primitives[0]?.morphTargets.length ?? 0;
+      const sampler = animation.samplers[channel.samplerIndex]!;
+      if (targetCount === 0 || sampler.components !== targetCount) {
+        fail(source, `animation ${animation.name} weights channel for node ${channel.targetNode} has ${sampler.components} values per key; expected ${targetCount} morph targets`, "E_ASSET_GLTF_EXTENSION");
+      }
+    }
     for (const sampler of animation.samplers) decodedBytes += sampler.input.byteLength + sampler.output.byteLength;
   }
   const marked = doc.asset?.extras?.[GLTF_HANDEDNESS_MARKER.key] === GLTF_HANDEDNESS_MARKER.value;

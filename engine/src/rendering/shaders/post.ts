@@ -14,10 +14,11 @@
  * change the look of a scene without highlights.
  *
  * Bindings (group 0): 0 `PostUniforms` (dynamic offset), 1 source texture, 2 second texture (bloom
- * at composite; bound to the source otherwise), 3 linear clamp sampler.
+ * at composite; bound to the source otherwise), 3 linear clamp sampler, 4 resolved prepass depth,
+ * and 5 `PerFrameUniforms` for view-depth reconstruction in the optional final haze.
  */
 
-import { PostUniforms } from "../uniforms.js";
+import { PerFrameUniforms, PostUniforms } from "../uniforms.js";
 import { WGSL_COLOR, WGSL_FULLSCREEN_VERTEX } from "./common.js";
 
 export const POST_BINDINGS = {
@@ -25,15 +26,20 @@ export const POST_BINDINGS = {
   source: { group: 0, binding: 1 },
   second: { group: 0, binding: 2 },
   sampler: { group: 0, binding: 3 },
+  depth: { group: 0, binding: 4 },
+  perFrame: { group: 0, binding: 5 },
 } as const;
 
 export const POST_FLAG_BLOOM = 1;
 export const POST_FLAG_KARIS = 2;
 export const POST_FLAG_NO_TONEMAP = 4;
 export const POST_FLAG_PASSTHROUGH = 8;
+/** The tonemap resolve reads the prepass depth for the opt-in far-field haze. */
+export const POST_FLAG_DEPTH_HAZE = 16;
 
 export const POST_SHADER = /* wgsl */ `
 ${PostUniforms.toWgsl("uniform")}
+${PerFrameUniforms.toWgsl("uniform")}
 
 ${WGSL_COLOR}
 
@@ -43,10 +49,13 @@ ${WGSL_FULLSCREEN_VERTEX}
 @group(0) @binding(1) var srcTex: texture_2d<f32>;
 @group(0) @binding(2) var secondTex: texture_2d<f32>;
 @group(0) @binding(3) var linearSampler: sampler;
+@group(0) @binding(4) var depthTex: texture_2d<f32>;
+@group(0) @binding(5) var<uniform> perFrame: PerFrameUniforms;
 
 const FLAG_BLOOM: u32 = 1u;
 const FLAG_KARIS: u32 = 2u;
 const FLAG_NO_TONEMAP: u32 = 4u;
+const FLAG_DEPTH_HAZE: u32 = 16u;
 
 // fe-17: a non-finite texel in the HDR chain would reach every bloom mip and the tonemap and turn
 // the frame black around it, so it reads as zero here. Exponent bits, not x != x (WebKit fast math).
@@ -139,9 +148,33 @@ fn fsUpsample(in: FullscreenOut) -> @location(0) vec4<f32> {
   return vec4<f32>(c / 16.0, 1.0);
 }
 
+// Phase 13.1: the final resolve may apply a deliberately opt-in, low-frequency haze using the
+// same opaque depth the transparent pass sees. Reconstructing view depth (rather than comparing
+// nonlinear NDC values) keeps the range meaningful for both perspective and orthographic cameras.
+fn postViewDepth(uv: vec2<f32>, depth: f32) -> f32 {
+  let clip = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+  let worldH = perFrame.invViewProj * clip;
+  let world = worldH.xyz / max(abs(worldH.w), 1e-6);
+  return max(dot(world - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), 0.0);
+}
+
+fn postDepthHaze(uv: vec2<f32>) -> f32 {
+  if ((post.flags & FLAG_DEPTH_HAZE) == 0u) {
+    return 0.0;
+  }
+  let size = vec2<i32>(textureDimensions(depthTex));
+  let p = clamp(vec2<i32>(uv * vec2<f32>(size)), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
+  let viewDepth = postViewDepth(uv, textureLoad(depthTex, p, 0).r);
+  let start = post.depthRange.x;
+  let end = max(post.depthRange.y, start + 1.0);
+  return smoothstep(start, end, viewDepth) * clamp(post.depthStrength, 0.0, 1.0);
+}
+
 @fragment
 fn fsTonemap(in: FullscreenOut) -> @location(0) vec4<f32> {
   var color = sampleSrc(in.uv) * post.exposure;
+  let haze = postDepthHaze(in.uv);
+  color = mix(color, post.depthColor * post.exposure, haze);
   if ((post.flags & FLAG_BLOOM) != 0u) {
     color = color + textureSampleLevel(secondTex, linearSampler, in.uv, 0.0).rgb * post.intensity;
   }

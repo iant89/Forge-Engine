@@ -32,6 +32,7 @@ export function assembleClip(animation: DecodedGltfAnimation): AnimationClip {
       interpolation: sampler.interpolation as Interpolation,
       times: sampler.input,
       values: sampler.output,
+      components: sampler.components ?? (sampler.input.length > 0 ? sampler.output.length / sampler.input.length / (sampler.interpolation === "CUBICSPLINE" ? 3 : 1) : undefined),
     });
   }
 

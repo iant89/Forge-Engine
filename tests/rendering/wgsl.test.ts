@@ -54,6 +54,7 @@ import {
   CONTACT_DEPTH_SHADER,
 
   BLIT_SHADER,
+  BINDINGS,
   Material,
   CLUSTER_COUNT,
   CLUSTER_INDEX_CAPACITY,
@@ -133,10 +134,11 @@ group("generated uniform structs are legal in every browser's uniform address sp
     // fe-31: the main camera for the population distance fade follows the layer word.
     assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.byteSize("uniform"), 96);
     assert.equal(RENDERING_STRUCTS.ShadowPassUniforms.offsetOf("fadeCamera"), 80);
-    assert.equal(RENDERING_STRUCTS.PostUniforms.byteSize("uniform"), 48);
+    assert.equal(RENDERING_STRUCTS.PostUniforms.byteSize("uniform"), 80);
     assert.equal(RENDERING_STRUCTS.PostUniforms.offsetOf("flags"), 40);
-    assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 96);
-    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("snowCover"), 80);
+    assert.equal(RENDERING_STRUCTS.PostUniforms.offsetOf("depthRange"), 48);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 112);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("snowCover"), 96);
     assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("tiling"), 48);
     // fe-31: the population distance fade (start, end) closes the per-draw block.
     assert.equal(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform"), 192);
@@ -170,6 +172,16 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("radius"), 64);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("depthSize"), 80);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("sampleCount"), 96);
+  });
+
+  test("pins the depth-reuse shader bindings and transparent/post consumers", () => {
+    assert.equal(BINDINGS.contactDepth.binding, 12);
+    assert.match(STANDARD_FRAGMENT_BODY, /textureLoad\(contactDepth/);
+    assert.match(STANDARD_FRAGMENT_BODY, /fn transparentDepthFade\(/);
+    assert.match(STANDARD_FRAGMENT_BODY, /objectData\.distanceFade\.w/);
+    assert.match(POST_SHADER, /@group\(0\) @binding\(4\) var depthTex: texture_2d<f32>/);
+    assert.match(POST_SHADER, /@group\(0\) @binding\(5\) var<uniform> perFrame: PerFrameUniforms/);
+    assert.match(POST_SHADER, /fn postDepthHaze\(/);
   });
 
   test("keeps the moon anti-solar, atmosphere-attenuated and planet-occluded", () => {

@@ -25,6 +25,7 @@ export const suite = {
 };
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { assertMatchObject, assertRejects, finish, group, test } from "selrun";
 import {
@@ -35,8 +36,10 @@ import {
   transferablesForGltfMesh,
   validateSkinningData,
   type DecodedGltfAsset,
+  type GltfDracoDecoder,
 } from "@forge/engine";
 import { createWorkerThreadPool } from "../support/workerThreads.js";
+import { MeshoptEncoder } from "meshoptimizer/encoder";
 
 // These suites check the file's authored numbers, so they decode without the handedness mirror
 // (tests/resources/gltfHandedness.test.ts covers the conversion).
@@ -55,6 +58,103 @@ function makeGltfJson(bufferByteLength: number): string {
       { bufferView: 0, byteOffset: 12, componentType: 5121, normalized: true, count: 3, type: "VEC4" },
     ],
     meshes: [{ primitives: [{ attributes: { POSITION: 0, COLOR_0: 1 } }] }],
+  });
+}
+
+async function makeDracoGltf(): Promise<{ json: string; decoder: GltfDracoDecoder }> {
+  // draco3dgltf is a Node/WASM test dependency; the engine deliberately receives this host decoder
+  // through its structured-clone-safe interface instead of importing WASM in the worker task.
+  type DracoBindings = Record<string, any>;
+  const draco3d = createRequire(import.meta.url)("draco3dgltf") as {
+    createEncoderModule: (options: Record<string, unknown>) => Promise<DracoBindings>;
+    createDecoderModule: (options: Record<string, unknown>) => Promise<DracoBindings>;
+  };
+  const encoderModule = await draco3d.createEncoderModule({});
+  const mesh = new encoderModule.Mesh();
+  const builder = new encoderModule.MeshBuilder();
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  builder.AddFacesToMesh(mesh, 1, new Uint32Array([0, 1, 2]));
+  const positionAttribute = builder.AddFloatAttributeToMesh(mesh, encoderModule.POSITION, 3, 3, positions);
+  const encoder = new encoderModule.Encoder();
+  const encoded = new encoderModule.DracoInt8Array();
+  const encodedLength = encoder.EncodeMeshToDracoBuffer(mesh, encoded);
+  assert.ok(encodedLength > 0);
+  const bytes = new Uint8Array(encodedLength);
+  for (let i = 0; i < encodedLength; i++) bytes[i] = encoded.GetValue(i);
+  encoderModule.destroy(encoded);
+  encoderModule.destroy(encoder);
+  encoderModule.destroy(mesh);
+  encoderModule.destroy(builder);
+
+  const decoderModule = await draco3d.createDecoderModule({});
+  const decoder: GltfDracoDecoder = {
+    decode(data, attributes) {
+      const buffer = new decoderModule.DecoderBuffer();
+      buffer.Init(new Int8Array(data.buffer, data.byteOffset, data.byteLength), data.byteLength);
+      const nativeDecoder = new decoderModule.Decoder();
+      const geometry = new decoderModule.Mesh();
+      const status = nativeDecoder.DecodeBufferToMesh(buffer, geometry);
+      if (!status.ok()) throw new Error(status.error_msg());
+      const vertexCount = geometry.num_points();
+      const decodedAttributes: Record<string, Float32Array> = {};
+      for (const [semantic, attributeId] of Object.entries(attributes)) {
+        const attribute = nativeDecoder.GetAttribute(geometry, attributeId);
+        if (!attribute) throw new Error(`missing Draco attribute ${semantic}`);
+        const values = new decoderModule.DracoFloat32Array();
+        nativeDecoder.GetAttributeFloatForAllPoints(geometry, attribute, values);
+        const output = new Float32Array(values.size());
+        for (let i = 0; i < output.length; i++) output[i] = values.GetValue(i);
+        decoderModule.destroy(values);
+        decodedAttributes[semantic] = output;
+      }
+      const face = new decoderModule.DracoInt32Array();
+      const indices = new Uint32Array(geometry.num_faces() * 3);
+      for (let i = 0; i < geometry.num_faces(); i++) {
+        nativeDecoder.GetFaceFromMesh(geometry, i, face);
+        indices.set([face.GetValue(0), face.GetValue(1), face.GetValue(2)], i * 3);
+      }
+      decoderModule.destroy(face);
+      decoderModule.destroy(geometry);
+      decoderModule.destroy(nativeDecoder);
+      decoderModule.destroy(buffer);
+      return { attributes: decodedAttributes, indices, vertexCount };
+    },
+  };
+  const json = JSON.stringify({
+    asset: { version: "2.0" },
+    extensionsRequired: ["KHR_draco_mesh_compression"],
+    buffers: [{ byteLength: bytes.byteLength, uri: `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}` }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: bytes.byteLength }],
+    meshes: [{ primitives: [{ extensions: { KHR_draco_mesh_compression: { bufferView: 0, attributes: { POSITION: positionAttribute } } } }] }],
+  });
+  return { json, decoder };
+}
+
+async function makeMeshoptGltf(): Promise<string> {
+  await MeshoptEncoder.ready;
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const indices = new Uint16Array([0, 1, 2]);
+  const compressedPositions = MeshoptEncoder.encodeGltfBuffer(new Uint8Array(positions.buffer), 3, 12, "ATTRIBUTES");
+  const compressedIndices = MeshoptEncoder.encodeGltfBuffer(new Uint8Array(indices.buffer), 3, 2, "INDICES");
+  const bytes = new Uint8Array(compressedPositions.byteLength + compressedIndices.byteLength);
+  bytes.set(compressedPositions, 0);
+  bytes.set(compressedIndices, compressedPositions.byteLength);
+  const extension = (byteOffset: number, byteLength: number, byteStride: number, mode: "ATTRIBUTES" | "INDICES") => ({
+    EXT_meshopt_compression: { buffer: 0, byteOffset, byteLength, byteStride, count: 3, mode },
+  });
+  return JSON.stringify({
+    asset: { version: "2.0" },
+    extensionsRequired: ["EXT_meshopt_compression"],
+    buffers: [{ byteLength: bytes.byteLength, uri: `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}` }],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: compressedPositions.byteLength, extensions: extension(0, compressedPositions.byteLength, 12, "ATTRIBUTES") },
+      { buffer: 0, byteOffset: compressedPositions.byteLength, byteLength: compressedIndices.byteLength, extensions: extension(compressedPositions.byteLength, compressedIndices.byteLength, 2, "INDICES") },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 3, type: "VEC3" },
+      { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" },
+    ],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
   });
 }
 
@@ -352,6 +452,49 @@ group("glTF 2.0 mesh decoder", () => {
     });
     const decoded = await decodeGltfMesh({ json, buffers: [buffer] }, PRESERVE);
     assert.deepEqual(decoded.meshes[0]!.primitives[0]!.attributes.POSITION, new Float32Array(positions));
+  });
+
+  test("decodes KHR_draco_mesh_compression through a supplied host decoder without cloning it", async () => {
+    const { json, decoder } = await makeDracoGltf();
+    const scheduler = new TaskScheduler({ workerCount: 1, inline: true });
+    try {
+      const asset = await decodeGltfMesh(json, { ...PRESERVE, source: "draco.gltf", dracoDecoder: decoder, scheduler });
+      const primitive = asset.meshes[0]!.primitives[0]!;
+      assert.equal(primitive.vertexCount, 3);
+      assert.equal(primitive.attributes.POSITION!.length, 9);
+      assert.deepEqual(primitive.indices, new Uint16Array([0, 1, 2]));
+      assert.ok(Math.abs(primitive.attributes.POSITION![3]! - 1) < 1e-6);
+      assert.equal(scheduler.stats.completed, 0, "the non-transferable decoder forces this call inline");
+    } finally {
+      scheduler.dispose();
+    }
+    await assertRejects(decodeGltfMesh(json, PRESERVE), (error) => {
+      assertMatchObject(error, { code: "E_ASSET_GLTF_EXTENSION" });
+      assert.match((error as Error).message, /no Draco decoder/);
+      return true;
+    });
+  });
+
+  test("decodes EXT_meshopt_compression attributes and indices on the inline and worker paths", async () => {
+    const json = await makeMeshoptGltf();
+    const inline = await decodeGltfMesh(json, { ...PRESERVE, source: "meshopt.gltf" });
+    const primitive = inline.meshes[0]!.primitives[0]!;
+    assert.deepEqual(primitive.attributes.POSITION, new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]));
+    assert.deepEqual(primitive.indices, new Uint16Array([0, 1, 2]));
+
+    const pool = await createWorkerThreadPool();
+    const scheduler = new TaskScheduler({ workerCount: 1, createWorker: (index) => pool.createWorker(index) });
+    try {
+      const worker = await decodeGltfMesh(json, { ...PRESERVE, source: "meshopt-worker.gltf", scheduler, key: "worker.gltf.meshopt" });
+      assert.deepEqual(worker.meshes[0]!.primitives[0]!.attributes.POSITION, primitive.attributes.POSITION);
+      assert.deepEqual(worker.meshes[0]!.primitives[0]!.indices, primitive.indices);
+      assert.equal(scheduler.stats.workers, 1);
+      assert.equal(scheduler.stats.inlineFallbacks, 0);
+      assert.equal(scheduler.stats.workerFailures, 0);
+    } finally {
+      scheduler.dispose();
+      await pool.dispose();
+    }
   });
 
   test("resolves external .gltf buffers before scheduling the decoder", async () => {

@@ -57,7 +57,7 @@ export const PerFrameUniforms = new StructDef("PerFrameUniforms", [
   { name: "cascadeCount", type: i32 },
   { name: "ambientColor", type: vec3 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
-  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows, bit4 SSAO bound, bit5 clustered lights, bit6 aerial perspective, bit7 surface weather" },
+  { name: "flags", type: u32, comment: "bit0 sky, bit1 HDR output (post chain tone-maps), bit2 normal maps, bit3 shadows, bit4 SSAO bound, bit5 clustered lights, bit6 aerial perspective, bit7 surface weather, bit8 resolved depth available for transparent/post consumers" },
   { name: "fogParams", type: vec4, comment: "(mode: 0 none 1 linear 2 exp2 3 height, height falloff, height base, pad)" },
   { name: "surfaceWeather", type: vec4, comment: "Phase 17.4 ground state (wetness, puddles, snow, pad); flags bit7 set when any is > 0" },
 ]);
@@ -169,7 +169,8 @@ export const MaterialUniforms = new StructDef("MaterialUniforms", [
   { name: "tiling", type: vec2 },
   { name: "offset", type: vec2 },
   { name: "normalScale", type: f32 },
-  { name: "flags", type: u32, comment: "bit0 albedoMap, bit1 normalMap, bit2 metallicRoughnessMap, bit3 doubleSided, bit4 unlit, bit5 fogExempt, bit6 emissiveMap, bit7 occlusionMap, bit8 alphaTest" },
+  { name: "flags", type: u32, comment: "bit0 albedoMap, bit1 normalMap, bit2 metallicRoughnessMap, bit3 doubleSided, bit4 unlit, bit5 fogExempt, bit6 emissiveMap, bit7 occlusionMap, bit8 alphaTest, bit9 transparent depth reuse" },
+  { name: "uvSets", type: u32, comment: "bit0..4 select TEXCOORD_1 for baseColor, normal, metallicRoughness, emissive, occlusion" },
   { name: "occlusionStrength", type: f32 },
   { name: "alphaCutoff", type: f32 },
   { name: "snowCover", type: vec4, comment: "fe-38 per-object snow: amount, snow line (min world normal.y), wetness, unused" },
@@ -195,7 +196,7 @@ export const ObjectUniforms = new StructDef("ObjectUniforms", [
   { name: "instanceOffset", type: u32 },
   { name: "visibilityIndex", type: u32, comment: "this draw's word in the culler's visibility buffer (Phase 13.5)" },
   { name: "hiTriangles", type: u32, comment: "population LOD (Phase 14.4): the merged buffer's high-window triangle count; 0 = not an LOD batch" },
-  { name: "distanceFade", type: vec4, comment: "population distance fade (fe-31): x start, y end (metres from the camera to the instance pivot; scale 1 → 0 between them), y = 0 disables" },
+  { name: "distanceFade", type: vec4, comment: "population distance fade (fe-31): x start, y end (metres from the camera to the instance pivot; y = 0 disables); w = renderable transparency for depth reuse" },
 ]);
 
 /**
@@ -289,8 +290,13 @@ export const PostUniforms = new StructDef("PostUniforms", [
   { name: "exposure", type: f32 },
   { name: "toneMapping", type: f32, comment: "0 none, 1 reinhard, 2 aces, 3 filmic" },
   { name: "radius", type: f32, comment: "upsample tent radius in source texels" },
-  { name: "flags", type: u32, comment: "bit0 composite bloom, bit1 Karis average, bit2 skip tonemap (debug)" },
+  { name: "flags", type: u32, comment: "bit0 composite bloom, bit1 Karis average, bit2 skip tonemap (debug), bit4 depth-aware post haze" },
   { name: "_pad", type: u32 },
+  { name: "depthRange", type: vec2, comment: "view-space metres where the optional depth haze starts and reaches full strength" },
+  { name: "depthStrength", type: f32, comment: "depth-aware post haze strength" },
+  { name: "_depthPad", type: f32 },
+  { name: "depthColor", type: vec3, comment: "linear haze colour, before exposure" },
+  { name: "_depthColorPad", type: f32 },
 ]);
 
 /**

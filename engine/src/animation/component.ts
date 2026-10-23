@@ -22,6 +22,15 @@ import { Component, registerComponent } from "../scene/components.js";
 import type { AnimationClip } from "./clip.js";
 
 /** Playback state for a single clip instance. */
+export interface MorphTargetBinding {
+  /** glTF node index whose primitive owns the morph weights. */
+  readonly nodeIndex: number;
+  /** Authored mesh/node defaults used when a clip does not animate this node's weights. */
+  readonly defaults: Float32Array;
+  /** Apply a complete weight vector to the bound geometry. */
+  readonly apply: (weights: Float32Array) => void;
+}
+
 export interface ClipPlayback {
   clip: AnimationClip;
   /** Current playback time in seconds (0..clip.duration for non-looping). */
@@ -55,6 +64,17 @@ export class AnimationComponent extends Component {
    * node's authored value (a glTF clip that only rotates a joint must not zero its translation).
    */
   restPose: Float32Array | null = null;
+  private morphBindings: MorphTargetBinding[] = [];
+
+  /** Bind one node's morph targets to a render/geometry callback. */
+  bindMorphTarget(nodeIndex: number, defaults: ArrayLike<number>, apply: (weights: Float32Array) => void): void {
+    this.morphBindings.push({ nodeIndex, defaults: Float32Array.from(defaults), apply });
+  }
+
+  /** Runtime bindings consumed by AnimationSystem. */
+  getMorphBindings(): readonly MorphTargetBinding[] {
+    return this.morphBindings;
+  }
 
   /** The max joint count across all attached clips (sized for the TRS buffer). */
   get jointCount(): number {

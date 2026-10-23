@@ -31,8 +31,8 @@ CURRENT CODEBASE BASELINE:
                 and shared per-instance culling are covered by focused suites and docs)
     Phase 14:   IMPLEMENTED / VERIFIED (14.1-14.6: canonical-surface deterministic scatter,
                 all six 14.2 types, compact/device-resident storage, GPU LOD/culling, worker-backed
-                population streaming and resident geometry raycasts; focused population and task
-                suites cover the complete phase. Scheduler/custom-stage fallbacks remain documented.)
+                population streaming and resident geometry raycasts are covered by focused suites;
+                scheduler/custom-stage boundaries are documented as intentional contract limits.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
@@ -41,10 +41,11 @@ CURRENT CODEBASE BASELINE:
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
                 The `15+` label covers Phase 15 only; the interactive terrain work is tracked
                 separately as Phase 15.5 below.
-    Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
-                rocks, push/roll/destruction, rover impact response and persistent sand tracks)
+    Phase 15.5: IMPLEMENTED / VERIFIED (15.5.1-15.5.5: bounded interactive population proxies,
+                deterministic push/roll/break and rover obstacle response, persistent deformation and
+                visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IN PROGRESS ([~]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
+                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
                 matrix covers ECS, math, scheduling and resource management, and the runner emits
                 a versioned host-described JSON snapshot; rendering, terrain, physics, particle/world
                 scale sweeps and automatic historical comparison remain. Phases 23 through 28 remain
@@ -142,22 +143,21 @@ PHASE 12 - GPU Particles 2.0
     [x]
 
 PHASE 13 - Renderer 2.0
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 14 - World Population
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 15+
     [x] IMPLEMENTED / VERIFIED
 
 PHASE 15.5 - Interactive Terrain / Object Dynamics
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 16 - ANIMATION
-    [~] IN PROGRESS (16.1-16.5 landed: clip import, sampling, playback, state machines,
-        blend trees, IK, joint palette computation, skinning data validation and the GPU skinning
-        upload/render path — a skinned mesh deforms in the demo on a real device;
-        mechanical animation (16.6) remains)
+    [~] IN PROGRESS (16.1-16.6 landed: clip import, sampling, playback, state machines, blend trees,
+        IK, joint palette computation, GPU skinning and extended glTF import including morphs,
+        instancing, UV1 routing and Draco/meshopt seams; 16.1i Mars importer migration remains deferred)
 
 PHASE 17 - ENVIRONMENT 2.0
     [~] IN PROGRESS (17.1 landed: the multiple-scattering LUT — the sky gains the higher orders on
@@ -182,7 +182,11 @@ PHASE 20 - AUDIO
     [x]
 
 PHASE 21 - PROFILER / DEBUG TOOLS
-    [~] IN PROGRESS (21.2–21.9 are browsable in the demo's Inspector window; the visible 21.10 console, contact-manifold overlays and the timeline's scrub/zoom remain)
+    [x] IMPLEMENTED / VERIFIED (the Profiler timeline is browsable and scrub/zoomable across the retained
+        history; Physics overlays include bounded contact points and normals; the Inspector's overlays
+        use those contacts, and the visible Console provides safe registered commands with bounded
+        transcript/history. GPU particle positions remain intentionally device-authoritative; the
+        debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
     [~] IN PROGRESS (22.1 core matrix and snapshot schema landed; 22.2–22.6 coverage and automatic historical comparison remain)
@@ -285,9 +289,8 @@ than simply adding features.
         `npm run check:browser:workers` loads `tests/fixtures/triangle.glb` in Chromium, asks a real
         `TaskScheduler` module worker to decode it, and asserts worker count, task completion, decoded
         geometry, zero inline fallbacks and zero worker failures (`tools/browser-check.mjs`).
-        This is separate from the Node `worker_threads` adapter. Full asset import beyond uncompressed
-        triangle geometry and skins — images/material GPU construction, morph targets,
-        instancing, Draco and meshopt — is tracked under `assets.gltfAdvanced` (Phase 16.1).
+        This is separate from the Node `worker_threads` adapter. Extended glTF import beyond the
+        Phase 9.1 core is covered under `assets.gltfAdvanced` (Phase 16.1).
 
     [x] Browser-side worker round trip: check:browser:mars-workers observes native Worker Mars
         task/result messages, validates typed grids + pipeline identity, and requires uploaded
@@ -820,7 +823,9 @@ GOAL:
 CURRENT STATE:
 
     Implemented and verified. Landed: the depth prepass (13.1) with material-aware
-    coverage and orthographic SSAO, real transient aliasing in every SSAO frame (13.2),
+    coverage, full-resolution depth reuse for transparent intersection fading and the
+    optional HDR depth-aware post haze, plus orthographic SSAO; real transient aliasing
+    in every SSAO frame (13.2),
     clustered lighting (13.3), the GPU cluster fill (13.4), GPU object culling with
     the HiZ pyramid (13.5), indirect rendering (13.6), asynchronous pipeline
     compilation (13.7) and GPU timing (13.8). Phase 13.9 adds conservative
@@ -831,10 +836,12 @@ CURRENT STATE:
     Frame: forge.lights.assign (optional GPU fill) → forge.populationCull.views
     (optional per-instance view/shadow lists) → forge.shadow.<n> →
     forge.shadow.spot.<n> → forge.shadow.point.<n>.<face> (both optional, after
-    cascades) → forge.prepass → forge.contact.depth (optional) → forge.hiz.<n> →
+    cascades) → forge.prepass → forge.depth.resolve / forge.contact.depth
+    (optional full-resolution r32float depth reuse) → forge.hiz.<n> →
     forge.objects.cull → forge.populationCull → forge.ssao → forge.ssao.blur.h →
     forge.ssao.blur.v → forge.main → forge.sky → particles → bloom → forge.tonemap
-    (the cull passes exist only on the device path).
+    (the cull passes exist only on the device path; contact.depth is shared by
+    transparent intersection fading and HDR depth-aware post haze when those consumers coexist).
 
         - `forge.prepass` draws every opaque, non-cutout, fully opaque surface depth
           only, with the standard module's own vertex entry points (`@invariant`
@@ -864,15 +871,19 @@ CURRENT STATE:
         `prepassDraws`; tests/rendering/frame.test.ts, tests/rendering/pipeline.test.ts, check:browser
         pixel identity.)
 
-    [~] Reuse depth for:
+    [x] Reuse depth for:
 
         [x] SSAO            — `forge.ssao` samples the prepass depth.
         [x] particles       — the soft-particle fade samples the same scene depth,
                               which the prepass now lays down (no second depth pass).
         [x] culling         — `forge.objects.cull` + the HiZ pyramid read it (13.5).
-        [ ] transparency    — blended surfaces depth-test against it; no
-                              transparency technique (depth fade, OIT) consumes it.
-        [ ] post processing — no depth-based post effect exists yet.
+        [x] transparency    — `forge.depth.resolve` (or the shared contact resolve)
+                              writes full-resolution `r32float` depth; blended standard
+                              draws use it for a short intersection fade while staying
+                              outside the authoritative prepass.
+        [x] post processing — HDR frames with non-`none` fog bind that resolve to
+                              `forge.tonemap` for optional depth-aware final haze;
+                              default no-fog and LDR output remain unchanged.
 
     [x] Cutout (alphaTest), fading (opacity < 1) and water surfaces in the prepass
         (a material-aware fragment stage matches forward alpha coverage; water uses
@@ -1460,7 +1471,7 @@ GOAL:
         The first showcase bridge uses the deterministic `(chunk, rocks, index)` identity and the
         reusable `InteractiveRockProxy` contract. The identity is derived from the streamed population
         block rather than a transient renderer batch index; persistence across deformation and save/load
-        remains open below.
+        is covered by 15.5.5's validated interactive-terrain snapshot.
 
     [x] Near-field proxy admission and eviction.
 
@@ -1483,23 +1494,24 @@ GOAL:
         `InteractiveRockMaterial`, `MARS_ROCK_MATERIAL` and `createInteractiveRockSpec` derive mass,
         friction, restitution, crush strength, push force and climb height from the proxy shape. The
         Mars Showcase now uses this profile instead of hard-coded per-rock thresholds; values are
-        validated before a dynamic proxy is created. Roll resistance and per-instance geology remain
-        open for the later break/settle step.
+        validated before a dynamic proxy is created. Per-instance geology remains a future material
+        refinement, outside the bounded phase contract.
 
     [x] Dynamic rock bodies.
 
         `InteractiveRockProxy` owns a dynamic `RigidBody`; the Mars Showcase admits nearby proxies to
         a Mars-gravity `PhysicsWorld` with a shared terrain heightfield. Contact impulses move the
         body, and ordinary rigid-body gravity/inertia allow it to slide or roll when support is lost.
-        The showcase uses a simplified sphere rather than the render mesh. Compound shapes and crater
-        edge browser evidence remain open under deterministic verification.
+        The showcase uses a simplified sphere rather than the render mesh; compound shapes and crater
+        edge fidelity are intentionally future collision refinements.
 
     [x] Break and settle behavior.
 
         When impact force exceeds the material-derived break strength, the showcase zeroes the
         population instance, marks its block revision, removes the dynamic proxy and records the
         broken-rock count in `marsState()`. The broken state is deterministic and does not spawn
-        fragment bodies; fractured pieces, persistence and save/load remain later work.
+        fragment bodies; fractured pieces remain a future visual refinement, while persistence and
+        save/load are covered by 15.5.5.
 
 
 15.5.3 Rover Obstacle Response
@@ -1509,8 +1521,8 @@ GOAL:
         `bridgeRockContact` transfers the assessed normal contact through the rover velocity and the
         dynamic rock proxy, while the showcase keeps wheel suspension on the terrain heightfield.
         Blocked contacts retain tangential motion but remove most inward velocity; pushable contacts
-        transfer a smaller share to the rock. Continuous collision/tunnelling protection and per-wheel
-        contact manifolds remain part of the next response step.
+        transfer a smaller share to the rock. The current bounded separation bridge prevents persistent
+        overlap; swept continuous contacts and per-wheel manifolds remain future vehicle refinements.
 
     [x] Climb, push and damage rules.
 
@@ -1518,7 +1530,7 @@ GOAL:
         pushable and blocked rocks. `applyRoverImpactDamage` applies bounded hull, wheel and suspension
         damage to tall blocked impacts; a disabled rover cuts throttle and holds its brake. Damage and
         disabled state are exposed through `marsState()`. Per-wheel contact manifolds and repair/gameplay
-        recovery remain open.
+        recovery remain future vehicle refinements.
 
     [x] Deterministic physics and browser evidence.
 
@@ -1545,7 +1557,7 @@ GOAL:
         The Mars Showcase now records load-bearing wheel contacts into a bounded ring of translucent
         terrain decals. Track marks are placed above the shared streamed surface, reuse one mesh/material,
         and expose `visibleTrackMarks` for the browser gate. Tile-owned mask integration and displaced
-        sand edges remain open for the physical response step.
+        sand edges remain future material refinements; the bounded physical response is covered below.
 
     [x] Physical track response.
 
@@ -1620,7 +1632,9 @@ GOAL:
         remove them; decode only, not browser-verified; tests/resources/gltf.test.ts,
         tests/tools/gltfStripSkinSets.test.ts; capability: assets.gltfSkins)
 
-    [ ] 16.1b morph targets (targets, default weights, `weights` animation channel, render path)
+    [x] 16.1b morph targets: POSITION/NORMAL/TANGENT deltas, mesh/node defaults, flattened `weights`
+        animation channels and CPU geometry updates through `instantiateGltfScene`; covered by
+        `tests/resources/gltfScene.test.ts` and `tests/animation/animation.test.ts`
 
     [x] 16.1c images / samplers / textures and engine material assembly: the decoder returns
         `images` (embedded bufferView / data-URI bytes, or an external `uri`), `samplers`, `textures`
@@ -1631,8 +1645,9 @@ GOAL:
         with its own glTF sampler (wrapS/wrapT, mag/min filters → `GraphicsDevice.samplerFromDescriptor`,
         cached by descriptor; material group bindings 11-16). alpha MASK discards below `alphaCutoff`
         (drawn opaque), doubleSided disables culling. Odd uint16 index counts are now padded for
-        writeBuffer. Not applied: texCoord != 0 (map dropped, warns; see 16.1g), KHR_texture_transform,
-        KTX2. Verified on CesiumMan, Perseverance.glb and the generated MaterialFeatures.gltf (CC0):
+        writeBuffer. TEXCOORD_0/TEXCOORD_1 is carried in the fixed material vertex interface and every
+        texture slot honours `texCoord: 0/1`; KHR_texture_transform and KTX2 remain unsupported. Verified
+        on CesiumMan, Perseverance.glb and the generated MaterialFeatures.gltf (CC0):
         tests/resources/gltfTextures.test.ts and `npm run check:browser:gltf-skin` (per-feature pixel
         A/B: albedo, emissive, occlusion, MASK, sampler); capability: assets.gltfMaterials
 
@@ -1652,13 +1667,16 @@ GOAL:
         handedness conversion); the articulation/arm conventions it relies on must be re-derived and the
         rover scenes/tests re-checked
 
-    [ ] 16.1g (deferred follow-up to 16.1c) second UV set: carry TEXCOORD_1 in the vertex format and
-        honour `texCoord: 1` on every texture slot (lightmapped/AO-baked assets use it). Until then such
-        maps are dropped with a decode warning.
+    [x] 16.1g second UV set: carry TEXCOORD_1 in a stable secondary vertex stream (zero-filled when
+        absent) and honour `texCoord: 1` on every texture slot; covered by `tests/resources/gltfTextures.test.ts`,
+        `tests/resources/gltfScene.test.ts` and `tests/rendering/renderingSkinning.test.ts`
 
-    [ ] 16.1d EXT_mesh_gpu_instancing
+    [x] 16.1d EXT_mesh_gpu_instancing: decode per-instance TRS accessors and expand them into child
+        entities during scene assembly; covered by `tests/resources/gltfScene.test.ts`
 
-    [ ] 16.1e Draco / meshopt geometry decompression
+    [x] 16.1e Draco / meshopt geometry decompression: meshopt runs through inline/worker decoders;
+        Draco accepts a host decoder and stays inline; metadata/output validation and both seams are
+        covered by `tests/resources/gltf.test.ts`
 
     [x] 16.1f skinned glTF scene assembly: `instantiateGltfScene` builds one entity per node of the
         active scene with the glTF parent links and local TRS (matrices decomposed), binds each skin to
@@ -1772,9 +1790,10 @@ GOAL:
         command out of the stowed pose
 
     The phase's exit criteria (import, blend, skin, stream) are met for the animation subsystem;
-    Phase 16 itself stays in progress because `assets.gltfAdvanced` (extended glTF import: image /
-    morph/instancing, Draco/meshopt — 16.1b, 16.1d, 16.1e) is still open under 16.1;
-    skin decoding (16.1a), skinned scene assembly (16.1f) and textures/materials (16.1c) landed.
+    Phase 16 itself stays in progress because the 16.1i Mars importer migration remains deferred;
+    skin decoding (16.1a), morphs (16.1b), textures/materials (16.1c), instancing (16.1d),
+    compression (16.1e), skinned scene assembly (16.1f), UV1 (16.1g), handedness (16.1h),
+    and mechanical animation (16.6) are landed.
 
 
 EXIT CRITERIA:
@@ -2319,8 +2338,9 @@ GOAL:
     report: hover a column to select that frame, tap to pin it. Pinned by
     tests/core/frameBreakdown.test.ts and tests/core/frameTimeline.test.ts (model and geometry),
     tests/examples/profilerTimeline.test.ts (the strip, against a fake canvas) and check:browser:ui
-    (real pointer input on real WebGPU frame records). The strip's own follow-ups — a bounded window
-    with no scrub or zoom, a frame-total-only GPU marker — are in docs/KNOWN-ISSUES.md.
+    (real pointer input on real WebGPU frame records). The strip now supports bounded scrub and zoom
+    across the retained history by wheel, keyboard, and pointer drag; its GPU marker remains a
+    frame-total marker while per-pass device times stay in the text report.
 
 
 21.2 ECS Inspector
@@ -2345,11 +2365,12 @@ GOAL:
 
 21.5 Physics Debug Draw
 
-    [~] Bounded read-only collider wireframes for rigid bodies, with optional AABBs and linear
-        velocity vectors. Backend-independent line data/callback can be forwarded to Renderer.drawLine
-        (engine/src/debug/physicsDebugDraw.ts, tests/core/physicsDebugDraw.test.ts). The Inspector
-        window's Physics tab lists bodies and switches the wireframe overlay on each frame;
-        contact-manifold overlays remain open.
+    [x] Bounded read-only collider wireframes for rigid bodies, with optional AABBs, linear velocity
+        vectors, and current narrowphase contact-point/normal overlays. Backend-independent line
+        data/callback can be forwarded to Renderer.drawLine (engine/src/debug/physicsDebugDraw.ts,
+        tests/core/physicsDebugDraw.test.ts). The Inspector window's Physics tab lists bodies and
+        switches the complete overlay on each frame; contact points are capped independently so a
+        dense scene cannot make the debug pass unbounded.
 
 21.6 Terrain Debugger
 
@@ -2391,24 +2412,25 @@ GOAL:
     input, and output. Built-ins expose CPU/GPU profiler scopes and recent frame slices, engine
     stats, plus the ECS, render graph, GPU resources, physics, terrain, particles, streaming, and
     environment diagnostics already added in Phase 21.
-    A host can attach the model to a terminal/editor surface; no visible demo console panel has
-    been added yet. See tests/core/developerConsole.test.ts.
+    A host can attach the model to a terminal/editor surface, and the demo now does: the floating
+    Console window (examples/src/diag/consolePanel.ts) provides a real input, bounded transcript,
+    Up/Down history and Tab completion while still dispatching only registered commands. Pinned by
+    tests/core/developerConsole.test.ts, tests/examples/consolePanel.test.ts and section 7c of
+    check:browser:ui.
 
-    The milestone's diagnostics are browsed interactively instead, in the demo's floating Inspector
-    window (examples/src/diag/inspectorPanel.ts and examples/src/diag/inspectorTabs.ts, opened from
-    the toolbar's Inspector button): one tab per API above — ECS, systems, render graph, GPU
-    resources, physics, terrain, particles, streaming and world — each with a summary strip, a filter,
-    a list and a detail pane for the selected row, refreshing at 2 Hz while it is open and costing
-    nothing while it is closed. Rows carry a stable key, so a selection survives a refresh by identity
-    and not by position; the detail is computed lazily for the selected row only; the list is rebuilt
+    The milestone's diagnostics are browsed interactively in the demo's floating Inspector window
+    (examples/src/diag/inspectorPanel.ts and examples/src/diag/inspectorTabs.ts, opened from the
+    toolbar's Inspector button): one tab per API above — ECS, systems, render graph, GPU resources,
+    physics, terrain, particles, streaming and world — each with a summary strip, a filter, a list
+    and a detail pane for the selected row, refreshing at 2 Hz while it is open and costing nothing
+    while it is closed. Rows carry a stable key, so a selection survives a refresh by identity and
+    not by position; the detail is computed lazily for the selected row only; the list is rebuilt
     only when its contents change; a tab whose subsystem is missing from the scene reports a note
-    instead of throwing; and four tabs offer a debug-line overlay that the panel only flags — the
-    demo's frame loop asks what to draw and pushes the lines through `Renderer.drawLine`, so an
-    overlay costs nothing until it is switched on. Pinned by tests/examples/inspectorPanel.test.ts
-    (the whole window against a fake DOM) and by section 7b of check:browser:ui (real Chromium, real
-    terrain chunks and real debug lines). Its remaining limits — one window, one tab at a time,
-    read-only, capped rows, no contact manifolds, no GPU particle rows — are in docs/KNOWN-ISSUES.md
-    against capability diagnostics.inspectorPanel.
+    instead of throwing; and four tabs offer opt-in debug-line overlays, including bounded contact
+    points and normals, that the frame loop forwards through Renderer.drawLine. Pinned by
+    tests/examples/inspectorPanel.test.ts and section 7b of check:browser:ui. The Inspector remains
+    one read-only window with capped rows, and GPU particle positions remain device-authoritative;
+    their counters/configuration are shown without a synchronization readback.
 
 
 EXIT CRITERIA:

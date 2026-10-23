@@ -7,17 +7,17 @@
  * at the same time produces the same transforms, regardless of frame rate or playback order.
  *
  * Design follows glTF 2.0 `animation` semantics:
- *  - Each track targets one node and one property (`translation`, `rotation`, or `scale`).
+ *  - Each track targets one node and one property (`translation`, `rotation`, `scale`, or morph `weights`).
  *  - Timestamps are monotonically increasing floats in seconds.
  *  - Values are tightly packed: 3 floats per key for translation/scale, 4 for rotation (xyzw).
  *  - Interpolation is per-track: `STEP`, `LINEAR`, or `CUBICSPLINE`.
  *
- * Morph target weights (`CHANNEL_WEIGHTS`) are intentionally excluded from this clip — they
- * require mesh-specific morph data that arrives later in Phase 16.1's follow-up work.
+ * Morph target weights use the same immutable track container; the scene binding supplies the
+ * target count because glTF's SCALAR output accessor packs one value per morph target.
  */
 
 /** The property a track animates. */
-export type TrackPath = "translation" | "rotation" | "scale";
+export type TrackPath = "translation" | "rotation" | "scale" | "weights";
 
 /** Interpolation between consecutive keys. */
 export type Interpolation = "STEP" | "LINEAR" | "CUBICSPLINE";
@@ -29,6 +29,7 @@ export type Interpolation = "STEP" | "LINEAR" | "CUBICSPLINE";
  * `values` packs one sample per key:
  *  - translation / scale: 3 floats (x, y, z)
  *  - rotation: 4 floats (x, y, z, w) — quaternion, glTF order (xyzw)
+ *  - weights: `components` scalar values, one per morph target
  *  - CUBICSPLINE: 3× the components per key — [in-tangent, value, out-tangent]
  *
  * `nodeIndex` is the glTF node index (or scene-local entity id after assembly).
@@ -39,6 +40,8 @@ export interface AnimationTrack {
   readonly interpolation: Interpolation;
   readonly times: Float32Array;
   readonly values: Float32Array;
+  /** Components per key for morph weights; TRS paths use their fixed glTF component count. */
+  readonly components?: number;
 }
 
 /**
@@ -55,8 +58,10 @@ export interface AnimationClip {
 }
 
 /** Number of output components per key for a given path (before tangents). */
-export function componentsPerKey(path: TrackPath): number {
-  return path === "rotation" ? 4 : 3;
+export function componentsPerKey(path: TrackPath, components?: number): number {
+  if (path === "rotation") return 4;
+  if (path === "weights") return components ?? 1;
+  return 3;
 }
 
 /**
@@ -88,7 +93,11 @@ export function validateTrack(track: AnimationTrack, source: string): string[] {
     errors.push(`${source}: track has no keys`);
     return errors;
   }
-  const c = componentsPerKey(track.path);
+  if (track.path === "weights" && track.components !== undefined && (!Number.isInteger(track.components) || track.components < 1)) {
+    errors.push(`${source}: weights tracks must declare a positive integer component count`);
+    return errors;
+  }
+  const c = componentsPerKey(track.path, track.components);
   const expectedValues = track.interpolation === "CUBICSPLINE" ? keys * 3 * c : keys * c;
   if (track.values.length !== expectedValues) {
     errors.push(`${source}: expected ${expectedValues} value components for ${keys} keys (${track.interpolation}, ${track.path}), got ${track.values.length}`);

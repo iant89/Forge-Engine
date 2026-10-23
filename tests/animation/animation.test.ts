@@ -571,7 +571,7 @@ group("glTF animation decoder", () => {
     assertThrows(() => decodeGltfAnimations(doc, buffers, 2, "test.gltf"), "invalid node");
   });
 
-  test("skips morph target weight channels", () => {
+  test("imports morph target weight channels with the flattened target output", () => {
     const { doc, buffers } = makeGltfWithAnimation();
     const anims0 = (doc as Record<string, unknown>).animations as { channels: { sampler: number; target: { node: number; path: string } }[] }[];
     anims0[0]!.channels.push({
@@ -579,8 +579,9 @@ group("glTF animation decoder", () => {
       target: { node: 0, path: "weights" },
     });
     const anims = decodeGltfAnimations(doc, buffers, 2, "test.gltf");
-    // Should still have only 2 channels (translation + rotation; weights skipped)
-    assert.equal((anims[0]!.channels).length, 2);
+    // Translation + rotation + the flattened morph-weight sampler channel.
+    assert.equal((anims[0]!.channels).length, 3);
+    assert.equal(anims[0]!.channels[2]!.targetPath, "weights");
   });
 
   test("rejects non-monotonic timestamps", () => {

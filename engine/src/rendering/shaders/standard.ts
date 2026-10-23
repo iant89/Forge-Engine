@@ -49,7 +49,7 @@ export const BINDINGS = {
    * one uniform compare per light.
    */
   cloud: { group: 0, binding: 11 },
-  /** Full-resolution prepass depth resolved to r32float for screen-space contact shadows. */
+  /** Full-resolution prepass depth resolved to r32float for contact shadows and transparent depth reuse. */
   contactDepth: { group: 0, binding: 12 },
   object: { group: 1, binding: 0 },
   instances: { group: 1, binding: 1 },
@@ -111,6 +111,7 @@ struct VertexInput {
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
 }
 `;
 
@@ -124,6 +125,7 @@ struct VertexInput {
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
   @location(4) joints: vec4<u32>,
   @location(5) weights: vec4<f32>,
 }
@@ -136,6 +138,7 @@ struct VertexOutput {
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
   @location(4) viewDepth: f32,
   @location(5) tint: vec4<f32>,
 }
@@ -413,9 +416,19 @@ const FLAGS_FOG_EXEMPT: u32 = 32u;
 const FLAGS_EMISSIVE_MAP: u32 = 64u;
 const FLAGS_OCCLUSION_MAP: u32 = 128u;
 const FLAGS_ALPHA_TEST: u32 = 256u;
+const FLAGS_TRANSPARENT: u32 = 512u;
 const FLAGS_INSTANCED: u32 = 1u;
 // perFrame.flags bit 5: local lights come from the cluster grid, not from the uniform light list.
 const FLAGS_CLUSTERED: u32 = 32u;
+// perFrame.flags bit 8: the resolved prepass depth is available to transparent intersections.
+const FLAGS_DEPTH_REUSE: u32 = 256u;
+
+// Material UV-set selectors: bits 0..4 select TEXCOORD_1 for base colour, normal, metallic-roughness,
+// emissive and occlusion maps respectively. TEXCOORD_0 remains the default for every map;
+// bit 1 selects the optional TEXCOORD_1 stream.
+fn materialUv(uv0: vec2<f32>, uv1: vec2<f32>, bit: u32) -> vec2<f32> {
+  return select(uv0, uv1, ((material.uvSets >> bit) & 1u) != 0u);
+}
 `;
 
 /**
@@ -500,6 +513,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
@@ -534,6 +548,7 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
@@ -566,6 +581,7 @@ fn vertexMainSkinned(input: VertexInput) -> VertexOutput {
   out.worldPos = world.xyz;
   out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
@@ -591,6 +607,7 @@ fn vertexMainInstancedSkinned(input: VertexInput, @builtin(instance_index) insta
   out.worldPos = world.xyz;
   out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
@@ -632,6 +649,7 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
@@ -645,13 +663,13 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
  * that already carries the declarations, so a module holds one copy of every struct.
  */
 const STANDARD_SURFACE_SETUP = /* wgsl */ `
-  let albedo = materialAlbedo(in.uv);
+  let albedo = materialAlbedo(materialUv(in.uv, in.uv1, 0u));
   var N = normalize(in.normal);
   let V = normalize(perFrame.cameraPosRender - in.worldPos);
   if ((perFrame.flags & 4u) != 0u) {
     // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
     if ((material.flags & FLAGS_NORMAL) != 0u) {
-      let sampled = textureSample(normalMap, normalSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
+      let sampled = textureSample(normalMap, normalSampler, materialUv(in.uv, in.uv1, 1u) * material.tiling + material.offset).xyz * 2.0 - 1.0;
       let T = normalize(in.tangent.xyz);
       let B = cross(N, T) * in.tangent.w;
       let tbn = mat3x3<f32>(T, B, N);
@@ -661,7 +679,7 @@ const STANDARD_SURFACE_SETUP = /* wgsl */ `
   var metallic = material.metallic;
   var roughness = material.roughness;
   if ((material.flags & FLAGS_MR) != 0u) {
-    let mr = textureSample(mrMap, mrSampler, in.uv * material.tiling + material.offset);
+    let mr = textureSample(mrMap, mrSampler, materialUv(in.uv, in.uv1, 2u) * material.tiling + material.offset);
     metallic = metallic * mr.b;
     roughness = roughness * mr.g;
     // fe-38 convention: the MR map's alpha below 1 marks standing water (a moisture field's
@@ -708,6 +726,36 @@ fn ambientOcclusion(fragCoord: vec2<f32>, viewDepth: f32) -> f32 {
     return 1.0;
   }
   return sum / total;
+}
+
+// Phase 13.1: recover the opaque surface's view depth from the full-resolution prepass resolve.
+// The colour pass cannot sample its writable depth attachment directly, so the renderer publishes
+// this r32float copy between the prepass and the forward pass. Transparent surfaces use it only for
+// the small intersection fade; a surface behind opaque geometry is still rejected by the normal
+// depth test.
+fn resolvedViewDepth(pixel: vec2<f32>, depth: f32) -> f32 {
+  let uv = pixel / max(perFrame.renderExtent, vec2<f32>(1.0));
+  let clip = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+  let worldH = perFrame.invViewProj * clip;
+  let world = worldH.xyz / max(abs(worldH.w), 1e-6);
+  return max(dot(world - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), 0.0);
+}
+
+fn transparentDepthFade(pixel: vec2<f32>, viewDepth: f32) -> f32 {
+  if (((material.flags & FLAGS_TRANSPARENT) == 0u && objectData.distanceFade.w < 0.5) || ((perFrame.flags & FLAGS_DEPTH_REUSE) == 0u)) {
+    return 1.0;
+  }
+  let size = vec2<i32>(textureDimensions(contactDepth));
+  let p = clamp(vec2<i32>(pixel), vec2<i32>(0, 0), size - vec2<i32>(1, 1));
+  let opaqueDepth = textureLoad(contactDepth, p, 0).r;
+  // A clear/far sample means there is no opaque surface to soften against. This also keeps the
+  // 1x1 neutral fallback harmless when a host disables the resolved-depth feature.
+  if (opaqueDepth >= 0.99999) {
+    return 1.0;
+  }
+  let gap = resolvedViewDepth(pixel, opaqueDepth) - viewDepth;
+  let fadeDistance = max(0.12, viewDepth * 0.018);
+  return smoothstep(0.0, fadeDistance, max(gap, 0.0));
 }
 
 // ------------------------------------------------------- clustered (Forward+) lighting (13.3)
@@ -936,8 +984,8 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   var standingWater = 0.0;
 ${surfaceSetup}
   // Sampled here, in uniform control flow, before the unlit/standard split.
-  let emission = materialEmission(in.uv);
-  let occlusion = materialOcclusion(in.uv);
+  let emission = materialEmission(materialUv(in.uv, in.uv1, 3u));
+  let occlusion = materialOcclusion(materialUv(in.uv, in.uv1, 4u));
   // glTF alpha MASK: alpha (texture × factor) below the cutoff is not drawn.
   if ((material.flags & FLAGS_ALPHA_TEST) != 0u && albedo.a * material.opacity < material.alphaCutoff) {
     discard;
@@ -1004,7 +1052,10 @@ ${surfaceSetup}
   if ((uniforms_shadow.flags & 1u) != 0u) {
     color = color * cascadeDebugTint(in.viewDepth);
   }
-  let alpha = albedo.a * material.opacity * in.tint.a;
+  var alpha = albedo.a * material.opacity * in.tint.a;
+  // Blended cards/decal layers retain their ordinary back-to-front ordering, but their edge pixels
+  // now consume the opaque prepass depth instead of cutting a hard seam into the surface below.
+  alpha = alpha * transparentDepthFade(in.clipPos.xy, in.viewDepth);
   if (material.opacity < 0.999 && alpha < 0.004) {
     discard;
   }
@@ -1045,7 +1096,7 @@ export const STANDARD_FRAGMENT_BODY = createStandardFragmentBody();
 export const STANDARD_PREPASS_FRAGMENT = /* wgsl */ `
 @fragment
 fn fragmentDepth(in: VertexOutput) {
-  let uv = in.uv * material.tiling + material.offset;
+  let uv = materialUv(in.uv, in.uv1, 0u) * material.tiling + material.offset;
   var albedoAlpha = material.baseColorFactor.a;
   if ((material.flags & FLAGS_ALBEDO) != 0u) {
     albedoAlpha = albedoAlpha * textureSample(albedoMap, materialSampler, uv).a;

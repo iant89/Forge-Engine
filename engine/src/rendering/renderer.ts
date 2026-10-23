@@ -56,7 +56,7 @@ import {
   hizLevelCount,
 } from "./objectCulling.js";
 import type { ObjectCullParams } from "./objectCulling.js";
-import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_KARIS, POST_FLAG_PASSTHROUGH } from "./shaders/post.js";
+import { POST_BINDINGS, POST_FLAG_BLOOM, POST_FLAG_DEPTH_HAZE, POST_FLAG_KARIS, POST_FLAG_PASSTHROUGH } from "./shaders/post.js";
 import { fitShadowMapSize } from "./shadowBudget.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
@@ -494,6 +494,10 @@ interface PostParams {
   toneMapping: number;
   radius: number;
   flags: number;
+  depthStart?: number;
+  depthEnd?: number;
+  depthStrength?: number;
+  depthColor?: readonly [number, number, number];
 }
 
 const FORWARD_Z = new Vec3(0, 0, 1);
@@ -1402,6 +1406,13 @@ export class Renderer implements RenderFrameContext {
     // Contact rays consume the full-resolution prepass only when explicitly enabled. They are
     // independent of atlas allocation, so unshadowed point/spot lights still get grounded contact.
     const contact = prepass && settings.shadow.contactShadows && this.options.contactShadows !== false && lights.some((l) => l.affectScene && (l.kind === "directional" || l.kind === "point" || l.kind === "spot"));
+    const hasTransparent = this.hasTransparentBatches();
+    // Phase 13.1 closes the last two depth consumers with one full-resolution r32float resolve:
+    // blended materials use it for a shallow intersection fade, while HDR's existing final resolve
+    // can optionally add the scene fog colour as a far-field haze. The latter is opt-in through the
+    // existing fog mode, so the default prepass A/B remains pixel-identical.
+    const depthPost = prepass && settings.hdr && settings.fog.mode !== "none";
+    const depthReuse = prepass && (hasTransparent || depthPost);
 
     // 4. Uniforms.
     const hdr = settings.hdr;
@@ -1412,7 +1423,7 @@ export class Renderer implements RenderFrameContext {
     const skyEnabled = settings.skyEnabled && this.options.sky !== false;
     const skySettings = skyEnabled ? this.resolveSky(scene, lights) : null;
     const aerialPerspective = Boolean(skySettings?.aerialPerspective && !underwater);
-    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered, aerialPerspective);
+    this.writePerFrame(scene, renderWidth, renderHeight, shadowsActive, activeCascadeCount, underwater, ssao, clustered, aerialPerspective, depthReuse);
     if (ssao) this.writeSsao(ssaoSettings, renderWidth, renderHeight, camera.orthographic);
     this.writeLights(scene, lights, activeCascadeCount > 0 ? sun : null, activeSpotCount, activePointCount, clustered);
     if (clustered) this.buildClusters(camera, renderWidth, renderHeight);
@@ -1434,7 +1445,7 @@ export class Renderer implements RenderFrameContext {
         : b.population
           ? b.population.firstMatrix
           : this.lastMatrixFor(b);
-      b.objectOffset = this.reserveObject(single, b.count, i, b.lodHiTriangles, b.population && b.maxDistance > 0 ? b.maxDistance : 0);
+      b.objectOffset = this.reserveObject(single, b.count, i, b.lodHiTriangles, b.population && b.maxDistance > 0 ? b.maxDistance : 0, b.transparent);
       b.popCullSlot = -1;
       if (b.popCull && b.population) {
         // One merged dispatch does this batch's LOD selection, culling and compaction.
@@ -1470,6 +1481,8 @@ export class Renderer implements RenderFrameContext {
       prepass,
       ssao,
       contact,
+      depthReuse,
+      depthPost,
     });
     this.stats.aerialPerspective = aerialPerspective;
     this.finishFrame();
@@ -1522,7 +1535,7 @@ export class Renderer implements RenderFrameContext {
 
   private buildFrame(
     scene: Scene,
-    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; pointShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean; contact: boolean },
+    frame: { hdr: boolean; renderWidth: number; renderHeight: number; cascadeCount: number; spotShadowCount: number; pointShadowCount: number; shadowSize: number; bloom: boolean; sky: boolean; underwater: boolean; prepass: boolean; ssao: boolean; contact: boolean; depthReuse: boolean; depthPost: boolean },
   ): void {
     const swapTexture = this.device.currentTexture;
     if (!swapTexture) throw new UsageError("renderer: no swapchain texture (was the canvas configured?)");
@@ -1597,12 +1610,13 @@ export class Renderer implements RenderFrameContext {
       world.attachDevice(this.device);
       if (!world.attachFailed && (world.ready || world.initPending)) wantGpuParticles = true;
     }
-    // Soft particles and SSAO sample the depth buffer; nothing else needs TEXTURE_BINDING on it.
+    // Soft particles, SSAO, and the Phase 13.1 depth consumers sample the depth buffer; nothing
+    // else needs TEXTURE_BINDING on it.
     const sceneDepth = g.createTexture("scene.depth", {
       width: frame.renderWidth,
       height: frame.renderHeight,
       format: this.device.depthFormat,
-      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || frame.contact || this.cullOcclusion || this.frameWaterScreenSpace > 0 ? TextureUsage.TEXTURE_BINDING : 0),
+      usage: TextureUsage.RENDER_ATTACHMENT | (wantGpuParticles || frame.ssao || frame.contact || frame.depthReuse || this.cullOcclusion || this.frameWaterScreenSpace > 0 ? TextureUsage.TEXTURE_BINDING : 0),
     });
     const waterScreenSpace = frame.hdr && this.frameWaterScreenSpace > 0;
     const colorFormat = frame.hdr ? HDR_FORMAT : this.device.format;
@@ -1621,15 +1635,15 @@ export class Renderer implements RenderFrameContext {
       });
     }
     let contactDepth: RenderGraphHandle | null = null;
-    if (frame.contact) {
-      contactDepth = g.createTexture("contact.depth", {
+    if (frame.contact || frame.depthReuse) {
+      contactDepth = g.createTexture(frame.contact ? "contact.depth" : "depth.resolve", {
         width: frame.renderWidth,
         height: frame.renderHeight,
         format: "r32float",
         usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING,
       });
       g.addPass({
-        name: "forge.contact.depth",
+        name: frame.contact ? "forge.contact.depth" : "forge.depth.resolve",
         reads: [sceneDepth],
         color: [{ texture: contactDepth, clearValue: [1, 0, 0, 1] }],
         execute: (ctx) => this.executeContactDepthPass(ctx, sceneDepth),
@@ -1686,7 +1700,7 @@ export class Renderer implements RenderFrameContext {
       color: [{ texture: sceneColor, clearValue: [clear[0], clear[1], clear[2], 1] }],
       // Loads the prepass depth when there is one. The sky pass depth-tests against this buffer
       // (and soft particles sample it), so it must survive the pass when either runs.
-      depth: { texture: sceneDepth, depthLoadOp: frame.prepass ? "load" : "clear", depthStoreOp: frame.sky || wantGpuParticles || waterScreenSpace ? "store" : "discard" },
+      depth: { texture: sceneDepth, depthLoadOp: frame.prepass ? "load" : "clear", depthStoreOp: frame.sky || wantGpuParticles || waterScreenSpace || frame.depthReuse ? "store" : "discard" },
       execute: (ctx) => this.executeMainPass(ctx, colorFormat, shadowAtlas, aoResult, contactDepth),
     });
     if (frame.sky) {
@@ -1854,14 +1868,20 @@ export class Renderer implements RenderFrameContext {
         exposure,
         toneMapping: TONE_MAP_MODE[settings.toneMapping] ?? 2,
         radius: 1,
-        flags: bloomMip1 !== null ? POST_FLAG_BLOOM : 0,
+        flags: (bloomMip1 !== null ? POST_FLAG_BLOOM : 0) | (frame.depthPost ? POST_FLAG_DEPTH_HAZE : 0),
+        depthStart: settings.fog.start,
+        depthEnd: Math.max(settings.fog.end, settings.fog.start + 1),
+        depthStrength: frame.depthPost ? Math.min(0.35, Math.max(0.04, settings.fog.density * 18)) : 0,
+        depthColor: [settings.fog.color.r, settings.fog.color.g, settings.fog.color.b],
       });
       const second = bloomMip1 ?? sceneColor;
+      const tonemapReads: RenderGraphHandle[] = bloomMip1 !== null ? [sceneColor, bloomMip1] : [sceneColor];
+      if (frame.depthPost && contactDepth !== null) tonemapReads.push(contactDepth);
       g.addPass({
         name: "forge.tonemap",
-        reads: bloomMip1 !== null ? [sceneColor, bloomMip1] : [sceneColor],
+        reads: tonemapReads,
         color: [{ texture: swapchain }],
-        execute: (ctx) => this.executePostPass(ctx, "fsTonemap", slot, sceneColor, second, false),
+        execute: (ctx) => this.executePostPass(ctx, "fsTonemap", slot, sceneColor, second, false, frame.depthPost ? contactDepth : null),
       });
     }
     this.device.device.queue.writeBuffer(this.postBuffer!, 0, gpuSource(this.postBytes.bytes.subarray(0, this.postSlots * UNIFORM_SLOT)));
@@ -2287,6 +2307,10 @@ export class Renderer implements RenderFrameContext {
         if (genericArgs) pass.setBindGroup(1, b.genericCull!.compactedGroup, [b.objectOffset, 0]);
         else pass.setBindGroup(1, b.population!.compactedGroup!, [b.objectOffset, 0]);
         pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+        if (kind === "standard" || kind === "terrain") {
+          if (b.skin !== null) this.bindSkinning(pass, b, false);
+          else if (b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
+        }
         if (kind === "water") pass.setBindGroup(2, this.ensureWaterBindGroup());
         else pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
         const offset = this.populationCuller!.listRecordOffset(genericArgs ? b.genericCullSlot : b.popCullSlot);
@@ -2304,6 +2328,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(2, kind === "water" ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.skin !== null) this.bindSkinning(pass, b, false);
+      else if ((kind === "standard" || kind === "terrain") && b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         pass.drawIndexed(b.indexCount, b.count, b.indexStart);
@@ -2389,6 +2414,7 @@ export class Renderer implements RenderFrameContext {
         instanced: batchInstanced,
         lod: batchLod,
         skinned: batchSkinned,
+        uv1: !isWater,
       };
       // Prepassed surfaces use a no-write forward variant once that pipeline is ready. If this
       // variant is still compiling, the depth-writing forward variant remains correct at equal depth
@@ -2423,6 +2449,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (batchSkinned) this.bindSkinning(pass, b, false);
+      else if (!isWater && b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (cullArgs) {
         if (b.geometry.indexBuffer) {
           pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -2456,7 +2483,7 @@ export class Renderer implements RenderFrameContext {
     pass.end();
   }
 
-  private executePostPass(ctx: RenderGraphPassContext, entry: PostEntryPoint, slot: number, source: RenderGraphHandle, second: RenderGraphHandle, additive: boolean): void {
+  private executePostPass(ctx: RenderGraphPassContext, entry: PostEntryPoint, slot: number, source: RenderGraphHandle, second: RenderGraphHandle, additive: boolean, depth: RenderGraphHandle | null = null): void {
     this.syncGraphEpoch();
     const pipeline = this.pipelines.getReady({
       technique: "post",
@@ -2475,7 +2502,7 @@ export class Renderer implements RenderFrameContext {
       return;
     }
     pass.setPipeline(pipeline.pipeline);
-    pass.setBindGroup(0, this.ensurePostGroup(ctx.view(source), ctx.view(second)), [slot * UNIFORM_SLOT]);
+    pass.setBindGroup(0, this.ensurePostGroup(ctx.view(source), ctx.view(second), depth !== null ? ctx.view(depth) : this.ensureContactDepthFallback()), [slot * UNIFORM_SLOT]);
     pass.draw(3);
     this.stats.drawCalls++;
     pass.end();
@@ -2604,7 +2631,7 @@ export class Renderer implements RenderFrameContext {
     l.setDirectionFromForward(this.scratchDir);
   }
 
-  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, cascadeCount: number, underwater = false, ssao = false, clustered = false, aerialPerspective = false): void {
+  private writePerFrame(scene: Scene, renderWidth: number, renderHeight: number, shadowsActive: boolean, cascadeCount: number, underwater = false, ssao = false, clustered = false, aerialPerspective = false, depthReuse = false): void {
     const a = this.frameAccessor;
     const settings = scene.settings;
     a.setMat4("viewProj", this.viewProj.m);
@@ -2632,11 +2659,11 @@ export class Renderer implements RenderFrameContext {
     a.setI32("cascadeCount", cascadeCount);
     a.setVec3("ambientColor", settings.ambientColor.r, settings.ambientColor.g, settings.ambientColor.b);
     a.setF32("toneMapping", TONE_MAP_MODE[settings.toneMapping] ?? 2);
-    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0) | (aerialPerspective ? 64 : 0);
     // Phase 17.4: weathered ground (wet film, puddles, snow) — skipped entirely while dry.
     const surf = settings.surface;
     const weathered = surf.wetness > 1e-3 || surf.puddles > 1e-3 || surf.snow > 1e-3;
-    a.setU32("flags", flags | (weathered ? 128 : 0));
+    const flags = (settings.skyEnabled ? 1 : 0) | (settings.hdr ? 2 : 0) | 4 | (shadowsActive ? 8 : 0) | (ssao ? 16 : 0) | (clustered ? 32 : 0) | (aerialPerspective ? 64 : 0) | (weathered ? 128 : 0) | (depthReuse ? 256 : 0);
+    a.setU32("flags", flags);
     a.setVec4("surfaceWeather", surf.wetness, surf.puddles, surf.snow, 0);
     // With the scene fog off but the camera submerged, exp² carries the murk.
     const fogMode = murk && fog.mode === "none" ? "exp2" : fog.mode;
@@ -3153,6 +3180,12 @@ export class Renderer implements RenderFrameContext {
     a.setF32("radius", p.radius);
     a.setU32("flags", p.flags);
     a.setU32("_pad", 0);
+    a.setVec2("depthRange", p.depthStart ?? 0, p.depthEnd ?? 1);
+    a.setF32("depthStrength", p.depthStrength ?? 0);
+    a.setF32("_depthPad", 0);
+    const depthColor = p.depthColor ?? [0, 0, 0];
+    a.setVec3("depthColor", depthColor[0]!, depthColor[1]!, depthColor[2]!);
+    a.setF32("_depthColorPad", 0);
     return slot;
   }
 
@@ -3882,6 +3915,14 @@ export class Renderer implements RenderFrameContext {
     return mask;
   }
 
+  private hasTransparentBatches(): boolean {
+    for (let i = 0; i < this.batchCount; i++) {
+      const batch = this.batchPool[i]!;
+      if (!batch.shadowOnly && batch.transparent) return true;
+    }
+    return false;
+  }
+
   /**
    * Flag the batches `forge.prepass` draws and collect them into `prepassBatches` (reused array,
    * no allocation in a steady frame). Returns how many there are; 0 means no prepass this frame.
@@ -3956,7 +3997,7 @@ export class Renderer implements RenderFrameContext {
     return b;
   }
 
-  private reserveObject(matrix: Float32Array, instanceCount: number, visibilityIndex: number, hiTriangles = 0, fadeEnd = 0): number {
+  private reserveObject(matrix: Float32Array, instanceCount: number, visibilityIndex: number, hiTriangles = 0, fadeEnd = 0, transparent = false): number {
     const offset = this.objectArena.reserve(ObjectUniforms.byteSize("uniform"), 256);
     const a = this.objectAccessor;
     a.relocate(offset);
@@ -3970,8 +4011,8 @@ export class Renderer implements RenderFrameContext {
     a.setU32("hiTriangles", hiTriangles);
     // fe-31: population distance fade (start, end); end 0 = none. Written every time — the arena is reused.
     const fade = this.populationFadeFractionValue;
-    if (fadeEnd > 0 && fade > 0) a.setVec4("distanceFade", fadeEnd * (1 - fade), fadeEnd, 0, 0);
-    else a.setVec4("distanceFade", 0, 0, 0, 0);
+    if (fadeEnd > 0 && fade > 0) a.setVec4("distanceFade", fadeEnd * (1 - fade), fadeEnd, 0, transparent ? 1 : 0);
+    else a.setVec4("distanceFade", 0, 0, 0, transparent ? 1 : 0);
     return offset;
   }
 
@@ -4552,6 +4593,7 @@ export class Renderer implements RenderFrameContext {
     this.waterGrabGroupViews = [null, null];
     this.frameBindGroupView = null;
     this.frameBindGroupAoView = null;
+    this.frameBindGroupContactDepthView = null;
     this.frameBindGroupMsTexture = null;
     this.ssaoGroup = null;
     this.ssaoGroupView = null;
@@ -4567,8 +4609,8 @@ export class Renderer implements RenderFrameContext {
     return id;
   }
 
-  private ensurePostGroup(source: GPUTextureView, second: GPUTextureView): GPUBindGroup {
-    const key = `${this.viewId(source)}|${this.viewId(second)}`;
+  private ensurePostGroup(source: GPUTextureView, second: GPUTextureView, depth: GPUTextureView): GPUBindGroup {
+    const key = `${this.viewId(source)}|${this.viewId(second)}|${this.viewId(depth)}`;
     let group = this.postGroups.get(key);
     if (group) return group;
     group = this.device.device.createBindGroup({
@@ -4579,6 +4621,8 @@ export class Renderer implements RenderFrameContext {
         { binding: POST_BINDINGS.source.binding, resource: source },
         { binding: POST_BINDINGS.second.binding, resource: second },
         { binding: POST_BINDINGS.sampler.binding, resource: this.device.sampler("linear-clamp") },
+        { binding: POST_BINDINGS.depth.binding, resource: depth },
+        { binding: POST_BINDINGS.perFrame.binding, resource: { buffer: this.frameBuffer! } },
       ],
     });
     this.postGroups.set(key, group);
@@ -4639,8 +4683,9 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
-   * Bind the two resources a skinned draw adds to an unskinned one: the skin vertex stream at slot
-   * 1 and the joint palette at group 3 (the pipeline's dynamic offset selects this batch's slot).
+   * Bind the resources a skinned draw adds to an unskinned one: the skin vertex stream at slot
+   * 1, the secondary UV stream at slot 2, and the joint palette at group 3 (the pipeline's dynamic
+   * offset selects this batch's slot).
    * Only ever called for a batch whose pipeline was fetched with `skinned: true`, because a
    * non-skinned pipeline layout has no group 3 and no second vertex slot.
    */
@@ -4649,7 +4694,13 @@ export class Renderer implements RenderFrameContext {
     // `SKIN_GAP_BINDING_GROUP`), and Chromium refuses the draw unless something is bound there.
     if (gap) pass.setBindGroup(SKIN_GAP_BINDING_GROUP, this.ensureSkinGapBindGroup());
     pass.setVertexBuffer(1, b.geometry.skinBuffer!);
+    if (b.geometry.uv1Buffer) pass.setVertexBuffer(2, b.geometry.uv1Buffer);
     pass.setBindGroup(SKIN_BINDING_GROUP, this.ensureSkinBindGroup(), [b.skinOffset]);
+  }
+
+  /** Bind the secondary UV stream for a standard (unskinned) pipeline. */
+  private bindUv1(pass: GPURenderPassEncoder, b: Batch, skinned: boolean): void {
+    pass.setVertexBuffer(skinned ? 2 : 1, b.geometry.uv1Buffer!);
   }
 
   /** The (empty) bind group for the skinned depth/prepass gap; a group with no entries, created once. */
@@ -5051,6 +5102,7 @@ function prepassPipelineOptions(b: Batch, depthFormat: GPUTextureFormat): Pipeli
     instanced: b.count > 1 || b.lodHiTriangles > 0,
     lod: b.lodHiTriangles > 0,
     skinned: b.skin !== null,
+    uv1: kind !== "water" && b.geometry.uv1Buffer !== null,
     writeDepth: true,
   } as const;
   if (kind === "water") return { ...common, technique: "water", fragmentEntry: "fragmentDepth" };

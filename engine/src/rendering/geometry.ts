@@ -32,6 +32,18 @@ export const VERTEX_LAYOUT: GPUVertexBufferLayout = {
   attributes: VERTEX_ATTRIBUTES.map((a) => ({ format: a.format, offset: a.offset, shaderLocation: a.shaderLocation })),
 };
 
+/** Secondary glTF UV stream. It is always allocated (zero-filled when TEXCOORD_1 is absent) so
+ * every standard shader has a stable vertex interface; only authored TEXCOORD_1 data is charged to
+ * geometry memory statistics. */
+export const UV1_VERTEX_STRIDE = 8;
+export const UV1_VERTEX_ATTRIBUTES = [
+  { name: "uv1", shaderLocation: 6, format: "float32x2" as GPUVertexFormat, offset: 0 },
+];
+export const UV1_VERTEX_LAYOUT: GPUVertexBufferLayout = {
+  arrayStride: UV1_VERTEX_STRIDE,
+  attributes: UV1_VERTEX_ATTRIBUTES.map((a) => ({ format: a.format, offset: a.offset, shaderLocation: a.shaderLocation })),
+};
+
 /** Joints that can influence one vertex (glTF 2.0's `JOINTS_0`/`WEIGHTS_0` set). */
 export const SKIN_JOINTS_PER_VERTEX = 4;
 
@@ -65,14 +77,25 @@ export interface SkinVertexStream {
   weights: Float32Array;
 }
 
+/** CPU morph deltas in glTF target order. Attributes are optional per target. Tangent deltas use the renderer's xyzw stride with w set to zero. */
+export interface MorphTargetSource {
+  positions?: Float32Array | null;
+  normals?: Float32Array | null;
+  tangents?: Float32Array | null;
+}
+
 export interface GeometrySource {
   positions: Float32Array;
   normals?: Float32Array | null;
   uvs?: Float32Array | null;
+  /** Optional TEXCOORD_1 data for glTF materials that select the secondary UV set. */
+  uvs1?: Float32Array | null;
   /** xyzw, w = handedness (±1). */
   tangents?: Float32Array | null;
   /** Optional per-vertex skin attributes; they upload as `SKIN_VERTEX_LAYOUT` (slot 1). */
   skinning?: SkinVertexStream | null;
+  /** Optional CPU morph deltas; weights are applied through `Geometry.applyMorphWeights`. */
+  morphTargets?: readonly MorphTargetSource[] | null;
   indices?: Uint32Array | Uint16Array | null;
   /** Explicit bounds; computed from positions when absent. */
   bounds?: AABB | null;
@@ -84,6 +107,8 @@ export class Geometry {
   indexBuffer: GPUBuffer | null = null;
   /** `SKIN_VERTEX_LAYOUT` stream (slot 1); null for an unskinned geometry. */
   skinBuffer: GPUBuffer | null = null;
+  /** Secondary UV stream (slot 1 for ordinary pipelines, slot 2 for skinned pipelines). */
+  uv1Buffer: GPUBuffer | null = null;
   indexCount = 0;
   vertexCount = 0;
   indexFormat: GPUIndexFormat | null = null;
@@ -100,10 +125,23 @@ export class Geometry {
   private readonly worldPoint = new Vec3();
   private readonly worldNormal = new Vec3();
 
+  private morphBasePositions: Float32Array | null = null;
+  private morphBaseNormals: Float32Array | null = null;
+  private morphBaseTangents: Float32Array | null = null;
+
   private constructor(
     readonly device: GraphicsDevice,
     readonly source: GeometrySource,
-  ) {}
+  ) {
+    this.captureMorphBases(source);
+  }
+
+  private captureMorphBases(source: GeometrySource): void {
+    const targets = source.morphTargets;
+    this.morphBasePositions = targets && targets.length > 0 ? source.positions.slice() : null;
+    this.morphBaseNormals = targets && targets.length > 0 && source.normals ? source.normals.slice() : null;
+    this.morphBaseTangents = targets && targets.length > 0 && source.tangents ? source.tangents.slice() : null;
+  }
 
   /**
    * Build GPU buffers from source attribute arrays. Missing normals default to +Z; missing UVs and
@@ -119,6 +157,7 @@ export class Geometry {
     try {
       g.uploadVertices(interleaved);
       if (src.skinning) g.uploadSkinning(src.skinning);
+      g.uploadUv1(src.uvs1, count);
       if (src.indices && src.indices.length > 0) g.uploadIndices(src.indices);
       return g;
     } catch (error) {
@@ -143,6 +182,25 @@ export class Geometry {
     try {
       writeRaw(this.device, buffer, data);
       this.vertexBuffer = buffer;
+    } catch (error) {
+      buffer.destroy();
+      throw error;
+    }
+  }
+
+  private uploadUv1(uvs: Float32Array | null | undefined, count: number): void {
+    // Standard shader variants always declare location 6. Allocate a zero-filled fallback even when
+    // the asset has no authored TEXCOORD_1, while `gpuBytes` below charges only authored storage.
+    const data = new Float32Array(count * 2);
+    if (uvs) data.set(uvs.subarray(0, data.length));
+    const buffer = this.device.createBuffer({
+      label: `geometry.uv1.${this.source.label ?? ""}`,
+      size: Math.max(4, data.byteLength),
+      usage: BufferUsage.VERTEX | BufferUsage.COPY_DST,
+    });
+    try {
+      writeRaw(this.device, buffer, data);
+      this.uv1Buffer = buffer;
     } catch (error) {
       buffer.destroy();
       throw error;
@@ -297,6 +355,7 @@ export class Geometry {
   get gpuBytes(): number {
     return this.vertexCount * VERTEX_STRIDE
       + (this.skinBuffer ? this.vertexCount * SKIN_VERTEX_STRIDE : 0)
+      + (this.source.uvs1 ? this.vertexCount * UV1_VERTEX_STRIDE : 0)
       + (this.indexCount * (this.indexFormat === "uint16" ? 2 : 4));
   }
 
@@ -311,6 +370,7 @@ export class Geometry {
       ...src,
       normals: has("normals") ? src.normals ?? null : sameVertexCount ? this.source.normals ?? null : null,
       uvs: has("uvs") ? src.uvs ?? null : sameVertexCount ? this.source.uvs ?? null : null,
+      uvs1: has("uvs1") ? src.uvs1 ?? null : sameVertexCount ? this.source.uvs1 ?? null : null,
       tangents: has("tangents") ? src.tangents ?? null : sameVertexCount ? this.source.tangents ?? null : null,
       skinning: has("skinning") ? src.skinning ?? null : sameVertexCount ? this.source.skinning ?? null : null,
       indices: has("indices") ? src.indices ?? null : sameVertexCount ? this.source.indices ?? null : null,
@@ -324,20 +384,28 @@ export class Geometry {
       this.vertexBuffer = next.vertexBuffer;
       this.indexBuffer = next.indexBuffer;
       this.skinBuffer = next.skinBuffer;
+      this.uv1Buffer = next.uv1Buffer;
       this.vertexCount = next.vertexCount;
       this.indexCount = next.indexCount;
       this.indexFormat = next.indexFormat;
       this.bounds.setFrom(next.bounds.min, next.bounds.max);
+      this.captureMorphBases(nextSource);
       this.released = false;
       next.vertexBuffer = null;
       next.indexBuffer = null;
       next.skinBuffer = null;
+      next.uv1Buffer = null;
       next.released = true;
     } else {
       const indicesChanged = has("indices");
       if (has("skinning")) {
         if (nextSource.skinning) this.uploadSkinning(nextSource.skinning);
         else this.clearSkinning();
+      }
+      if (has("uvs1")) {
+        this.uv1Buffer?.destroy();
+        this.uv1Buffer = null;
+        this.uploadUv1(nextSource.uvs1, count);
       }
       const interleaved = interleaveVertices(nextSource, count);
       const replacement = indicesChanged && nextSource.indices && nextSource.indices.length > 0
@@ -357,11 +425,59 @@ export class Geometry {
         previous?.destroy();
       }
       Object.assign(this.source, nextSource);
+      if (has("positions") || has("normals") || has("tangents") || has("morphTargets")) this.captureMorphBases(nextSource);
       const bounds = nextSource.bounds ? nextSource.bounds : computeBounds(nextSource.positions);
       this.bounds.setFrom(bounds.min, bounds.max);
     }
     Object.assign(this.source, nextSource);
     this.spatialIndex = undefined;
+  }
+
+  /** Number of morph targets carried by this geometry. */
+  get morphTargetCount(): number {
+    return this.source.morphTargets?.length ?? 0;
+  }
+
+  /**
+   * Apply glTF morph deltas on the CPU and upload the resulting streams. This deliberately keeps
+   * the fixed renderer vertex format unchanged: morphing is uncommon compared with ordinary static
+   * meshes, and the CPU path also gives physics/culling the same deformed positions. Callers should
+   * avoid sharing a morph geometry between nodes with different weights.
+   */
+  applyMorphWeights(weights: ArrayLike<number>): boolean {
+    const targets = this.source.morphTargets;
+    const basePositions = this.morphBasePositions;
+    if (!targets || targets.length === 0 || !basePositions) return false;
+    const count = this.vertexCount;
+    const positions = new Float32Array(basePositions);
+    const normals = this.morphBaseNormals ? new Float32Array(this.morphBaseNormals) : null;
+    const tangents = this.morphBaseTangents ? new Float32Array(this.morphBaseTangents) : null;
+    for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
+      const weight = Number(weights[targetIndex] ?? 0);
+      if (!Number.isFinite(weight) || weight === 0) continue;
+      const target = targets[targetIndex]!;
+      const add = (dst: Float32Array | null, delta: Float32Array | null | undefined): void => {
+        if (!dst || !delta) return;
+        for (let i = 0; i < dst.length && i < delta.length; i++) dst[i] += delta[i]! * weight;
+      };
+      add(positions, target.positions);
+      add(normals, target.normals);
+      add(tangents, target.tangents);
+    }
+    const nextSource: GeometrySource = {
+      ...this.source,
+      positions,
+      normals,
+      tangents,
+      bounds: null,
+    };
+    if (!this.vertexBuffer || this.released) return false;
+    writeRaw(this.device, this.vertexBuffer, interleaveVertices(nextSource, count));
+    Object.assign(this.source, nextSource);
+    const bounds = computeBounds(positions);
+    this.bounds.setFrom(bounds.min, bounds.max);
+    this.spatialIndex = undefined;
+    return true;
   }
 
   release(): void {
@@ -370,9 +486,11 @@ export class Geometry {
     this.vertexBuffer?.destroy();
     this.indexBuffer?.destroy();
     this.skinBuffer?.destroy();
+    this.uv1Buffer?.destroy();
     this.vertexBuffer = null;
     this.indexBuffer = null;
     this.skinBuffer = null;
+    this.uv1Buffer = null;
     this.spatialIndex = undefined;
   }
 

@@ -307,7 +307,7 @@ group("ground moisture field", () => {
 
 group("rendering contract", () => {
   test("materials carry a per-object snow cover the standard shader reads", () => {
-    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("snowCover"), 80);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("snowCover"), 96);
     assertContains(STANDARD_FRAGMENT_BODY, "material.snowCover");
     const m = new Material({ label: "m" });
     m.dirty = false;

@@ -326,12 +326,12 @@ const physicsTab: InspectorTab = {
   filterHint: "body id or shape",
   overlay: {
     key: "physics",
-    label: "wireframes",
+    label: "wireframes + contacts",
     draw(source) {
       const system = physicsOf(source);
       const sink = lineSink(source);
       if (!system || !sink) return 0;
-      const view = drawPhysicsDebug(system.world, sink, { showAabbs: true, showVelocity: true });
+      const view = drawPhysicsDebug(system.world, sink, { showAabbs: true, showVelocity: true, showContacts: true });
       return view.lineCount;
     },
   },
@@ -339,7 +339,7 @@ const physicsTab: InspectorTab = {
     const system = physicsOf(source);
     if (!system) return note("no PhysicsSystem is registered on the active scene");
     const limit = 128;
-    const view = physicsDebugDraw(system.world, { maxBodies: limit, showAabbs: true, showVelocity: true });
+    const view = physicsDebugDraw(system.world, { maxBodies: limit, showAabbs: true, showVelocity: true, showContacts: true });
     const needle = filter.trim().toLowerCase();
     const bodies = system.world.bodies
       .slice(0, limit)
@@ -348,6 +348,7 @@ const physicsTab: InspectorTab = {
       summary: [
         { label: "bodies", value: int(view.bodyCount) },
         { label: "processed", value: int(view.processedBodies) },
+        { label: "contacts", value: int(view.contactCount) },
         { label: "lines", value: int(view.lineCount) },
       ],
       rows: bodies.map((body) => ({
@@ -369,7 +370,7 @@ const physicsTab: InspectorTab = {
       })),
       notes: [
         ...(view.truncatedBodies ? [`showing the first ${limit} of ${view.bodyCount} bodies`] : []),
-        "contact manifolds are not drawn yet — the overlay is colliders, AABBs and velocity vectors",
+        ...(view.truncatedContacts ? [`contact overlay capped: ${view.truncatedContacts} contact points omitted`] : []),
       ],
     };
   },
