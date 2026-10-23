@@ -15,6 +15,7 @@ import { assertCullingBenchmark, runCullingBenchmark } from "./src/culling.bench
 import { assertEcsBenchmark, runEcsBenchmark } from "./src/ecs.bench.ts";
 import { assertLightBenchmark, runLightCullingBenchmark } from "./src/lights.bench.ts";
 import { runParticleBenchmark } from "./src/particles.bench.ts";
+import { assertRenderingBenchmark, runRenderingBenchmark } from "./src/rendering.bench.ts";
 import { assertUIBenchmark, runUIBenchmark } from "./src/ui.bench.ts";
 
 function jsonOutputPath(argv) {
@@ -51,6 +52,9 @@ results.push(...lights.results);
 console.log("Running object-culling benchmark (Phase 13.5)...");
 const culling = runCullingBenchmark();
 results.push(...culling.results);
+console.log("Running Phase 22.2 rendering benchmark matrix...");
+const rendering = await runRenderingBenchmark();
+results.push(...rendering.results);
 console.log("Running UI framework benchmark...");
 const uiBench = runUIBenchmark(1000);
 results.push(...uiBench.results);
@@ -81,6 +85,9 @@ for (const note of checks.lights) console.log(`  ${note}`);
 checks.culling = assertCullingBenchmark(culling);
 console.log("Object culling (Phase 13.5):");
 for (const note of checks.culling) console.log(`  ${note}`);
+checks.rendering = assertRenderingBenchmark(rendering);
+console.log("Rendering (Phase 22.2):");
+for (const note of checks.rendering) console.log(`  ${note}`);
 console.log("UI framework:");
 for (const note of uiBench.notes) console.log(`  ${note}`);
 const uiFails = assertUIBenchmark(uiBench);

@@ -62,3 +62,41 @@ This is one run, not a confidence interval. It establishes the workload definiti
 starting measurement. Phase 22.7 still needs stable metric IDs, repeated samples with variance, stored
 raw history, host-compatibility rules, and an automatic comparison policy. Until those land, use this
 table to investigate large changes, not to reject a change over a few percentage points.
+
+## 2026-10-23 — Phase 22.2 rendering baseline
+
+**Source:** `arena/ef30a06e-forge-engine`, Phase 22.2 change based on `2993afdf`
+**UTC start:** 2026-10-23 04:20:54
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 4,650.71 ms inside the benchmark process; all guards passed
+**GPU:** mock WebGPU device for draw/graph/allocation rows; CPU twins for culling, lighting and shadow fits
+
+### Phase 22.2 rendering matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Mock draw submission, 16 batches | 16 draw calls | 2.52 ms | 6,348/s |
+| Mock draw submission, 64 batches | 64 draw calls | 3.16 ms | 20,264/s |
+| Mock draw submission, 256 batches | 256 draw calls | 5.36 ms | 47,746/s |
+| Render graph compile + submit, 10 declared passes | 10 passes | 30.32 ms | 330/s |
+| Render graph compile + submit, 34 declared passes | 34 passes | 108.47 ms | 313/s |
+| Render graph compile + submit, 66 declared passes | 66 passes | 208.68 ms | 316/s |
+| Object culling, 8,192 batches (CPU twin) | 8,192 batches | 4.23 ms | 1,935,813/s |
+| HiZ pyramid, 1280×720 / 4 levels (CPU twin) | 921,600 pixels | 19.12 ms | 48,198,477/s |
+| Cluster fill, 256-light dense rig (CPU twin) | 98,304 list entries | 58.49 ms | 1,680,773/s |
+| Shadow cascade fit ×4 | 1,024 cascade fits | 3.06 ms | 335,049/s |
+| Spot shadow fit | 256 fits | 0.66 ms | 385,554/s |
+| Point shadow fit ×6 faces | 1,536 face fits | 1.83 ms | 839,196/s |
+| GPU allocation accounting | 2,048 texture/buffer allocations | 0.36 ms | 5,640,646/s |
+
+Shape/correctness from the same run: the 66-pass graph executed 65 passes after culling one dead
+pass, used 2 physical textures for 64 transient textures and aliased 57,139,200 bytes; the adaptive
+10-layer shadow atlas reduced to 512 px and 10,485,760 bytes within the 16 MiB budget; and all 2,048
+mock texture/buffer allocations returned to zero live resources and zero live bytes. The full raw
+snapshot was written to `/tmp/forge-bench-22.2.json` during validation and is intentionally not
+tracked in Git.
+
+This is a mock/CPU baseline, not a real-device GPU timing claim. The browser gate remains the
+real-WebGPU evidence for shader compilation and device execution; same-host statistical comparison
+and automatic rejection remain Phase 22.7 work.

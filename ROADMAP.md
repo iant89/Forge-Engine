@@ -46,9 +46,10 @@ CURRENT CODEBASE BASELINE:
                 visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
                 Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
-                matrix covers ECS, math, scheduling and resource management, and the runner emits
-                a versioned host-described JSON snapshot; rendering, terrain, physics, particle/world
-                scale sweeps and automatic historical comparison remain. Phases 23 through 28 remain
+                and 22.2 rendering matrices cover ECS, math, scheduling, resources, draw/graph submission,
+                culling, lighting, shadow fitting and GPU allocation accounting, and the runner emits a
+                versioned host-described JSON snapshot; terrain, physics, particle/world scale sweeps and
+                automatic historical comparison remain. Phases 23 through 28 remain
                 NOT STARTED ([ ]). Phase 29 is a roll-up (see the status block; `docs:check` verifies
                 the phase keys directly).
 
@@ -189,7 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core matrix and snapshot schema landed; 22.2–22.6 coverage and automatic historical comparison remain)
+    [~] IN PROGRESS (22.1 core and 22.2 rendering matrices are implemented and guarded; 22.3–22.6
+        coverage and automatic historical comparison remain)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2465,12 +2467,18 @@ GOAL:
 
 22.2 Rendering
 
-    [ ] draw submission
-    [ ] render graph
-    [ ] culling
-    [ ] lighting
-    [ ] shadows
-    [ ] GPU memory
+    [x] draw submission
+    [x] render graph
+    [x] culling
+    [x] lighting
+    [x] shadows
+    [x] GPU memory
+
+    As built: `npm run bench` runs a mock-device steady draw-submission sweep, render-graph
+    compile/submit and transient-aliasing sweep, the existing object/cluster culling twins, finite
+    cascade/spot/point shadow-fit and adaptive-atlas checks, and repeated texture/buffer allocation
+    accounting that must return to zero live bytes. `benchmarks/src/rendering.bench.ts` owns the
+    renderer matrix; the browser gate remains the real shader/GPU validation for device timing.
 
 
 22.3 Terrain

@@ -12,13 +12,14 @@ the honest detail lives; nothing here is hidden behind a green gate.
 
 ## Benchmarks (Phase 22)
 
-* **Only the core benchmark matrix is complete, and history is not compared automatically.** Phase
-  22.1 now measures ECS, allocation-free math, inline scheduler dispatch/deduplication and resource
-  loading/cache/eviction with correctness and catastrophe guards. The runner can write a schema-1
-  JSON snapshot with exact host metadata, and `PERFORMANCE.md` records the first measured baseline,
-  but rendering, terrain, physics, particle/world scale sweeps remain incomplete. There are no stable
-  metric IDs, repeated-sample variance or same-host regression policy yet, so ordinary timing drift
-  does not fail CI automatically. (capability: diagnostics.benchmarkRegression)
+* **The benchmark history is not compared automatically, and the remaining world-scale matrices are
+  incomplete.** Phases 22.1 and 22.2 now measure the core and rendering workloads with correctness,
+  work-shape and catastrophe guards: ECS/math/scheduler/resources, mock draw/graph submission,
+  culling, clustered-light coverage, shadow fitting and GPU allocation accounting. The runner can
+  write a schema-1 JSON snapshot with exact host metadata, and `PERFORMANCE.md` records measured
+  baselines, but terrain, physics, particle and world-scale sweeps remain incomplete. There are no
+  stable metric IDs, stored repeated-sample variance or same-host regression policy yet, so ordinary
+  timing drift does not fail CI automatically. (capability: diagnostics.benchmarkRegression)
 
 ## Rendering (Phase 2)
 
