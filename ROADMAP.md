@@ -190,8 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain, 22.4 physics and 22.5 particles
-        matrices are implemented and guarded; 22.6 coverage and automatic historical comparison remain)
+    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain, 22.4 physics, 22.5 particles and
+        22.6 world matrices are implemented and guarded; automatic historical comparison remains)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2530,17 +2530,24 @@ GOAL:
 
 22.6 World
 
-    [ ] 10K objects
-    [ ] 100K objects
-    [ ] 500K objects
-    [ ] 1M objects
+    [x] 10K objects
+    [x] 100K objects
+    [x] 500K objects
+    [x] 1M objects
+
+    As built: `npm run bench` measures public `EntityWorld` object creation/component attachment,
+    flat transform composition and frustum visibility queries at all four object bands. Guards require
+    one Transform and Renderable per object, non-trivial visible and culled populations, deterministic
+    work digests, measured typed transform storage and zero live ECS objects after teardown. This is a
+    CPU/ECS world-scale matrix; GPU instance generation and complete visibility compaction remain
+    Phase 24 work.
 
 
 22.7 Regression Recording
 
     [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
         operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
-    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.4
+    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.6
         baselines are recorded; stable metric IDs, repeated samples and an automatic same-host
         comparator/history remain).
     [ ] Fail automatically on a statistically significant regression against comparable history.

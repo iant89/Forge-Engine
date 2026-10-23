@@ -223,3 +223,40 @@ These are strict mock-device allocation and
 command/uniform-preparation measurements only: the mock does not execute WGSL, so they are not GPU
 shader-throughput claims. Real browser/device timing remains the authoritative GPU gate. Stable metric
 IDs, repeated same-host comparison and automatic rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.6 world-scale object baseline
+
+**Source:** `arena/fa9d54d2-forge-engine`, Phase 22.6 world benchmark change
+**UTC start:** 2026-10-23 16:16:13.354
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 15,007.12 ms inside the benchmark process; all guards passed
+**GPU:** none used; world rows are deterministic CPU/ECS workloads
+
+### Phase 22.6 world-scale object matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Entity/component setup, 10K objects | 10,000 objects | 29.21 ms | 342,404/s |
+| Flat transform composition, 10K objects | 10,000 transforms | 2.75 ms | 3,634,627/s |
+| Frustum visibility query, 10K objects | 10,000 objects | 8.64 ms | 1,157,335/s |
+| Entity/component setup, 100K objects | 100,000 objects | 139.79 ms | 715,342/s |
+| Flat transform composition, 100K objects | 100,000 transforms | 14.80 ms | 6,758,435/s |
+| Frustum visibility query, 100K objects | 100,000 objects | 61.32 ms | 1,630,705/s |
+| Entity/component setup, 500K objects | 500,000 objects | 910.53 ms | 549,133/s |
+| Flat transform composition, 500K objects | 500,000 transforms | 36.55 ms | 13,680,197/s |
+| Frustum visibility query, 500K objects | 500,000 objects | 247.87 ms | 2,017,202/s |
+| Entity/component setup, 1M objects | 1,000,000 objects | 2,063.53 ms | 484,606/s |
+| Flat transform composition, 1M objects | 1,000,000 transforms | 233.33 ms | 4,285,737/s |
+| Frustum visibility query, 1M objects | 1,000,000 objects | 518.10 ms | 1,930,141/s |
+
+Shape/correctness from the same run: every band attached exactly one `Transform` and one
+`Renderable` per object, updated all transform slots, and queried all objects. The 1M view contained
+279,292 visible and 720,708 culled objects; every band had both visible and culled results and a
+repeatable state digest. Typed transform storage measured 2,228,224 / 17,825,792 / 71,303,168 /
+142,606,336 bytes at 10K/100K/500K/1M, respectively; disposal returned every band to zero live ECS
+objects and components.
+
+This is a CPU/ECS baseline, not a GPU-driven rendering throughput claim. GPU instance generation and
+complete visibility compaction remain Phase 24 work; stable metric IDs, repeated same-host comparison
+and automatic rejection remain Phase 22.7 work.

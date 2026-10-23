@@ -363,13 +363,27 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "The CPU rows measure setup and fixed-step integration against the analytic gravity curve. Mock-GPU rows measure storage allocation and command/uniform preparation, plus zero-live-byte teardown; the strict mock does not execute WGSL and therefore is not a real-device throughput claim.",
   },
   {
+    id: "diagnostics.worldBenchmarks",
+    phase: "22.6",
+    status: "verified",
+    summary: "Deterministic CPU/ECS world-scale object benchmark matrix at 10K, 100K, 500K and 1M objects",
+    evidence: [
+      "benchmarks/src/world.bench.ts",
+      "benchmarks/run.mjs",
+      "tests/benchmarks/world.test.ts",
+      "PERFORMANCE.md",
+    ],
+    closesWith: "22.6",
+    notes: "The CPU matrix measures public EntityWorld allocation/component attachment, flat transform composition and frustum visibility queries at all four object bands. Guards validate one Transform and Renderable per object, non-trivial visibility, deterministic digests, measured transform typed-storage bytes and zero live ECS objects after teardown; it is not a GPU-driven rendering throughput claim.",
+  },
+  {
     id: "diagnostics.benchmarkRegression",
     phase: "22.7",
     status: "inProgress",
     summary: "Versioned machine-readable benchmark snapshots and an audited performance history for automatic regression detection",
     evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
     closesWith: "22.7",
-    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history, automatic same-host comparisons and the Phase 22.6 world-scale matrix remain open.",
+    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open.",
   },
   {
     id: "diagnostics.marsReferenceTelemetry",
