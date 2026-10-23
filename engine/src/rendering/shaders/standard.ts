@@ -795,7 +795,9 @@ fn contactShadow(point: vec3<f32>, normal: vec3<f32>, lightDir: vec3<f32>, fragC
       let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
       if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z >= 0.0 && ndc.z <= 1.0) {
         let pixel = clamp(vec2<i32>(uv * extent), vec2<i32>(0), vec2<i32>(extent) - vec2<i32>(1));
-        let scene = textureLoad(contactDepth, pixel, 0);
+        // textureLoad returns a vec4 even for the r32float contact-depth target; compare its
+        // scalar red channel so WebKit does not reject vec4<f32> < f32 at shader compilation.
+        let scene = textureLoad(contactDepth, pixel, 0).r;
         // A smaller stored depth is a surface between the receiver and the light sample. Weight
         // the near steps more heavily so the effect fades continuously instead of popping at radius.
         if (scene + bias < ndc.z) {

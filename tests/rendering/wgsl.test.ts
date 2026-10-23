@@ -177,6 +177,7 @@ group("generated uniform structs are legal in every browser's uniform address sp
   test("pins the depth-reuse shader bindings and transparent/post consumers", () => {
     assert.equal(BINDINGS.contactDepth.binding, 12);
     assert.match(STANDARD_FRAGMENT_BODY, /textureLoad\(contactDepth/);
+    assert.match(STANDARD_FRAGMENT_BODY, /textureLoad\(contactDepth, pixel, 0\)\.r/);
     assert.match(STANDARD_FRAGMENT_BODY, /fn transparentDepthFade\(/);
     assert.match(STANDARD_FRAGMENT_BODY, /objectData\.distanceFade\.w/);
     assert.match(POST_SHADER, /@group\(0\) @binding\(4\) var depthTex: texture_2d<f32>/);
