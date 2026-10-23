@@ -29,10 +29,10 @@ CURRENT CODEBASE BASELINE:
                 async pipeline compilation and GPU timing; 13.9 cascade assignment,
                 bounded spot/point shadows, contact shadows, adaptive atlas resolution,
                 and shared per-instance culling are covered by focused suites and docs)
-    Phase 14:   [~] IN PROGRESS (14.1-14.6: canonical-surface deterministic scatter,
+    Phase 14:   IMPLEMENTED / VERIFIED (14.1-14.6: canonical-surface deterministic scatter,
                 all six 14.2 types, compact/device-resident storage, GPU LOD/culling, worker-backed
-                population streaming and resident geometry raycasts are landed; the phase roll-up
-                remains in progress, with scheduler/custom-stage boundaries documented.)
+                population streaming and resident geometry raycasts are covered by focused suites;
+                scheduler/custom-stage boundaries are documented as intentional contract limits.)
     Phase 15+:  IMPLEMENTED / VERIFIED (15.1 content addressing, 15.2 dependency graph,
                 15.3 streaming, 15.4 staged resource + shader reload, 15.5 validation,
                 and 15.6 KTX2/Basis transcoding are implemented and covered by tests;
