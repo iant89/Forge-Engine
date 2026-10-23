@@ -45,10 +45,10 @@ CURRENT CODEBASE BASELINE:
                 deterministic push/roll/break and rover obstacle response, persistent deformation and
                 visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
-                and 22.2 rendering matrices cover ECS, math, scheduling, resources, draw/graph submission,
-                culling, lighting, shadow fitting and GPU allocation accounting, and the runner emits a
-                versioned host-described JSON snapshot; terrain, physics, particle/world scale sweeps and
+                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core,
+                22.2 rendering and 22.3 terrain matrices cover ECS, math, scheduling, resources, renderer
+                submission, terrain generation/erosion/LOD/streaming/mesh construction, and the runner
+                emits a versioned host-described JSON snapshot; physics, particle/world scale sweeps and
                 automatic historical comparison remain. Phases 23 through 28 remain
                 NOT STARTED ([ ]). Phase 29 is a roll-up (see the status block; `docs:check` verifies
                 the phase keys directly).
@@ -190,8 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core and 22.2 rendering matrices are implemented and guarded; 22.3–22.6
-        coverage and automatic historical comparison remain)
+    [~] IN PROGRESS (22.1 core, 22.2 rendering and 22.3 terrain matrices are implemented and guarded;
+        22.4–22.6 coverage and automatic historical comparison remain)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2483,11 +2483,18 @@ GOAL:
 
 22.3 Terrain
 
-    [ ] generation
-    [ ] erosion
-    [ ] LOD
-    [ ] streaming
-    [ ] mesh generation
+    [x] generation
+    [x] erosion
+    [x] LOD
+    [x] streaming
+    [x] mesh generation
+
+    As built: `npm run bench` runs worker-equivalent deterministic generation at 33²/65²/129²,
+    explicit thermal and hydraulic erosion, multi-level LOD/geomorph selection, a real budgeted
+    `TerrainWorld` cold/resident/moved/cache-return scenario, and skirted `TerrainTile` mesh-source
+    construction at three resolutions. Guards cover deterministic digests, finite height ranges,
+    cache reuse, resident-chunk limits and exact grid-plus-skirt topology; the real browser gate
+    remains the device-side terrain validation.
 
 
 22.4 Physics
@@ -2519,8 +2526,8 @@ GOAL:
 
     [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
         operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
-    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1
-        baseline is recorded; stable metric IDs, repeated samples and an automatic same-host
+    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.3
+        baselines are recorded; stable metric IDs, repeated samples and an automatic same-host
         comparator/history remain).
     [ ] Fail automatically on a statistically significant regression against comparable history.
 

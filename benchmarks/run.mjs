@@ -16,6 +16,7 @@ import { assertEcsBenchmark, runEcsBenchmark } from "./src/ecs.bench.ts";
 import { assertLightBenchmark, runLightCullingBenchmark } from "./src/lights.bench.ts";
 import { runParticleBenchmark } from "./src/particles.bench.ts";
 import { assertRenderingBenchmark, runRenderingBenchmark } from "./src/rendering.bench.ts";
+import { assertTerrainBenchmark, runTerrainBenchmark } from "./src/terrain.bench.ts";
 import { assertUIBenchmark, runUIBenchmark } from "./src/ui.bench.ts";
 
 function jsonOutputPath(argv) {
@@ -55,6 +56,9 @@ results.push(...culling.results);
 console.log("Running Phase 22.2 rendering benchmark matrix...");
 const rendering = await runRenderingBenchmark();
 results.push(...rendering.results);
+console.log("Running Phase 22.3 terrain benchmark matrix...");
+const terrain = runTerrainBenchmark();
+results.push(...terrain.results);
 console.log("Running UI framework benchmark...");
 const uiBench = runUIBenchmark(1000);
 results.push(...uiBench.results);
@@ -88,6 +92,9 @@ for (const note of checks.culling) console.log(`  ${note}`);
 checks.rendering = assertRenderingBenchmark(rendering);
 console.log("Rendering (Phase 22.2):");
 for (const note of checks.rendering) console.log(`  ${note}`);
+checks.terrain = assertTerrainBenchmark(terrain);
+console.log("Terrain (Phase 22.3):");
+for (const note of checks.terrain) console.log(`  ${note}`);
 console.log("UI framework:");
 for (const note of uiBench.notes) console.log(`  ${note}`);
 const uiFails = assertUIBenchmark(uiBench);

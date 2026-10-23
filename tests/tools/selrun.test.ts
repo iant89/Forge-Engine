@@ -192,18 +192,18 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("links each discovered suite exactly once, reports the exact count, and leaves DOM suites last", () => {
     const catalog = validateCatalog(repoRoot);
     assert.deepEqual(catalog.errors, []);
-    assert.equal(catalog.stats.suitesOnDisk, 162);
-    assert.equal(catalog.stats.suitesLinked, 162);
-    assert.equal(catalog.stats.suitesNamed, 162);
-    assert.equal(catalog.stats.suitesWithCoverage, 162);
-    assert.equal(catalog.stats.coverageClaims, 1116);
+    assert.equal(catalog.stats.suitesOnDisk, 163);
+    assert.equal(catalog.stats.suitesLinked, 163);
+    assert.equal(catalog.stats.suitesNamed, 163);
+    assert.equal(catalog.stats.suitesWithCoverage, 163);
+    assert.equal(catalog.stats.coverageClaims, 1117);
 
     const discovered = discoverSuiteFiles(repoRoot);
     const linked = readLinkedSuites(repoRoot);
     const linkPaths = linked.links.map((link) => link.file);
     assert.equal(linked.reportCounts.length, 1);
-    assert.equal(linked.reportCounts[0], 162);
-    assert.equal(new Set(linkPaths).size, 162);
+    assert.equal(linked.reportCounts[0], 163);
+    assert.equal(new Set(linkPaths).size, 163);
     assert.deepEqual([...linkPaths].sort(), discovered);
 
     const firstDomSuite = linkPaths.findIndex((file) => file?.startsWith("tests/controls/"));
@@ -254,7 +254,7 @@ group("selrun catalog and many-to-many repository coverage", () => {
   test("checks the package CLI and keeps selrun/editor linked as local npm workspaces", () => {
     const cli = path.join(repoRoot, "packages/selrun/src/cli.mjs");
     const output = execFileSync(process.execPath, [cli, "check"], { cwd: repoRoot, encoding: "utf8" });
-    assert.match(output, /check OK — 162 linked suites, 1116 explicit coverage claims/);
+    assert.match(output, /check OK — 163 linked suites, 1117 explicit coverage claims/);
 
     const manifest = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
     const lock = JSON.parse(readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));

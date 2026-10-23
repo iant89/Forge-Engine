@@ -100,3 +100,39 @@ tracked in Git.
 This is a mock/CPU baseline, not a real-device GPU timing claim. The browser gate remains the
 real-WebGPU evidence for shader compilation and device execution; same-host statistical comparison
 and automatic rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.3 terrain baseline
+
+**Source:** `arena/5b6c310c-forge-engine`, Phase 22.3 change based on `5de4adccc231c8c411e59a8ca1865a7fbc2c8309`
+**UTC start:** 2026-10-23 06:52:23
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 4,517.20 ms inside the benchmark process; all guards passed
+**GPU:** none used; terrain rows are deterministic CPU generation/erosion/LOD/streaming/mesh work
+
+### Phase 22.3 terrain matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Deterministic terrain generation, 33×33 | 1,089 grid samples | 5.67 ms | 192,155/s |
+| Deterministic terrain generation, 65×65 | 4,225 grid samples | 4.28 ms | 987,761/s |
+| Deterministic terrain generation, 129×129 | 16,641 grid samples | 16.40 ms | 1,014,657/s |
+| Thermal erosion, 65×65 × 3 iterations | 12,675 cell-iterations | 6.80 ms | 1,863,786/s |
+| Hydraulic erosion, 65×65 × 5 iterations | 21,125 cell-iterations | 28.28 ms | 747,094/s |
+| LOD selection + resolution/geomorph | 896 visible-cell selections | 0.60 ms | 1,484,560/s |
+| TerrainWorld cold streaming update | 12 generated chunks | 13.58 ms | 884/s |
+| TerrainWorld resident streaming update | 4 steady frames | 0.12 ms | 34,267/s |
+| TerrainWorld camera move + cache return | 24 generated/cache-return chunks | 10.68 ms | 2,248/s |
+| Skirted mesh source, 17×17 | 357 vertices | 0.48 ms | 742,958/s |
+| Skirted mesh source, 33×33 | 1,221 vertices | 1.22 ms | 997,981/s |
+| Skirted mesh source, 65×65 | 4,485 vertices | 8.56 ms | 523,821/s |
+
+Shape/correctness from the same run: all generation grids reproduced identical float digests; the
+LOD selector covered levels 0/1/2/3/4 with 3/5/9/17/33 nested resolutions and 216 geomorph transition
+samples; the streaming scenario stayed within a 12-chunk budget, generated 12 cold and 12 moved
+chunks, and returned to the original view with 12 cache hits; and the 65×65 skirted mesh contained
+4,485 vertices and 26,112 indices, matching the exact grid-plus-four-edge-skirts topology.
+
+This is a CPU baseline, not a real-device GPU timing claim. The browser gate remains the evidence for
+terrain shader compilation and device execution; same-host statistical comparison and automatic
+rejection remain Phase 22.7 work.
