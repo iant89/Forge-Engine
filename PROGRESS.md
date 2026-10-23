@@ -236,7 +236,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 
 ## Road to 1.0 (Phases 23, 27–29)
 
-- [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. Sustained continuous-drive validation, erosion, environment breadth, camera modes and integrated replay remain (Phase 23)
+- [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23 and now publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API; its fixed-step Mars solar cycle now drives the reference sun, ambient and horizon fog. Sustained continuous-drive validation, Stage A erosion, weather/cloud breadth, camera modes and integrated replay remain (Phase 23)
 - [x] Public API audit and release contract: the root-only `@forge/engine` boundary and the
   2,196-export surface (2,187 public, nine experimental), type/value kinds, stability labels,
   direct declarations and transitive engine-local type contracts have a deterministic CI-gated

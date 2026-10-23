@@ -3279,6 +3279,27 @@ async function checkMarsSection() {
   if (marsLoaded.terrainGenerator !== "mars" || marsLoaded.terrainHasErosion !== false) {
     throw new Error(`mars showcase: expected the analytic-only Mars port, got ${marsLoaded.terrainGenerator}, erosion=${marsLoaded.terrainHasErosion}`);
   }
+  // Phase 23.2: the reference environment must expose a real, deterministic solar cycle rather
+  // than the old fixed noon light. Scrub the live scene through night and noon, then restore the
+  // opening clock before terrain/rover screenshots and the drive choreography continue.
+  const solarMorning = marsLoaded.solarCycle;
+  if (!solarMorning || solarMorning.timeScale !== 240 || !solarMorning.isDay || !(solarMorning.sunIntensity > 0)) {
+    throw new Error(`mars showcase: Mars solar cycle did not start in daylight: ${JSON.stringify(solarMorning)}`);
+  }
+  await page.evaluate(() => window.__forge.setMarsSolarTime(0));
+  await waitPresentedFrames(2);
+  const solarMidnight = await page.evaluate(() => window.__forge.marsState()?.solarCycle);
+  if (!solarMidnight || solarMidnight.isDay || solarMidnight.sunIntensity !== 0) {
+    throw new Error(`mars showcase: solar cycle did not reach night: ${JSON.stringify(solarMidnight)}`);
+  }
+  await page.evaluate(() => window.__forge.setMarsSolarTime(12));
+  await waitPresentedFrames(2);
+  const solarNoon = await page.evaluate(() => window.__forge.marsState()?.solarCycle);
+  if (!solarNoon || !solarNoon.isDay || !(solarNoon.sunIntensity > 0) || solarNoon.elevationDeg <= solarMidnight.elevationDeg) {
+    throw new Error(`mars showcase: solar cycle did not restore daylight: ${JSON.stringify(solarNoon)}`);
+  }
+  await page.evaluate(() => window.__forge.setMarsSolarTime(9.5));
+  console.log(`mars solar cycle: ${solarMidnight.timeOfDay.toFixed(2)}h night → ${solarNoon.timeOfDay.toFixed(2)}h day, elevation ${solarNoon.elevationDeg.toFixed(1)}°`);
   const marsSettled = await pollMars(
     "mars showcase: rover tile never became resident with terrain contact (≥4 of 6) in 45s",
     (s) => s.terrainRoverChunkReady && s.terrainReadyChunks > 0 && s.contactWheels >= 4,

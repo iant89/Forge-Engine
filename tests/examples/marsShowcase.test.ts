@@ -66,6 +66,7 @@ import assert from "node:assert/strict";
 import { afterEach, assertCallCount, assertCloseTo, assertContains, assertMatchObject, assertMatches, assertNotCalled, assertNotContains, finish, group, spyFunction, spyOn, stringContaining, stubGlobal, test, unstubAllGlobals } from "selrun";
 import {
   Clock,
+  DayNightCycle,
   ElectricMotor,
   GraphicsDevice,
   Logger,
@@ -215,6 +216,35 @@ group("Mars Showcase — ported terrain integration", () => {
     assert.equal(reference.gpuWorld.managedBatches, null);
     assert.equal(reference.limitations.erosionCache, "missing");
     assertContains(handle.overlay?.(), "analytic only (no erosion cache)");
+  });
+
+  test("drives the Mars reference sun through a deterministic day/night cycle", async () => {
+    const { handle, scene, tick } = await fixture();
+    const cycle = scene.object<DayNightCycle>("marsSolarCycle");
+    assert.ok(cycle);
+    assert.equal(cycle!.timeOfDay, 9.5);
+    assert.equal(cycle!.timeScale, 240);
+    assert.equal(handle.marsState().solarCycle.isDay, true);
+    assert.ok(handle.marsState().solarCycle.sunIntensity > 0);
+
+    handle.setMarsSolarTime(0);
+    const midnight = handle.marsState().solarCycle;
+    assert.equal(midnight.timeOfDay, 0);
+    assert.equal(midnight.isDay, false);
+    assert.equal(midnight.sunIntensity, 0);
+
+    handle.setMarsSolarTime(12);
+    const noon = handle.marsState().solarCycle;
+    assert.equal(noon.timeOfDay, 12);
+    assert.equal(noon.isDay, true);
+    assert.ok(noon.sunIntensity > 0);
+    assert.notEqual(noon.elevationDeg, midnight.elevationDeg);
+
+    const before = noon.simulatedSeconds;
+    tick();
+    const after = handle.marsState().solarCycle;
+    assert.ok(after.simulatedSeconds > before);
+    assert.ok(after.timeOfDay > 12);
   });
 
   test("uploads the actual Mars weights into tile-owned masks and toggles layering without changing geometry", async () => {

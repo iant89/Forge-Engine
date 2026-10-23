@@ -7,8 +7,9 @@
  *   tiles with 32 m skirts, dust/rock/sand/crust splat materials and exp² dust haze. Analytic-only: no external Stage A
  *   erosion cache is fetched. Cell generation uses the engine's worker pool, with nine warm-up
  *   requests then one per frame; mesh uploads and missing-cell ground queries remain on main;
- * - sky: `MARS_ATMOSPHERE` through `forge.sky` with the horizon-coloured haze (same recipe as the
- *   terrain demo, quality raised to medium — this scene spends its budget on the rover up close);
+ * - sky: `MARS_ATMOSPHERE` through `forge.sky` with a fixed-step `DayNightCycle` driving the
+ *   solar direction, light, ambient and horizon-coloured haze (quality raised to medium — this
+ *   scene spends its budget on the rover up close);
  * - rover: `Vehicle` on an electric drivetrain (`ElectricMotor` ≈1.5 kW + `ReductionDrive` 60:1 —
  *   the real rovers are battery-electric; the no-load motor speed caps the rover near 9.5 km/h,
  *   and braking regenerates), with the model's six hub positions (front + rear steer, all six
@@ -40,6 +41,7 @@ import {
   AtmosphereModel,
   Camera,
   Color,
+  DayNightCycle,
   Geometry,
   HeightfieldShape,
   PhysicsWorld,
@@ -169,6 +171,17 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     terrainReadyChunks: number;
     terrainRoverChunkReady: boolean;
     terrainGroundHeight: number;
+    /** Mars-local day/night state driven by the scene's astronomical cycle. */
+    solarCycle: {
+      timeOfDay: number;
+      dayOfYear: number;
+      elevationDeg: number;
+      azimuthDeg: number;
+      isDay: boolean;
+      sunIntensity: number;
+      timeScale: number;
+      simulatedSeconds: number;
+    };
     wheelCount: number;
     contactWheels: number;
     /** Cumulative interactive rocks the rover has shattered (rover impacts never count). */
@@ -248,6 +261,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
    * continuous-traversal accounting. `ready` describes the live workload, not phase completion.
    */
   marsReferenceState(): MarsReferenceState;
+  /** Scrub the deterministic Mars solar clock; useful for browser gates and screenshots. */
+  setMarsSolarTime(hours: number): void;
   /** Reset traversal counters at the rover's current position (for a fresh soak/run). */
   resetMarsReferenceTraversal(): void;
   /** Re-run the GLB fetch after a failure (the loading screen's Retry button). */
@@ -316,6 +331,13 @@ export const MARS_SHOWCASE_SITE = {
   lonDeg: 0,
   headingDeg: 0,
 } as const;
+
+/** One real second advances four simulated minutes, making one reference day visible in about six minutes. */
+export const MARS_SOLAR_TIME_SCALE = 240;
+/** The reference clock starts mid-morning so both the sun path and the rover remain readable. */
+export const MARS_SOLAR_START_TIME = 9.5;
+/** A deterministic season for the reference route; the cycle itself remains user-scrubbable via the handle. */
+export const MARS_SOLAR_START_DAY = 172;
 
 /**
  * Surveyed gentle uphill traverse on the unmodified seed-1337 surface. The summit preset starts
@@ -956,6 +978,33 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   fill.setColor(0.36, 0.2, 0.16);
   scene.world.addComponent(fillEntity.id, fill);
   fillEntity.transform.lookAt(new Vec3(0, 0, 0));
+
+  // Mars' reference environment is not frozen at noon: the existing astronomical cycle owns the
+  // sun direction, transmittance-coloured light, sky direction, ambient and horizon fog. Keeping
+  // this as a normal SceneObject also means fixed-step playback and scene snapshots see the same
+  // deterministic clock as every other day/night demo.
+  const marsSolarCycle = new DayNightCycle({
+    name: "marsSolarCycle",
+    latitude: MARS_SHOWCASE_SITE.latDeg,
+    longitude: MARS_SHOWCASE_SITE.lonDeg,
+    year: 2000,
+    dayOfYear: MARS_SOLAR_START_DAY,
+    timeOfDay: MARS_SOLAR_START_TIME,
+    timeScale: MARS_SOLAR_TIME_SCALE,
+    atmosphere: marsAtmosphere,
+    sun,
+    sunIntensity: 4.2,
+    ambientScale: 0.72,
+    nightAmbient: new Color(0.012, 0.009, 0.018),
+    driveAmbient: true,
+    driveFog: true,
+    driveSky: true,
+    // The fill is a weak rust-coloured bounce at night and stays subordinate to the moving sun.
+    schedules: [({ daylight }) => {
+      fill.intensity = 0.16 + daylight * 0.64;
+    }],
+  });
+  scene.add(marsSolarCycle);
 
   // Camera: chase framing; `followTarget` tracks the chassis and the surface clamp glides over
   // the terrain (keyboard pan off — the scene binds WASD to the rover).
@@ -3259,6 +3308,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       return (
         `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel} · HGA ${antennaLabel}\n` +
         `${MARS_SHOWCASE_SITE.name} · Mars seed ${terrain.seed} · analytic only (no erosion cache) · ${terrainGeneration()} · ${terrain.layeredMaterialsEnabled ? "4-layer PBR" : "single material"}\n` +
+        `sol ${marsSolarCycle.clockText} · sun ${marsSolarCycle.elevationDeg.toFixed(1)}° · ${marsSolarCycle.isDay ? "day" : "night"} · ${marsSolarCycle.timeScale}×\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
         `dust ${ambientDust.simulation.alive}+${kickDustAlive()} · chips ${wheelRockChipsAlive()}  NASA/JPL-Caltech (public domain)` +
@@ -3292,6 +3342,16 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         terrainReadyChunks: readyChunks,
         terrainRoverChunkReady: roverChunkReady(),
         terrainGroundHeight: deformedGroundHeight(vehicle.position.x, vehicle.position.z),
+        solarCycle: {
+          timeOfDay: marsSolarCycle.timeOfDay,
+          dayOfYear: marsSolarCycle.dayOfYear,
+          elevationDeg: marsSolarCycle.elevationDeg,
+          azimuthDeg: marsSolarCycle.azimuthDeg,
+          isDay: marsSolarCycle.isDay,
+          sunIntensity: marsSolarCycle.sunLightIntensity,
+          timeScale: marsSolarCycle.timeScale,
+          simulatedSeconds: marsSolarCycle.simulatedSeconds,
+        },
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
         interactiveRocks: interactiveRocks.size,
@@ -3358,6 +3418,9 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       };
     },
     marsReferenceState: referenceState,
+    setMarsSolarTime(hours: number): void {
+      if (Number.isFinite(hours)) marsSolarCycle.setTime(hours).apply();
+    },
     resetMarsReferenceTraversal(): void {
       referenceTraversal.reset(vehicle.position.x, vehicle.position.z);
     },

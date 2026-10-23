@@ -459,8 +459,13 @@ ownership boundary executes; it does not prove it is faster.
 
 This starts, but does not finish, either acceptance gate. No sustained route/soak threshold converts
 the counters into pass/fail, and physical-adapter performance has not been measured. GPU instance
-generation, generic arena compaction and CPU submission removal remain open. Erosion, environment,
-camera and replay gaps remain tracked separately in `ROADMAP.md`.
+generation, generic arena compaction and CPU submission removal remain open. The Mars Showcase now
+also wires its deterministic `DayNightCycle` into the reference sun/ambient/fog path; the focused
+showcase suite scrubs night/noon through `marsState().solarCycle`, and the browser Mars arm contains
+the corresponding real-device assertion. The local browser attempt remains unclaimed because the
+pre-existing static/terrain WGSL shadow comparison fails on SwiftShader before the Mars arm runs.
+Stage A erosion, weather/cloud breadth, camera and replay gaps remain tracked separately in
+`ROADMAP.md`.
 
 ### `tests/terrain/terrainMaterials.test.ts` — four-layer GPU data, draws and lifetime
 

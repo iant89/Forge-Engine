@@ -2594,14 +2594,16 @@ This is the primary validation environment for Forge.
 
     [x] Mars atmosphere
     [x] dust haze
-    [ ] solar cycle
+    [x] solar cycle
     [ ] weather
     [ ] clouds where appropriate
     [x] lighting
 
-    As built: the showcase uses the Mars atmosphere, exponential dust haze and shadowed directional
-    lighting. Its sun is static; the separate sky/weather demos do not satisfy this reference slice's
-    solar-cycle, Mars weather or cloud integration requirements.
+    As built: the showcase uses the Mars atmosphere, exponential dust haze, and a fixed-step
+    `DayNightCycle` that drives the sun direction/intensity, ambient, sky direction and horizon fog.
+    The deterministic Mars clock is exposed in `marsState().solarCycle` and can be scrubbed through
+    `window.__forge.setMarsSolarTime(hours)`. Mars weather and cloud integration remain separate
+    unchecked items; the reference slice still has no Stage A erosion cache (`23.1`).
 
 
 23.3 Rover
