@@ -190,8 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain and 22.4 physics matrices are implemented
-        and guarded; 22.5–22.6 coverage and automatic historical comparison remain)
+    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain, 22.4 physics and 22.5 particles
+        matrices are implemented and guarded; 22.6 coverage and automatic historical comparison remain)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2515,10 +2515,17 @@ GOAL:
 
 22.5 Particles
 
-    [ ] 10K
-    [ ] 100K
-    [ ] 500K
-    [ ] 1M
+    [x] 10K
+    [x] 100K
+    [x] 500K
+    [x] 1M
+
+    As built: `npm run bench` measures deterministic CPU setup and fixed-step integration plus strict
+    mock-GPU storage allocation and per-frame command/uniform preparation at all four capacity bands.
+    Guards compare CPU gravity with the analytic reference, require deterministic state digests and
+    zero ECS entities, validate the 64-byte particle storage shape, and require zero live mock buffers
+    after teardown. The mock does not execute WGSL, so its rows are allocation/API validation rather
+    than real-device throughput; the browser/device gate remains authoritative for GPU timing.
 
 
 22.6 World

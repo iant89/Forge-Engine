@@ -178,3 +178,48 @@ normal impulse and the resting-contact pass held maximum penetration to 0.0118 m
 This is a CPU/API baseline, not a real-device physics timing claim. The benchmark guards establish
 shape, finite-state, determinism and catastrophe bounds; stable metric IDs, repeated same-host
 comparison and automatic rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.5 particle baseline
+
+**Source:** `arena/5b6c310c-forge-engine`, Phase 22.5 change based on `5de4adccc231c8c411e59a8ca1865a7fbc2c8309`
+**UTC start:** 2026-10-23 15:37:18.449
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 9,387.28 ms inside the benchmark process; all guards passed
+
+### Phase 22.5 CPU matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Setup, 10K particles | 10,000 particles | 1.03 ms | 9,673,790/s |
+| Fixed-step integration, 10K × 30 | 300,000 particle-steps | 14.99 ms | 20,020,012/s |
+| Setup, 100K particles | 100,000 particles | 2.55 ms | 39,248,563/s |
+| Fixed-step integration, 100K × 30 | 3,000,000 particle-steps | 89.04 ms | 33,691,238/s |
+| Setup, 500K particles | 500,000 particles | 12.56 ms | 39,823,731/s |
+| Fixed-step integration, 500K × 30 | 15,000,000 particle-steps | 482.60 ms | 31,081,725/s |
+| Setup, 1M particles | 1,000,000 particles | 39.86 ms | 25,086,217/s |
+| Fixed-step integration, 1M × 30 | 30,000,000 particle-steps | 906.93 ms | 33,078,770/s |
+
+Every CPU band retained all particles, matched the semi-implicit analytic gravity reference within
+`2.67e-7` at worst, and produced a deterministic state digest. The authoritative state is 64 bytes
+per particle: 0.64 MB, 6.4 MB, 32 MB and 64 MB for the four bands.
+
+### Phase 22.5 mock-GPU allocation and preparation matrix
+
+| Workload | Storage bytes | Peak live bytes | Time |
+| --- | ---: | ---: | ---: |
+| Allocate, 10K particles | 640,000 | 1,320,768 | 4.62 ms |
+| Prepare 3 frames, 10K | 640,000 | 1,320,768 | 0.63 ms |
+| Allocate, 100K particles | 6,400,000 | 13,200,768 | 9.31 ms |
+| Prepare 3 frames, 100K | 6,400,000 | 13,200,768 | 0.13 ms |
+| Allocate, 500K particles | 32,000,000 | 66,000,768 | 69.45 ms |
+| Prepare 3 frames, 500K | 32,000,000 | 66,000,768 | 0.29 ms |
+| Allocate, 1M particles | 64,000,000 | 132,000,768 | 103.68 ms |
+| Prepare 3 frames, 1M | 64,000,000 | 132,000,768 | 0.21 ms |
+
+Each preparation row emitted deterministically with zero GPU simulation steps and zero ECS entities;
+all rows had zero mock validation errors and returned live bytes to the device baseline after disposal.
+These are strict mock-device allocation and
+command/uniform-preparation measurements only: the mock does not execute WGSL, so they are not GPU
+shader-throughput claims. Real browser/device timing remains the authoritative GPU gate. Stable metric
+IDs, repeated same-host comparison and automatic rejection remain Phase 22.7 work.

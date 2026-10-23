@@ -349,13 +349,27 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "The CPU matrix measures sweep-and-prune pair generation and pruning at multiple body counts, every supported narrowphase dispatcher, direct sequential-impulse contacts plus fixed-step resting stability, world raycasts and registered heightfield queries, and 8/32/64-vehicle fixed-step fleets. Guards validate pair/contact shape, finite state, deterministic digests, query hits and catastrophe bounds; the rows are CPU/API measurements, not a real-device physics claim.",
   },
   {
+    id: "diagnostics.particleBenchmarks",
+    phase: "22.5",
+    status: "verified",
+    summary: "Deterministic CPU and mock-GPU particle capacity benchmark matrix at 10K, 100K, 500K and 1M particles",
+    evidence: [
+      "benchmarks/src/particles.bench.ts",
+      "benchmarks/run.mjs",
+      "tests/particles/particles.test.ts",
+      "PERFORMANCE.md",
+    ],
+    closesWith: "22.5",
+    notes: "The CPU rows measure setup and fixed-step integration against the analytic gravity curve. Mock-GPU rows measure storage allocation and command/uniform preparation, plus zero-live-byte teardown; the strict mock does not execute WGSL and therefore is not a real-device throughput claim.",
+  },
+  {
     id: "diagnostics.benchmarkRegression",
     phase: "22.7",
     status: "inProgress",
     summary: "Versioned machine-readable benchmark snapshots and an audited performance history for automatic regression detection",
     evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
     closesWith: "22.7",
-    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.5-22.6 workload matrix.",
+    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history, automatic same-host comparisons and the Phase 22.6 world-scale matrix remain open.",
   },
   {
     id: "diagnostics.marsReferenceTelemetry",

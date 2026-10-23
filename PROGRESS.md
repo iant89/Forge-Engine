@@ -197,7 +197,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Phase 22.2 rendering matrix: mock-device draw submission, render-graph compile/alias/submit, object and clustered-light culling twins, finite cascade/spot/point shadow fits with adaptive atlas budgeting, and repeated GPU texture/buffer allocation accounting with zero-live-byte teardown
 - [x] Phase 22.3 terrain matrix: deterministic multi-resolution generation, thermal/hydraulic erosion, multi-level LOD/geomorph selection, budgeted TerrainWorld streaming/cache return, and skirted mesh-source construction with exact topology guards
 - [x] Phase 22.4 physics matrix: deterministic broadphase pruning, supported narrowphase manifold generation, sequential-impulse/stability workloads, raycast and heightfield queries, and vehicle fleets
-- [ ] Full particle and world-scale benchmark matrices, including 500k and 1M runs (Phase 22.5–22.6)
+- [x] Phase 22.5 particle matrix: deterministic CPU setup/integration and strict mock-GPU allocation/prepare coverage at 10K, 100K, 500K and 1M, with analytic, storage-shape, zero-entity and zero-live-buffer guards
+- [ ] World-scale benchmark matrix, including 10K, 100K, 500K and 1M objects (Phase 22.6)
 - [ ] Automatic same-host regression detection against repeated stored history; JSON snapshots and the first human-readable baseline are in place (Phase 22.7)
 
 ## Testing & CI (Phases 0, 2, 9, 28)
