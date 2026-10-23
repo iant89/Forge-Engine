@@ -17,7 +17,7 @@
 
 import { System } from "../scene/systems.js";
 import type { SystemContext } from "../scene/systems.js";
-import { sampleClip, NODE_STRIDE, initIdentity } from "./sampler.js";
+import { sampleClip, sampleTrackValues, NODE_STRIDE, initIdentity } from "./sampler.js";
 import { AnimationComponent } from "./component.js";
 import { Transform } from "../scene/components/index.js";
 
@@ -78,13 +78,9 @@ export class AnimationSystem extends System {
       if (playing.length === 0) continue;
 
       const jointCount = anim.jointCount;
-      if (jointCount === 0) continue;
 
-      ensureScratch(jointCount);
-      const bufA = scratchSampleA!;
-      const bufB = scratchSampleB!;
-
-      // Advance time for all playing clips.
+      // Advance time for all playing clips, including components that only bind morph targets and
+      // therefore have no node-to-entity TRS map.
       for (const playback of playing) {
         playback.time += dt * playback.speed;
         if (playback.looping && playback.clip.duration > 0) {
@@ -103,44 +99,83 @@ export class AnimationSystem extends System {
         }
       }
 
-      // Re-check after time advance — clips may have stopped.
+      // Re-check after time advance — clips may have stopped. Still sample the just-reached final
+      // pose once so a non-looping clip does not leave its previous frame visible at the endpoint.
       const stillPlaying = anim.getPlayingClips();
-      if (stillPlaying.length === 0) continue;
-
-      // Normalise weights.
+      const sampled = stillPlaying.length > 0 ? stillPlaying : playing;
       let totalWeight = 0;
-      for (const playback of stillPlaying) totalWeight += playback.weight;
+      for (const playback of sampled) totalWeight += playback.weight;
       const invWeight = totalWeight > 0 ? 1 / totalWeight : 0;
 
-      // Sample the first clip into bufA.
-      initRest(bufA, anim, jointCount);
-      const first = stillPlaying[0]!;
-      sampleClip(first.clip, first.time, bufA);
-      this.stats_clipsPlayed++;
-      this.stats_keysSampled += first.clip.tracks.length;
+      if (jointCount > 0) {
+        ensureScratch(jointCount);
+        const bufA = scratchSampleA!;
+        const bufB = scratchSampleB!;
 
-      if (stillPlaying.length === 1) {
-        // Single clip — apply directly.
-        this.applyToTransforms(world, anim, bufA, first.weight * invWeight);
-      } else {
-        // Blend multiple clips: sample second into bufB, blend into bufA, repeat.
-        let blended = bufA;
-        let blendWeight = first.weight * invWeight;
+        // Sample the first clip into bufA.
+        initRest(bufA, anim, jointCount);
+        const first = sampled[0]!;
+        sampleClip(first.clip, first.time, bufA);
+        this.stats_clipsPlayed++;
+        this.stats_keysSampled += first.clip.tracks.length;
 
-        for (let i = 1; i < stillPlaying.length; i++) {
-          const playback = stillPlaying[i]!;
-          initRest(bufB, anim, jointCount);
-          sampleClip(playback.clip, playback.time, bufB);
-          this.stats_clipsPlayed++;
-          this.stats_keysSampled += playback.clip.tracks.length;
+        if (sampled.length === 1) {
+          // Single clip — apply directly.
+          this.applyToTransforms(world, anim, bufA, first.weight * invWeight);
+        } else {
+          // Blend multiple clips: sample second into bufB, blend into bufA, repeat.
+          let blended = bufA;
+          let blendWeight = first.weight * invWeight;
 
-          const w = playback.weight * invWeight;
-          blendTRS(blended, bufB, jointCount, w / (blendWeight + w));
-          blendWeight += w;
+          for (let i = 1; i < sampled.length; i++) {
+            const playback = sampled[i]!;
+            initRest(bufB, anim, jointCount);
+            sampleClip(playback.clip, playback.time, bufB);
+            this.stats_clipsPlayed++;
+            this.stats_keysSampled += playback.clip.tracks.length;
+
+            const w = playback.weight * invWeight;
+            blendTRS(blended, bufB, jointCount, w / (blendWeight + w));
+            blendWeight += w;
+          }
+
+          this.applyToTransforms(world, anim, blended, 1);
         }
-
-        this.applyToTransforms(world, anim, blended, 1);
+      } else {
+        this.stats_clipsPlayed += sampled.length;
+        this.stats_keysSampled += sampled.reduce((sum, playback) => sum + playback.clip.tracks.length, 0);
       }
+      this.applyMorphBindings(anim, sampled, invWeight);
+    }
+  }
+
+  /** Sample and blend morph-weight channels independently of the fixed-size TRS scratch buffer. */
+  private applyMorphBindings(anim: AnimationComponent, playing: ReturnType<AnimationComponent["getPlayingClips"]>, invWeight: number): void {
+    const bindings = anim.getMorphBindings();
+    if (bindings.length === 0) return;
+    for (const binding of bindings) {
+      const result = new Float32Array(binding.defaults);
+      let appliedWeight = 0;
+      for (const playback of playing) {
+        const weight = playback.weight * invWeight;
+        if (weight <= 0) continue;
+        const components = Math.max(binding.defaults.length, ...playback.clip.tracks
+          .filter((track) => track.path === "weights" && track.nodeIndex === binding.nodeIndex)
+          .map((track) => track.components ?? binding.defaults.length));
+        const sample = new Float32Array(components);
+        sample.set(binding.defaults);
+        for (const track of playback.clip.tracks) {
+          if (track.path === "weights" && track.nodeIndex === binding.nodeIndex) {
+            sampleTrackValues(track, playback.time, sample);
+          }
+        }
+        const nextWeight = appliedWeight + weight;
+        for (let i = 0; i < result.length; i++) {
+          result[i] = (result[i]! * appliedWeight + (sample[i] ?? binding.defaults[i] ?? 0) * weight) / nextWeight;
+        }
+        appliedWeight = nextWeight;
+      }
+      binding.apply(result);
     }
   }
 

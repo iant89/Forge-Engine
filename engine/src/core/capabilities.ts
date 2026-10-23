@@ -215,7 +215,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "Core glTF 2.0/GLB triangle mesh accessors decode on TaskScheduler workers and return transferable upload-ready arrays",
     evidence: ["tests/resources/gltf.test.ts", "tests/core/tasks.test.ts", "docs/VERIFICATION.md"],
-    notes: "Covers interleaved/sparse accessors, normalized attributes, indices, bounds, nodes/scenes and material factors. Right-handed glTF is mirrored into the engine's left-handed frame at decode (x → -x with winding, tangents, nodes, skins and animation keys; warns once per file; handedness: \"preserve\" opts out; files baked by npm run gltf:fix-handedness carry asset.extras.forgeHandedness and load as-is). Skin import is assets.gltfSkins (16.1a); textures/materials are assets.gltfMaterials (16.1c); the rest (morph/instancing, Draco/meshopt) is tracked separately as assets.gltfAdvanced.",
+    notes: "Covers interleaved/sparse accessors, normalized attributes, indices, bounds, nodes/scenes and material factors. Right-handed glTF is mirrored into the engine's left-handed frame at decode (x → -x with winding, tangents, nodes, skins, morph deltas, instancing transforms and animation keys; warns once per file; handedness: \"preserve\" opts out; files baked by npm run gltf:fix-handedness carry asset.extras.forgeHandedness and load as-is). Extended morph/instancing/compression/UV1 coverage is assets.gltfAdvanced (16.1).",
   },
   {
     id: "assets.gltfSkins",
@@ -231,7 +231,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "instantiateGltfScene: a decoded glTF becomes node entities (hierarchy + local TRS), skinned renderables bound to joint entities with the inverse bind matrices, and its clips on an AnimationComponent with a rest pose",
     evidence: ["tests/resources/gltfScene.test.ts", "tools/browser-check.mjs", "examples/src/scenes/gltfSkinScene.ts"],
-    notes: "Phase 16.1f. Animations are decoded with the mesh (TRS channels, STEP/LINEAR/CUBICSPLINE; morph-weight channels are skipped, sparse animation accessors rejected). Verified on two assets, the Khronos SimpleSkin (CC0) and CesiumMan (CC-BY-4.0, 19 joints) samples: numerically on the mock device and with npm run check:browser:gltf-skin on real Chromium + SwiftShader (no physical GPU). Materials are built from factors, plus baseColor/metallicRoughness/normal maps when a texture set from loadGltfTextures is passed (assets.gltfMaterials, 16.1c); skinned primitives cull against per-frame posed bounds, the union of per-joint bind boxes carried by the live joint matrices (conservative, never smaller than the deformed mesh).",
+    notes: "Phase 16.1f. Animations are decoded with the mesh (TRS and morph-weight channels, STEP/LINEAR/CUBICSPLINE; sparse animation accessors rejected). Verified on two assets, the Khronos SimpleSkin (CC0) and CesiumMan (CC-BY-4.0, 19 joints) samples: numerically on the mock device and with npm run check:browser:gltf-skin on real Chromium + SwiftShader (no physical GPU). Materials are built from factors, plus baseColor/metallicRoughness/normal maps when a texture set from loadGltfTextures is passed (assets.gltfMaterials, 16.1c); skinned primitives cull against per-frame posed bounds, the union of per-joint bind boxes carried by the live joint matrices (conservative, never smaller than the deformed mesh).",
   },
   {
     id: "assets.gltfMaterials",
@@ -239,15 +239,15 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     status: "verified",
     summary: "glTF images/samplers/textures: embedded (bufferView, data URI) and external images decode on the main thread (loadGltfTextures) into sRGB colour / linear data textures that instantiateGltfScene binds as baseColor, emissive, metallicRoughness, normal and occlusion maps with per-texture samplers, plus alpha MASK cutoff",
     evidence: ["tests/resources/gltfTextures.test.ts", "tools/browser-check.mjs", "examples/src/scenes/gltfSkinScene.ts"],
-    notes: "Phase 16.1c. Verified on CesiumMan (JPEG base colour, skinned), Perseverance (38 WebP colour/normal/MR textures) and the generated MaterialFeatures.gltf (emissive, occlusion, MASK, clamp/nearest sampler) numerically on the mock device and with npm run check:browser:gltf-skin on Chromium + SwiftShader (per-feature on/off pixel A/B). Not applied: texCoord != 0 (map dropped with a warning; ROADMAP 16.1g), KHR_texture_transform, KTX2/Basis images; MASK cutouts cast full shadows. A failing image warns and leaves its map unbound.",
+    notes: "Phase 16.1c plus 16.1g. Verified on CesiumMan (JPEG base colour, skinned), Perseverance (38 WebP colour/normal/MR textures) and the generated MaterialFeatures.gltf (emissive, occlusion, MASK, clamp/nearest sampler) numerically on the mock device and with npm run check:browser:gltf-skin on Chromium + SwiftShader (per-feature on/off pixel A/B). All five texture slots preserve texCoord 0/1 and standard geometry carries a zero-filled UV1 fallback; KHR_texture_transform and KTX2/Basis images remain unsupported, MASK cutouts cast full shadows, and a failing image warns and leaves its map unbound.",
   },
   {
     id: "assets.gltfAdvanced",
     phase: "16.1",
-    status: "planned",
-    summary: "Extended glTF import: morph targets, instancing, compressed geometry extensions and skinned-GLB scene assembly",
-    closesWith: "16.1",
-    notes: "The Phase 9.1 importer deliberately covers static uncompressed triangle geometry and metadata, plus skin decoding since 16.1a (assets.gltfSkins); skinned scene assembly since 16.1f (assets.gltfSkinnedScene); textures/materials since 16.1c (assets.gltfMaterials); morphs, instancing and compression are 16.1b, 16.1d and 16.1e.",
+    status: "verified",
+    summary: "Extended glTF import: morph targets and animated weights, EXT_mesh_gpu_instancing, TEXCOORD_1 routing, and meshopt/Draco compressed geometry seams",
+    evidence: ["tests/resources/gltf.test.ts", "tests/resources/gltfScene.test.ts", "tests/resources/gltfTextures.test.ts", "tests/rendering/renderingSkinning.test.ts", "docs/VERIFICATION.md"],
+    notes: "Phase 16.1b/d/e/g. Morph deltas/default and node weights are applied through CPU geometry updates and weights animation channels; instancing transforms are decoded and expanded into child entities; TEXCOORD_1 is uploaded in a stable secondary vertex stream with zero fallback and selected per material map; EXT_meshopt_compression decodes automatically on inline/worker paths, while KHR_draco_mesh_compression accepts a host-supplied decoder and stays on the calling thread because decoder/WASM state is not structured-cloneable. Draco attribute/index output and compressed metadata are validated before upload. KHR_texture_transform, KTX2/Basis images, cameras and lights remain outside this importer slice; 16.1i Mars loader migration is still deferred.",
   },
   {
     id: "assets.loaderPreemption",
@@ -1124,7 +1124,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "tests/rendering/renderingSkinning.test.ts",
       "tests/examples/skinningScene.test.ts",
     ],
-    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. The GPU path is implemented: JOINTS_0/WEIGHTS_0 upload as a second vertex buffer slot, the renderer fills one mesh-local palette per skinned batch into a single storage arena each frame, and the skinned colour/depth-prepass/shadow variants draw through it; a skinned mesh deforms on a real adapter in the demo (npm run check:browser:skinning A/Bs two poses of the same uploaded vertices: 16,974/921,600 pixels differ in the focused mode and 8,859/468,000 in the full gate, max 211/255, zero GPU errors). Mechanical animation (16.6) landed on top of it: `animation/mechanical.ts` poses rig joints from channels and `MechanicalSystem` (order 310) drives them, with the vehicle wheel assembly and the Mars rover arm as consumers.",
+    notes: "Clip import, linear/step/cubic sampling, quaternion SLERP, multi-clip NLERP blend and the AnimationSystem (order 300) are implemented. AnimationStateMachine (parameter-driven transitions, crossfade blending, interruptible transitions, priority-sorted evaluation, easeInOut curve) and BlendTree1D/BlendTree2D (1D linear interpolation, 2D bilinear interpolation) are implemented. TwoBoneIK (analytic 2-joint solver with pole target) and FABRIK (iterative N-joint solver with convergence tolerance) are implemented. Joint palette computation (world × inverseBindMatrix, missing-joint fallback) and skinning data validation (weight sum, joint/weight count) are implemented. Morph-weight channels are assembled into weight tracks and update bound glTF geometry. The GPU path is implemented: JOINTS_0/WEIGHTS_0 upload as a second vertex buffer slot, the renderer fills one mesh-local palette per skinned batch into a single storage arena each frame, and the skinned colour/depth-prepass/shadow variants draw through it; a skinned mesh deforms on a real adapter in the demo (npm run check:browser:skinning A/Bs two poses of the same uploaded vertices: 16,974/921,600 pixels differ in the focused mode and 8,859/468,000 in the full gate, max 211/255, zero GPU errors). Mechanical animation (16.6) landed on top of it: `animation/mechanical.ts` poses rig joints from channels and `MechanicalSystem` (order 310) drives them, with the vehicle wheel assembly and the Mars rover arm as consumers.",
   },
   {
     id: "scripting.lifecycle",
@@ -1278,7 +1278,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,201-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,211-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1292,7 +1292,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,210 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,201 public candidates have exact approvals across 24 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
+    notes: "The audit resolves all 2,220 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,211 public candidates have exact approvals across 27 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",

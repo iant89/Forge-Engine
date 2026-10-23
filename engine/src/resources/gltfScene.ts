@@ -16,8 +16,10 @@
  *
  * Scope: materials are built from factors (base colour, metallic, roughness, double-sided,
  * alpha BLEND → transparent) plus, when `options.textures` (from `loadGltfTextures`, Phase 16.1c) is
- * given, the baseColor / emissive (sRGB), metallicRoughness / normal / occlusion maps with their per-texture samplers, emissive factors and alpha MASK cutoff; skinned primitives cull against posed bounds the renderer derives
- * from the skin's per-joint boxes (`SkinBinding.jointBounds`); morph targets, cameras and lights are not imported. Missing normals/tangents are generated.
+ * given, the baseColor / emissive (sRGB), metallicRoughness / normal / occlusion maps with their per-texture samplers, emissive factors, per-map UV-set selection and alpha MASK cutoff; skinned primitives cull against posed bounds the renderer derives
+ * from the skin's per-joint boxes (`SkinBinding.jointBounds`); morph targets are CPU-applied and weight
+ * animation channels update their geometry, and EXT_mesh_gpu_instancing nodes are expanded into
+ * transform children. Cameras and lights are not imported. Missing normals/tangents are generated.
  */
 
 import { UsageError } from "../core/errors.js";
@@ -104,6 +106,13 @@ function defaultMaterial(material: DecodedGltfMaterial | null, index: number | n
     emissiveMap: textures?.get(material.emissiveTexture, "srgb") ?? null,
     occlusionMap: textures?.get(material.occlusionTexture, "linear") ?? null,
     occlusionStrength: material.occlusionStrength,
+    uvSets: {
+      albedo: material.baseColorTexCoord === 1 ? 1 : 0,
+      normal: material.normalTexCoord === 1 ? 1 : 0,
+      metallicRoughness: material.metallicRoughnessTexCoord === 1 ? 1 : 0,
+      emissive: material.emissiveTexCoord === 1 ? 1 : 0,
+      occlusion: material.occlusionTexCoord === 1 ? 1 : 0,
+    },
     samplers: textures ? {
       albedo: textures.sampler(material.baseColorTexture),
       normal: textures.sampler(material.normalTexture),
@@ -117,6 +126,18 @@ function defaultMaterial(material: DecodedGltfMaterial | null, index: number | n
   return m;
 }
 
+/** Expand glTF's VEC3 morph tangent delta into the renderer's xyzw tangent stream, preserving w. */
+function morphTangentDelta(values: Float32Array | undefined, vertexCount: number): Float32Array | null {
+  if (!values) return null;
+  const expanded = new Float32Array(vertexCount * 4);
+  for (let vertex = 0; vertex < vertexCount; vertex++) {
+    expanded[vertex * 4] = values[vertex * 3] ?? 0;
+    expanded[vertex * 4 + 1] = values[vertex * 3 + 1] ?? 0;
+    expanded[vertex * 4 + 2] = values[vertex * 3 + 2] ?? 0;
+  }
+  return expanded;
+}
+
 function primitiveMesh(device: GraphicsDevice, primitive: DecodedGltfPrimitive, label: string, skinned: boolean, inverseBindMatrices: Float32Array | null): Mesh {
   const positions = primitive.attributes.POSITION!;
   const vertexCount = primitive.vertexCount;
@@ -126,6 +147,7 @@ function primitiveMesh(device: GraphicsDevice, primitive: DecodedGltfPrimitive, 
     for (let i = 0; i < vertexCount; i++) indices[i] = i;
   }
   const uvs = primitive.attributes.TEXCOORD_0 ?? new Float32Array(vertexCount * 2);
+  const uvs1 = primitive.attributes.TEXCOORD_1 ?? null;
   let normals = primitive.attributes.NORMAL ?? null;
   let tangents = primitive.attributes.TANGENT ?? null;
   if (!normals || !tangents) {
@@ -138,8 +160,14 @@ function primitiveMesh(device: GraphicsDevice, primitive: DecodedGltfPrimitive, 
     positions,
     normals,
     uvs,
+    uvs1,
     tangents,
     indices,
+    morphTargets: primitive.morphTargets.map((target) => ({
+      positions: target.attributes.POSITION ?? null,
+      normals: target.attributes.NORMAL ?? null,
+      tangents: morphTangentDelta(target.attributes.TANGENT, vertexCount),
+    })),
     skin: skinned && primitive.skin && inverseBindMatrices
       ? { inverseBindMatrices, joints: primitive.skin.joints, weights: primitive.skin.weights }
       : undefined,
@@ -197,6 +225,28 @@ export function instantiateGltfScene(device: GraphicsDevice, scene: Scene, asset
 
     const materialFor = options.material ?? ((m: DecodedGltfMaterial | null, i: number | null) => defaultMaterial(m, i, options.textures));
     const materialCache = new Map<number | null, Material>();
+    const morphBindings: { nodeIndex: number; geometry: import("../rendering/geometry.js").Geometry; defaults: Float32Array }[] = [];
+    const addRenderable = (target: Entity, gpuMesh: Mesh, material: Material): void => {
+      const renderable = new Renderable();
+      renderable.geometry = gpuMesh.geometry;
+      renderable.material = material;
+      renderable.skin = gpuMesh.skin;
+      target.add(renderable);
+    };
+    const setInstanceTransform = (target: Entity, instancing: NonNullable<DecodedGltfNode["instancing"]>, instanceIndex: number): void => {
+      const transform = target.require(Transform);
+      const t = instancing.translations;
+      transform.position.set(t[instanceIndex * 3]!, t[instanceIndex * 3 + 1]!, t[instanceIndex * 3 + 2]!);
+      if (instancing.rotations) {
+        const r = instancing.rotations;
+        transform.rotation.set(r[instanceIndex * 4]!, r[instanceIndex * 4 + 1]!, r[instanceIndex * 4 + 2]!, r[instanceIndex * 4 + 3]!);
+      }
+      if (instancing.scales) {
+        const sc = instancing.scales;
+        transform.scale.set(sc[instanceIndex * 3]!, sc[instanceIndex * 3 + 1]!, sc[instanceIndex * 3 + 2]!);
+      }
+      transform.sync();
+    };
     asset.nodes.forEach((node, index) => {
       const entity = nodes[index];
       if (!entity || node.meshIndex === null) return;
@@ -207,23 +257,33 @@ export function instantiateGltfScene(device: GraphicsDevice, scene: Scene, asset
         if (missing !== undefined) throw new UsageError(`glTF skin ${node.skinIndex} joint node ${missing} is not in the instantiated scene`);
       }
       mesh.primitives.forEach((primitive, primitiveIndex) => {
-        const target = primitiveIndex === 0 ? entity : makeEntity(`${node.name}.primitive-${primitiveIndex}`, entity);
         const gpuMesh = primitiveMesh(device, primitive, `${mesh.name}.${primitiveIndex}`, skin !== null, skin?.inverseBindMatrices ?? null);
         meshes.push(gpuMesh);
         if (skin && gpuMesh.skin) {
           gpuMesh.skin.joints = skin.joints.map((joint) => nodes[joint]!.id);
           gpuMesh.skin.root = skin.skeleton !== null ? nodes[skin.skeleton]?.id ?? null : null;
         }
+        const weights = node.weights ?? mesh.weights ?? new Float32Array(primitive.morphTargets.length);
+        if (primitive.morphTargets.length > 0) {
+          gpuMesh.geometry.applyMorphWeights(weights);
+          morphBindings.push({ nodeIndex: index, geometry: gpuMesh.geometry, defaults: Float32Array.from(weights) });
+        }
         let material = materialCache.get(primitive.materialIndex);
         if (!material) {
           material = materialFor(primitive.materialIndex === null ? null : asset.materials[primitive.materialIndex]!, primitive.materialIndex);
           materialCache.set(primitive.materialIndex, material);
         }
-        const renderable = new Renderable();
-        renderable.geometry = gpuMesh.geometry;
-        renderable.material = material;
-        renderable.skin = gpuMesh.skin;
-        target.add(renderable);
+        const instancing = node.instancing;
+        if (!instancing) {
+          const target = primitiveIndex === 0 ? entity : makeEntity(`${node.name}.primitive-${primitiveIndex}`, entity);
+          addRenderable(target, gpuMesh, material);
+          return;
+        }
+        for (let instanceIndex = 0; instanceIndex < instancing.count; instanceIndex++) {
+          const target = makeEntity(`${node.name}.instance-${instanceIndex}${primitiveIndex === 0 ? "" : `.primitive-${primitiveIndex}`}`, entity);
+          setInstanceTransform(target, instancing, instanceIndex);
+          addRenderable(target, gpuMesh, material);
+        }
       });
     });
 
@@ -233,6 +293,9 @@ export function instantiateGltfScene(device: GraphicsDevice, scene: Scene, asset
       animation = new AnimationComponent();
       animation.nodeToEntity = nodes.map((entity) => (entity ? entity.id : -1));
       animation.restPose = restPose;
+      for (const binding of morphBindings) {
+        animation.bindMorphTarget(binding.nodeIndex, binding.defaults, (weights) => binding.geometry.applyMorphWeights(weights));
+      }
       for (const clip of clips) animation.addClip(clip);
       root.add(animation);
     }

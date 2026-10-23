@@ -24,10 +24,10 @@
 export type { AnimationClip, AnimationTrack, TrackPath, Interpolation } from "./clip.js";
 export { createClip, componentsPerKey, validateTrack } from "./clip.js";
 
-export { sampleClip, initIdentity, NODE_STRIDE } from "./sampler.js";
+export { sampleClip, sampleTrackValues, initIdentity, NODE_STRIDE } from "./sampler.js";
 
 export { AnimationComponent } from "./component.js";
-export type { ClipPlayback } from "./component.js";
+export type { ClipPlayback, MorphTargetBinding } from "./component.js";
 
 export { AnimationSystem } from "./system.js";
 

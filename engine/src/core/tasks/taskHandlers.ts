@@ -15,7 +15,7 @@ import { NoiseField, valueNoise2 } from "../../math/noise.js";
 import { Rng, chunkSeed } from "../../math/rng.js";
 import { alignUp } from "../../math/scalar.js";
 import { MeshBvh } from "../../math/bvh.js";
-import { GLTF_MESH_DECODE_TASK, decodeGltfMeshTask, transferablesForGltfMesh, type GltfMeshDecodePayload, type DecodedGltfAsset } from "./gltfMesh.js";
+import { GLTF_MESH_DECODE_TASK, decodeGltfMeshTask, installGltfMeshoptDecoder, transferablesForGltfMesh, type GltfMeshDecodePayload, type DecodedGltfAsset } from "./gltfMesh.js";
 
 // ---------------------------------------------------------------- heightfield
 
@@ -245,13 +245,27 @@ export interface BuiltinHandlerTable {
  * `registerTaskHandler`. Kept as a single function so main thread and worker register the exact same
  * set from the exact same source.
  */
+let meshoptReady: Promise<void> | null = null;
+async function decodeGltfTaskWithCompression(p: GltfMeshDecodePayload, ctx: TaskContext): Promise<DecodedGltfAsset> {
+  // Meshopt is WASM-backed but exposes a synchronous decode call after its one-time module init.
+  // Loading it here keeps the task body worker-safe and leaves ordinary glTF decodes on the same path.
+  if (!meshoptReady) {
+    meshoptReady = import("meshoptimizer/decoder").then(async ({ MeshoptDecoder }) => {
+      await MeshoptDecoder.ready;
+      installGltfMeshoptDecoder(MeshoptDecoder);
+    });
+  }
+  await meshoptReady;
+  return decodeGltfMeshTask(p, ctx);
+}
+
 export function installTaskHandlers(register: <P, R>(name: string, fn: (payload: P, ctx: TaskContext) => R | Promise<R>) => void): void {
   register<HeightfieldTaskPayload, HeightfieldTaskResult>("terrain.heightfield", (p, ctx) => generateHeightfield(p, ctx));
   register<SlopeFieldTaskPayload, SlopeFieldTaskResult>("terrain.slope", (p, ctx) => bakeSlopeField(p, ctx));
   register<ScatterTaskPayload, ScatterTaskResult>("terrain.scatter", (p) => scatterPoints(p));
   register<NoiseTileTaskPayload, NoiseTileTaskResult>("texture.noiseTile", (p, ctx) => generateNoiseTile(p, ctx));
   register<BvhTaskPayload, BvhTaskResult>("geometry.bvh", (p) => buildBvhTask(p));
-  register<GltfMeshDecodePayload, DecodedGltfAsset>(GLTF_MESH_DECODE_TASK, (p, ctx) => decodeGltfMeshTask(p, ctx));
+  register<GltfMeshDecodePayload, DecodedGltfAsset>(GLTF_MESH_DECODE_TASK, (p, ctx) => decodeGltfTaskWithCompression(p, ctx));
   // Results own fresh buffers, so they cross the thread boundary as transfers rather than copies.
   for (const name of BUILTIN_TASK_NAMES) registerTaskResultTransfer(name, (result) => transferablesFor(name, result));
 }

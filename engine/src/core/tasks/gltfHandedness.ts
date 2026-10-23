@@ -47,6 +47,15 @@ export function convertGltfAssetHandedness(asset: DecodedGltfAsset): void {
       if (once(pos)) for (let i = 0; i < pos!.length; i += 3) pos![i] = neg(pos![i]!);
       const nrm = p.attributes.NORMAL;
       if (once(nrm)) for (let i = 0; i < nrm!.length; i += 3) nrm![i] = neg(nrm![i]!);
+      for (const target of p.morphTargets) {
+        const targetPosition = target.attributes.POSITION;
+        if (once(targetPosition)) for (let i = 0; i < targetPosition!.length; i += 3) targetPosition![i] = neg(targetPosition![i]!);
+        const targetNormal = target.attributes.NORMAL;
+        if (once(targetNormal)) for (let i = 0; i < targetNormal!.length; i += 3) targetNormal![i] = neg(targetNormal![i]!);
+        const targetTangent = target.attributes.TANGENT;
+        // Morph-target tangents are VEC3 deltas; unlike the base TANGENT VEC4, they have no w sign.
+        if (once(targetTangent)) for (let i = 0; i < targetTangent!.length; i += 3) targetTangent![i] = neg(targetTangent![i]!);
+      }
       const tan = p.attributes.TANGENT;
       if (once(tan)) {
         for (let i = 0; i < tan!.length; i += 4) {
@@ -89,6 +98,15 @@ export function convertGltfAssetHandedness(asset: DecodedGltfAsset): void {
       node.rotation![2] = neg(node.rotation![2]!);
     }
     if (once(node.matrix)) mirrorMatrixInPlace(node.matrix!, 0);
+    if (node.instancing) {
+      if (once(node.instancing.translations)) for (let i = 0; i < node.instancing.translations.length; i += 3) node.instancing.translations[i] = neg(node.instancing.translations[i]!);
+      if (once(node.instancing.rotations)) {
+        for (let i = 0; i < node.instancing.rotations!.length; i += 4) {
+          node.instancing.rotations![i + 1] = neg(node.instancing.rotations![i + 1]!);
+          node.instancing.rotations![i + 2] = neg(node.instancing.rotations![i + 2]!);
+        }
+      }
+    }
   }
   for (const skin of asset.skins) {
     if (once(skin.inverseBindMatrices)) {
@@ -97,7 +115,7 @@ export function convertGltfAssetHandedness(asset: DecodedGltfAsset): void {
   }
   for (const animation of asset.animations) {
     for (const channel of animation.channels) {
-      if (channel.targetPath === "scale") continue;
+      if (channel.targetPath === "scale" || channel.targetPath === "weights") continue;
       const out = animation.samplers[channel.samplerIndex]?.output;
       if (!once(out)) continue;
       if (channel.targetPath === "translation") for (let i = 0; i < out!.length; i += 3) out![i] = neg(out![i]!);

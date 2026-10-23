@@ -64,6 +64,57 @@ const PRESERVE = { handedness: "preserve" as const };
 const assetPath = fileURLToPath(new URL("../../examples/assets/SimpleSkin.gltf", import.meta.url));
 const assetJson = readFileSync(assetPath, "utf8");
 
+/** A compact in-memory asset exercising the Phase 16.1b/d/g render seams together. */
+function advancedFixture(): string {
+  const chunks: Float32Array[] = [
+    new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), // POSITION
+    new Float32Array([0, 0, 1, 0, 0, 1]), // TEXCOORD_0
+    new Float32Array([0.1, 0.2, 0.9, 0.2, 0.1, 0.8]), // TEXCOORD_1
+    new Float32Array([1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1]), // base TANGENT
+    new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), // morph POSITION delta
+    new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), // morph TANGENT VEC3 delta
+    new Float32Array([0, 1]), // animation input
+    new Float32Array([0, 1]), // animation weights output
+    new Float32Array([1, 2, 3, -4, 5, 6]), // instance translations
+    new Float32Array([0, 0, 0, 1, 0, 0, Math.SQRT1_2, Math.SQRT1_2]), // rotations
+    new Float32Array([1, 1, 1, 2, 1, 1]), // scales
+  ];
+  const views: { buffer: number; byteOffset: number; byteLength: number }[] = [];
+  let offset = 0;
+  const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+  for (const chunk of chunks) {
+    views.push({ buffer: 0, byteOffset: offset, byteLength: chunk.byteLength });
+    bytes.set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength), offset);
+    offset += chunk.byteLength;
+  }
+  const accessors = [
+    { bufferView: 0, componentType: 5126, count: 3, type: "VEC3" },
+    { bufferView: 1, componentType: 5126, count: 3, type: "VEC2" },
+    { bufferView: 2, componentType: 5126, count: 3, type: "VEC2" },
+    { bufferView: 3, componentType: 5126, count: 3, type: "VEC4" },
+    { bufferView: 4, componentType: 5126, count: 3, type: "VEC3" },
+    { bufferView: 5, componentType: 5126, count: 3, type: "VEC3" },
+    { bufferView: 6, componentType: 5126, count: 2, type: "SCALAR" },
+    { bufferView: 7, componentType: 5126, count: 2, type: "SCALAR" },
+    { bufferView: 8, componentType: 5126, count: 2, type: "VEC3" },
+    { bufferView: 9, componentType: 5126, count: 2, type: "VEC4" },
+    { bufferView: 10, componentType: 5126, count: 2, type: "VEC3" },
+  ];
+  return JSON.stringify({
+    asset: { version: "2.0" },
+    extensionsRequired: ["EXT_mesh_gpu_instancing"],
+    buffers: [{ byteLength: bytes.byteLength, uri: `data:application/octet-stream;base64,${Buffer.from(bytes).toString("base64")}` }],
+    bufferViews: views,
+    accessors,
+    meshes: [{ weights: [0.25], primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1, TEXCOORD_1: 2, TANGENT: 3 }, targets: [{ POSITION: 4, TANGENT: 5 }], material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 1 } } }],
+    textures: [{}],
+    nodes: [{ name: "instances", mesh: 0, weights: [0.5], extensions: { EXT_mesh_gpu_instancing: { attributes: { TRANSLATION: 8, ROTATION: 9, SCALE: 10 } } } }],
+    scenes: [{ nodes: [0] }],
+    animations: [{ name: "morph", samplers: [{ input: 6, output: 7, interpolation: "LINEAR" }], channels: [{ sampler: 0, target: { node: 0, path: "weights" } }] }],
+  });
+}
+
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -260,6 +311,46 @@ group("glTF skinned scene import (Phase 16.1f)", () => {
     const query = scene.world.query([AnimationComponent]);
     assert.equal(query.count, 0);
     scene.world.releaseQuery(query);
+  });
+
+  test("imports morph weights, expands EXT_mesh_gpu_instancing, and binds TEXCOORD_1", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const scene = new Scene({ name: "gltf-advanced-test" });
+    const asset = await decodeGltfMesh(advancedFixture(), { ...PRESERVE, source: "advanced.gltf" });
+    assert.equal(asset.meshes[0]!.weights![0], 0.25);
+    const primitive = asset.meshes[0]!.primitives[0]!;
+    assert.deepEqual(primitive.attributes.TEXCOORD_1, new Float32Array([0.1, 0.2, 0.9, 0.2, 0.1, 0.8]));
+    assert.deepEqual(primitive.morphTargets[0]!.attributes.POSITION, new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]));
+    assert.deepEqual(primitive.morphTargets[0]!.attributes.TANGENT, new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]));
+    assert.equal(asset.nodes[0]!.instancing!.count, 2);
+    assert.deepEqual(asset.nodes[0]!.instancing!.translations, new Float32Array([1, 2, 3, -4, 5, 6]));
+    assert.equal(asset.animations[0]!.channels[0]!.targetPath, "weights");
+
+    const instance = instantiateGltfScene(device, scene, asset);
+    cleanups.push(() => { instance.dispose(); scene.dispose(); return device.dispose(); });
+    const source = instance.meshes[0]!.geometry.source;
+    assert.equal(instance.meshes[0]!.geometry.morphTargetCount, 1);
+    assert.deepEqual(source.positions, new Float32Array([0, 0, 0, 1.5, 0, 0, 0, 1.5, 0]));
+    assert.deepEqual(source.tangents, new Float32Array([1, 0.5, 0, 1, 1, 0.5, 0, 1, 1, 0.5, 0, 1]), "VEC3 morph tangent deltas preserve tangent w");
+    assert.deepEqual(source.uvs1, new Float32Array([0.1, 0.2, 0.9, 0.2, 0.1, 0.8]));
+    assert.notEqual(instance.meshes[0]!.geometry.uv1Buffer, null);
+    assert.equal(instance.meshes[0]!.geometry.gpuBytes, 3 * 48 + 3 * 8 + 3 * 4);
+
+    const node = instance.nodes[0]!;
+    assert.equal(node.get(Renderable), undefined, "the source node is expanded into instance children");
+    assert.equal(node.children.length, 2);
+    const first = node.children[0]!, second = node.children[1]!;
+    assert.deepEqual([first.require(Transform).position.x, first.require(Transform).position.y, first.require(Transform).position.z], [1, 2, 3]);
+    assert.deepEqual([second.require(Transform).position.x, second.require(Transform).position.y, second.require(Transform).position.z], [-4, 5, 6]);
+    assert.deepEqual([second.require(Transform).scale.x, second.require(Transform).scale.y, second.require(Transform).scale.z], [2, 1, 1]);
+    assert.equal(first.require(Renderable).geometry, instance.meshes[0]!.geometry);
+    assert.equal(first.require(Renderable).material!.uvSets.albedo, 1);
+
+    instance.animation!.play("morph");
+    new AnimationSystem().update(ctx(scene, 0.5));
+    assert.deepEqual(source.positions, new Float32Array([0, 0, 0, 1.5, 0, 0, 0, 1.5, 0]), "the animated midpoint matches the node's authored weight");
+    new AnimationSystem().update(ctx(scene, 0.25));
+    assert.deepEqual(source.positions, new Float32Array([0, 0, 0, 1.75, 0, 0, 0, 1.75, 0]));
   });
 
   test("skips nodes outside the active scene", async () => {

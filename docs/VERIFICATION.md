@@ -74,7 +74,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run test:check` | The selrun catalog is complete: all 160 suites have matching headers/exported manifests, unique names, repository-backed areas and 1,113 valid coverage claims; `tests/full.test.ts` links every discovered suite exactly once in the declared order. | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core+math/ui with only `ui/gpu/**` also seeing gpu/rendering), AST import parsing across TS/TSX and static, type-query, dynamic and CommonJS forms, `editor/**` using only the public `@forge/engine` API with runtime never importing editor, no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` | passing |
-| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,210 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,201 public candidates across 24 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
+| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,220 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,211 public candidates across 27 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
 | `npm run api:reference:check` | Regenerates the complete consumer-facing root export inventory from the reviewed API snapshot and rejects stale `docs/API-REFERENCE.md`. | passing |
 | `npm run version:check` | Checks root, engine, editor, exported `VERSION`, API snapshot, editor dependency and lockfile metadata are all `1.0.0`. | passing |
 | `npm run docs:check` | The capability registry agrees with the roadmap and known issues, and the 1.0 reference/policy files are covered by focused tests. | passing |
@@ -242,8 +242,8 @@ component` (and disposing either scene cleared the other's components).
 Nine checks parse the deterministic `forge.api-surface/2` snapshot, require sorted unique rows,
 known type/value/stability classifications and canonical direct/transitive SHA-256 fingerprints, pin
 the nine experimental WASM-physics names, and verify the package remains root-only. They separately
-parse `forge.api-approvals/1`, require all 2,201 public names and only those names to match the current
-kind and both hashes, pin the 24 review batches and their exact counts/evidence, and run an isolated
+parse `forge.api-approvals/1`, require all 2,211 public names and only those names to match the current
+kind and both hashes, pin the 27 review batches and their exact counts/evidence, and run an isolated
 source copy where `ForgeError` gains a member to prove a stale approval fails with an explicit
 re-review diagnostic. A second negative ledger proves policy v2 rejects even one newly pending public
 candidate. The ledger is not written by `--write`.
@@ -260,8 +260,8 @@ record, not an inference made by the CLI.
 ### `tests/core/runtimeApi.test.ts` — complete public namespace and core-runtime evidence
 
 Eleven checks load the full checked-in surface and approval ledger through the built package. Every
-one of the 1,396 value-bearing exports (public and experimental) must exist on the runtime namespace,
-every one of the 814 type-only declarations must stay runtime-free, and all 2,201 public candidates
+one of the 1,400 value-bearing exports (public and experimental) must exist on the runtime namespace,
+every one of the 820 type-only declarations must stay runtime-free, and all 2,211 public candidates
 must remain approved while `VERSION` is `1.0.0`. The suite also supplies focused runtime evidence
 for configuration normalization/errors/hashing, event ordering and mutation/disposal/error isolation,
 logger rings/scopes/sink isolation, object pools, generational handles, typed buffers/arenas, and the
@@ -1786,10 +1786,14 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   accessors/views, renumbers what follows, compacts the BIN chunk and decodes identically with the
   engine loader; idempotence (byte-identical second pass); non-zero sets kept (exit 1) unless
   `--force` (warning); `--dry-run`; `.gltf` with external `.bin` and data-URI buffers
-  (`capability: assets.gltfSkins`; Node only, no browser claim). Advanced
-  image/material GPU assembly, morph/instancing import, and
-  Draco/meshopt geometry are not claimed
-  (`capability: assets.gltfAdvanced`).
+  (`capability: assets.gltfSkins`; Node only, no browser claim). The extended importer is covered by
+  focused Node/mock tests: `tests/resources/gltfScene.test.ts` decodes morph deltas/default and
+  animated weights, expands `EXT_mesh_gpu_instancing`, uploads TEXCOORD_1 and routes a TEXCOORD_1
+  material map; `tests/resources/gltfTextures.test.ts` covers every texture slot's UV-set selection and
+  the zero-filled fallback; `tests/rendering/renderingSkinning.test.ts` pins the fallback stream; and
+  `tests/resources/gltf.test.ts` decodes an actual meshopt attribute/index fixture on inline and real
+  worker paths plus an actual Draco fixture through a host decoder. The Draco decoder is intentionally
+  supplied by the host and is not sent through structured clone (`capability: assets.gltfAdvanced`).
 * **Imported skinned glTF scenes (Phase 16.1f).** `tests/resources/gltfScene.test.ts` decodes the
   committed Khronos SimpleSkin sample and checks the clip arrives with the mesh decode, one entity per
   scene node with the glTF parent links and local TRS, the skin bound to the joint entities with the
@@ -1832,11 +1836,11 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   against a reference image. The same holds for SSAO: the gate proves it darkens contact areas, never
   brightens and is not a global dimmer — not that its occlusion matches a ray-traced reference.
 * **GPU timestamp fidelity on physical adapters.** The mock tests exercise asynchronous timestamp resolves and readback with deterministic nanosecond clocks; no CI assertion compares timestamp-query durations against a physical GPU or another timing source.
-* **Full glTF scene import.** The worker decoder handles static uncompressed triangle geometry,
-  basic node/material metadata, skin data, (16.1f) skinned scene assembly and (16.1c) baseColor /
-  metallicRoughness / normal textures — verified on SimpleSkin, CesiumMan and Perseverance — not per-texture sampler modes,
-  emissive/occlusion maps, alpha MASK, morph targets, instancing, or Draco/meshopt compression
-  (`capability: assets.gltfAdvanced`).
+* **Full glTF scene import.** The worker/resource path now covers static and meshopt geometry,
+  host-decoded Draco geometry, skin data, morph targets and animated weights, instancing, TEXCOORD_1,
+  images/materials, and skinned scene assembly in focused Node/mock coverage. A complete scene-format
+  importer is still not claimed: KHR_texture_transform, KTX2/Basis image decoding, cameras/lights,
+  and the Mars showcase migration remain outside the slice (`roadmap: 16.1i`).
 * **KTX2 format/device matrix.** The real-browser smoke check covered a 2D ETC1S fixture, BC7 sRGB,
   and its full mip chain on SwiftShader. Tests cover target-selection fallbacks and RGBA mock upload,
   but ASTC/ETC2/HDR/cube/array uploads have not each been exercised on a real adapter; physical-GPU

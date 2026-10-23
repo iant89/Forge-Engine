@@ -218,10 +218,14 @@ export type {
   DecodedGltfSampler,
   DecodedGltfTexture,
   DecodedGltfNode,
+  DecodedGltfInstancing,
   DecodedGltfPrimitive,
+  DecodedGltfMorphTarget,
   DecodedGltfPrimitiveSkin,
   DecodedGltfScene,
   DecodedGltfSkin,
+  GltfMeshoptDecoder,
+  GltfDracoDecoder,
   GltfMeshDecodePayload,
 } from "./resources/gltf.js";
 export { decodeGltfAnimations, transferablesForAnimations } from "./core/tasks/gltfAnimation.js";
@@ -417,7 +421,7 @@ export {
 } from "./rendering/objectCulling.js";
 export { PipelineFactory, type PipelineFactoryOptions, type PipelineKeyOptions } from "./rendering/pipeline.js";
 export { fitShadowMapSize, shadowAtlasBytes, DEFAULT_SHADOW_MEMORY_BUDGET, SHADOW_TEXEL_BYTES } from "./rendering/shadowBudget.js";
-export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, SKIN_VERTEX_LAYOUT, SKIN_VERTEX_STRIDE, SKIN_VERTEX_ATTRIBUTES, SKIN_JOINTS_PER_VERTEX, computeNormalsAndTangents, type GeometrySource, type SkinVertexStream } from "./rendering/geometry.js";
+export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, UV1_VERTEX_LAYOUT, UV1_VERTEX_STRIDE, UV1_VERTEX_ATTRIBUTES, SKIN_VERTEX_LAYOUT, SKIN_VERTEX_STRIDE, SKIN_VERTEX_ATTRIBUTES, SKIN_JOINTS_PER_VERTEX, computeNormalsAndTangents, type GeometrySource, type MorphTargetSource, type SkinVertexStream } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding, type SkinSource } from "./rendering/mesh.js";
 export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique } from "./rendering/material.js";
 export { SplatMaterial, splatUvTransform, type SplatMaterialOptions, type SplatTextureSet, type SplatSurfaceLayer } from "./rendering/splatMaterial.js";

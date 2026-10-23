@@ -170,6 +170,7 @@ export const MaterialUniforms = new StructDef("MaterialUniforms", [
   { name: "offset", type: vec2 },
   { name: "normalScale", type: f32 },
   { name: "flags", type: u32, comment: "bit0 albedoMap, bit1 normalMap, bit2 metallicRoughnessMap, bit3 doubleSided, bit4 unlit, bit5 fogExempt, bit6 emissiveMap, bit7 occlusionMap, bit8 alphaTest, bit9 transparent depth reuse" },
+  { name: "uvSets", type: u32, comment: "bit0..4 select TEXCOORD_1 for baseColor, normal, metallicRoughness, emissive, occlusion" },
   { name: "occlusionStrength", type: f32 },
   { name: "alphaCutoff", type: f32 },
   { name: "snowCover", type: vec4, comment: "fe-38 per-object snow: amount, snow line (min world normal.y), wetness, unused" },

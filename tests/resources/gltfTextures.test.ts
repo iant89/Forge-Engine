@@ -142,21 +142,17 @@ group("decode", () => {
     await assert.rejects(decodeGltfMesh(textureDoc({ images: [{}] })), /image 0/);
   });
 
-  test("normalTexture.scale is decoded; a non-zero texCoord drops that map with a warning", async () => {
-    const warn = console.warn;
-    const warnings: string[] = [];
-    console.warn = (m: string) => warnings.push(m);
-    try {
-      const a = await decodeGltfMesh(textureDoc({
-        materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 1 } }, normalTexture: { index: 0, scale: 0.5 } }],
-      }));
-      assert.equal(a.materials[0]!.baseColorTexture, null);
-      assert.equal(a.materials[0]!.normalTexture, 0);
-      assert.equal(a.materials[0]!.normalScale, 0.5);
-      assert.ok(warnings.some((w) => /texCoord 1/.test(w)));
-    } finally {
-      console.warn = warn;
-    }
+  test("normalTexture.scale and per-map TEXCOORD_1 selections are decoded", async () => {
+    const a = await decodeGltfMesh(textureDoc({
+      materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 1 }, metallicRoughnessTexture: { index: 0, texCoord: 1 } }, normalTexture: { index: 0, scale: 0.5, texCoord: 1 } }],
+    }));
+    assert.equal(a.materials[0]!.baseColorTexture, 0);
+    assert.equal(a.materials[0]!.baseColorTexCoord, 1);
+    assert.equal(a.materials[0]!.metallicRoughnessTexture, 0);
+    assert.equal(a.materials[0]!.metallicRoughnessTexCoord, 1);
+    assert.equal(a.materials[0]!.normalTexture, 0);
+    assert.equal(a.materials[0]!.normalTexCoord, 1);
+    assert.equal(a.materials[0]!.normalScale, 0.5);
   });
 
   test("image bytes are copies the worker can transfer", async () => {
@@ -386,18 +382,12 @@ group("material features", () => {
     assert.equal(c.samplers.emissive, s);
   });
 
-  test("TEXCOORD_1 emissive/occlusion maps are still dropped with a warning", async () => {
-    const warn = console.warn;
-    const warnings: string[] = [];
-    console.warn = (m: string) => warnings.push(m);
-    try {
-      const a = await decodeGltfMesh(textureDoc({ materials: [{ emissiveTexture: { index: 0, texCoord: 1 }, occlusionTexture: { index: 0, texCoord: 1 } }] }));
-      assert.equal(a.materials[0]!.emissiveTexture, null);
-      assert.equal(a.materials[0]!.occlusionTexture, null);
-      assert.equal(warnings.filter((w) => /texCoord 1/.test(w)).length, 2);
-    } finally {
-      console.warn = warn;
-    }
+  test("TEXCOORD_1 emissive/occlusion maps retain their UV-set selection", async () => {
+    const a = await decodeGltfMesh(textureDoc({ materials: [{ emissiveTexture: { index: 0, texCoord: 1 }, occlusionTexture: { index: 0, texCoord: 1 } }] }));
+    assert.equal(a.materials[0]!.emissiveTexture, 0);
+    assert.equal(a.materials[0]!.emissiveTexCoord, 1);
+    assert.equal(a.materials[0]!.occlusionTexture, 0);
+    assert.equal(a.materials[0]!.occlusionTexCoord, 1);
   });
 });
 

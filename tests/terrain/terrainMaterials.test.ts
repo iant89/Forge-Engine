@@ -59,7 +59,7 @@ export const suite = {
 import assert from "node:assert/strict";
 import { afterEach, assertCloseTo, assertThrows, finish, group, test } from "selrun";
 import {
-  Camera, Clock, Color, GraphicsDevice, LayeredTerrainMaterial, Light, Logger, Material, PipelineFactory,
+  Camera, Clock, Color, GraphicsDevice, LayeredTerrainMaterial, Light, Logger, Material, MaterialUniforms, PipelineFactory,
   Profiler, Renderable, Renderer, Scene, SplatMaterial, SplatUniforms, SystemScratch, TerrainTile,
   TerrainWorld, Texture, Vec3, boxFilterRgba8, createWorldCell, estimateTileBytes, splatUvTransform,
   type Engine, type SystemContext, type TerrainSurfaceLayer,
@@ -231,8 +231,8 @@ group("four-layer terrain materials", () => {
     const first = [...terrain.chunks.values()].find((chunk) => chunk.tile?.gpuMaterial)!.tile!;
     const old = first.gpuMaterial!;
     assert.ok(old instanceof SplatMaterial);
-    // 96-byte MaterialUniforms (fe-38 added snowCover) + 224-byte SplatUniforms.
-    assert.equal(estimateTileBytes(9, true) - estimateTileBytes(9), 9 * 9 * 4 + 320);
+    // The layered tile budget includes the authored splat texture and the current uniform layouts.
+    assert.equal(estimateTileBytes(9, true) - estimateTileBytes(9), 9 * 9 * 4 + MaterialUniforms.byteSize("uniform") + SplatUniforms.byteSize("uniform"));
     terrain.setLayeredMaterialsEnabled(false);
     for (const id of terrain.activeEntities.values()) assert.equal(scene.world.getComponent(id, Renderable)!.material, terrain.material);
     terrain.setLayeredMaterialsEnabled(true);

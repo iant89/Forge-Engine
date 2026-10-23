@@ -55,6 +55,16 @@ export interface MaterialOptions {
   tiling?: [number, number];
   offset?: [number, number];
   normalScale?: number;
+  /** glTF texture-coordinate set per map; 0 = TEXCOORD_0, 1 = TEXCOORD_1. */
+  uvSets?: Partial<MaterialUvSets>;
+}
+
+export interface MaterialUvSets {
+  albedo: number;
+  normal: number;
+  metallicRoughness: number;
+  emissive: number;
+  occlusion: number;
 }
 
 export const FLAG_ALBEDO = 1;
@@ -114,6 +124,7 @@ export class Material {
   readonly samplers: MaterialSamplers = { albedo: null, normal: null, metallicRoughness: null, emissive: null, occlusion: null };
   readonly tiling = new Vec2(1, 1);
   readonly offset = new Vec2(0, 0);
+  readonly uvSets: MaterialUvSets = { albedo: 0, normal: 0, metallicRoughness: 0, emissive: 0, occlusion: 0 };
   dirty = true;
   /**
    * fe-38: per-object snow (written by `SnowMeltSystem` through `setSnowCover`): `amount` 0..1, the
@@ -139,6 +150,11 @@ export class Material {
     this.emissiveStrength = options.emissiveStrength ?? 0;
     this.opacity = options.opacity ?? 1;
     this.normalScale = options.normalScale ?? 1;
+    if (options.uvSets) Object.assign(this.uvSets, options.uvSets);
+    for (const key of Object.keys(this.uvSets) as (keyof MaterialUvSets)[]) {
+      const value = this.uvSets[key];
+      if (value !== 0 && value !== 1) this.uvSets[key] = 0;
+    }
     this.transparent = options.transparent ?? false;
     this.doubleSided = options.doubleSided ?? false;
     this.fogExempt = options.fogExempt ?? false;
@@ -292,9 +308,11 @@ export class Material {
     f32[oo] = this.offset.x;
     f32[oo + 1] = this.offset.y;
     a.setF32("normalScale", this.normalScale);
+    a.setU32("flags", flags);
+    const uvSets = (this.uvSets.albedo ? 1 : 0) | (this.uvSets.normal ? 2 : 0) | (this.uvSets.metallicRoughness ? 4 : 0) | (this.uvSets.emissive ? 8 : 0) | (this.uvSets.occlusion ? 16 : 0);
+    a.setU32("uvSets", uvSets);
     a.setF32("occlusionStrength", this.occlusionStrength);
     a.setF32("alphaCutoff", this.alphaTest);
-    a.setU32("flags", flags);
     const sc = a.struct.field("snowCover", "uniform");
     const so = sc.offset >> 2;
     f32[so] = this.snowCover.amount;
@@ -341,10 +359,16 @@ export class Material {
       occlusionMap: this.occlusionMap,
       occlusionStrength: this.occlusionStrength,
       samplers: { ...this.samplers },
+      uvSets: { ...this.uvSets },
     });
     m.alphaTest = this.alphaTest;
     m.baseColor.copyFrom(this.baseColor);
-    Object.assign(m, options);
+    const { uvSets, ...overrides } = options;
+    Object.assign(m, overrides);
+    if (uvSets) Object.assign(m.uvSets, uvSets);
+    for (const key of Object.keys(m.uvSets) as (keyof MaterialUvSets)[]) {
+      if (m.uvSets[key] !== 0 && m.uvSets[key] !== 1) m.uvSets[key] = 0;
+    }
     return m.markChanged();
   }
 

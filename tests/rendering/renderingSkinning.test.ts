@@ -73,6 +73,7 @@ import {
   Scene,
   SKIN_VERTEX_LAYOUT,
   SKIN_VERTEX_STRIDE,
+  UV1_VERTEX_LAYOUT,
   VERTEX_LAYOUT,
   Vec3,
   type PipelineKeyOptions,
@@ -221,6 +222,19 @@ group("skinned geometry", () => {
     geometry.dispose();
     assert.equal((device.mock.outstanding.buffers).length, 0);
     await device.dispose();
+  });
+
+  test("allocates a zero-filled fallback UV1 stream without charging authored UV1 bytes", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const geometry = Geometry.create(device, { positions: STRIP_POSITIONS, indices: STRIP_INDICES, label: "uv1-fallback" });
+    try {
+      assert.notEqual(geometry.uv1Buffer, null);
+      assert.equal(geometry.gpuBytes, 4 * 48 + STRIP_INDICES.length * 4);
+      assert.deepEqual(Array.from(new Float32Array(bufferBytes(geometry.uv1Buffer!).buffer)), [0, 0, 0, 0, 0, 0, 0, 0]);
+    } finally {
+      geometry.dispose();
+      await device.dispose();
+    }
   });
 
   test("rejects a skin stream whose length does not match the vertex count", async () => {
@@ -462,11 +476,15 @@ group("skinned pipeline variants", () => {
 
     // The vertex state carries the second slot, and the shader is the skinned module.
     const skinned = desc({ ...base, skinned: true });
-    assert.deepEqual(skinned.vertex.buffers, [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT]);
+    const skinnedBuffers = Array.from(skinned.vertex.buffers ?? []);
+    assert.deepEqual(skinnedBuffers.slice(0, 2), [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT]);
+    assert.equal(skinnedBuffers[2]?.arrayStride, 8);
     assert.equal(skinned.vertex.entryPoint, "vertexMainSkinned");
     const instancedSkinned = desc({ ...base, skinned: true, instanced: true });
     assert.equal(instancedSkinned.vertex.entryPoint, "vertexMainInstancedSkinned");
-    assert.deepEqual(instancedSkinned.vertex.buffers, [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT]);
+    const instancedSkinnedBuffers = Array.from(instancedSkinned.vertex.buffers ?? []);
+    assert.deepEqual(instancedSkinnedBuffers.slice(0, 2), [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT]);
+    assert.equal(instancedSkinnedBuffers[2]?.arrayStride, 8);
 
     // The colour layout gains group 3; the unskinned one must not (a draw cannot bind what its
     // shader never declares, and the layout is what makes that a validation error instead of luck).
@@ -502,7 +520,7 @@ group("skinned pipeline variants", () => {
     assert.equal(factory.keyOf({ ...base, technique: "terrain", skinned: true }), factory.keyOf({ ...base, technique: "terrain" }));
     assert.equal(factory.keyOf({ ...base, technique: "water", skinned: true }), factory.keyOf({ ...base, technique: "water" }));
     const terrain = factory.get({ ...base, technique: "terrain", skinned: true }).pipeline as unknown as Inspectable;
-    assert.deepEqual(terrain.desc.vertex.buffers, [VERTEX_LAYOUT]);
+    assert.deepEqual(terrain.desc.vertex.buffers, [VERTEX_LAYOUT, UV1_VERTEX_LAYOUT]);
     assert.deepEqual(device.mock.errors, []);
     factory.invalidate();
     await device.dispose();

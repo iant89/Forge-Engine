@@ -115,23 +115,20 @@ The worker round-trip and resource-eviction test gaps are gone (`tests/core/task
 workers. `MeshBvh` now backs triangle-accurate scene picking and large-mesh frustum refinement;
 PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
 
-* **Core glTF import is geometry-first.** `decodeGltfMesh` handles static, uncompressed triangle
-  primitives and returns typed vertex/index arrays, bounds, node transforms, scene roots and material
-  factors, and (Phase 16.1a) skins with four-influence JOINTS_0/WEIGHTS_0 streams. Extra
-  JOINTS_n/WEIGHTS_n sets are ignored when all-zero and rejected when they carry weight; strip them
-  with `npm run gltf:strip-skin-sets` (`--force` drops weighted ones, losing accuracy). Textures
-  (16.1c, `loadGltfTextures`) bind baseColor / emissive / metallicRoughness / normal / occlusion maps
-  with per-texture samplers, on TEXCOORD_0 only: a map with `texCoord: 1` is dropped with a warning
-  (deferred to ROADMAP 16.1g), and KHR_texture_transform and KTX2 images are ignored. alpha MASK
-  cutouts still cast full-quad shadows (the shadow pass has no material). glTF assets are mirrored
-  from glTF's right-handed frame into the engine's left-handed one at import (x → -x, warns once per
-  file); a file baked with `npm run gltf:fix-handedness` loads as-is but is mirrored in other glTF
-  viewers. The Mars showcase's own Perseverance loader (`examples/src/assets/glb.ts`) does not apply
-  this conversion. It does not import morph targets/instancing or decode Draco/meshopt
-  compression; those are tracked for the extended glTF importer (16.1b, 16.1d, 16.1e). Skinned primitives cull against posed bounds
-  (per-joint bind boxes carried by the live joint matrices), which are conservative: a box per joint
-  can be looser than the deformed mesh.
-  (capability: assets.gltfAdvanced)
+* **Core glTF import is geometry-first, not a complete scene-format importer.** `decodeGltfMesh` and
+  `instantiateGltfScene` now cover uncompressed and meshopt/host-Draco triangle geometry, morph targets
+  and animated weights, four-influence skins, `EXT_mesh_gpu_instancing`, TEXCOORD_0/TEXCOORD_1 texture
+  routing, images/materials, node transforms and scenes. The remaining importer tail intentionally
+  leaves KHR_texture_transform, KTX2/Basis image decoding, cameras and lights outside this slice;
+  supplied Draco decoders stay on the caller's thread because their WASM state is not transferable.
+  glTF assets are mirrored from glTF's right-handed frame into the engine's left-handed one at import
+  (x → -x, warns once per file); a file baked with `npm run gltf:fix-handedness` loads as-is but is
+  mirrored in other glTF viewers. The Mars showcase's own Perseverance loader
+  (`examples/src/assets/glb.ts`) still does not apply this conversion and has not yet migrated to the
+  engine importer (ROADMAP 16.1i). alpha MASK cutouts still cast full-quad shadows (the shadow pass
+  has no material). Skinned primitives cull against posed bounds (per-joint bind boxes carried by the
+  live joint matrices), which are conservative: a box per joint can be looser than the deformed mesh.
+  (roadmap: 16.1)
 
 * **Streaming loader cancellation is cooperative.** `AssetStreamer` (Phase 15.3) gates when loads
   *start* — priority, concurrency cap and per-frame upload budget — and safely disposes a completed

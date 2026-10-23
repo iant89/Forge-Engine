@@ -12,7 +12,8 @@
  *
  * Each glTF texture's sampler (wrapS/wrapT, mag/min filters) becomes a cached `GPUSampler`
  * (`GraphicsDevice.samplerFromDescriptor`); a texture without one uses the renderer's default
- * (linear-repeat, glTF's default). Every map samples TEXCOORD_0. Not applied: KHR_texture_transform
+ * (linear-repeat, glTF's default). Material UV-set bits select TEXCOORD_0 or TEXCOORD_1 per map.
+ * Not applied: KHR_texture_transform
  * and compressed (KTX2/Basis) images; a failing image warns and leaves its map unbound.
  */
 

@@ -36,7 +36,7 @@
 
 import { ShaderStage } from "../gpu/constants.js";
 import { ObjectUniforms, InstanceStruct, MaterialUniforms, SplatUniforms, PerFrameUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, PostUniforms, SkyUniforms, CloudUniforms, WaterUniforms, SsaoUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock } from "./uniforms.js";
-import { VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
+import { VERTEX_LAYOUT, UV1_VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT, VERTEX_STRIDE } from "./geometry.js";
 import { STANDARD_VERTEX, STANDARD_INSTANCED_VERTEX, STANDARD_LOD_INSTANCED_VERTEX, STANDARD_FRAGMENT_BODY, STANDARD_PREPASS_FRAGMENT, STANDARD_SKINNED_VERTEX, STANDARD_SKINNED_INSTANCED_VERTEX, DEPTH_VERTEX, DEPTH_SKINNED_VERTEX, DEPTH_CULLED_VERTEX, DEBUG_SHADER, BLIT_SHADER, BINDINGS, SKIN_BINDINGS } from "./shaders/standard.js";
 import { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./shaders/terrain.js";
 import { POST_SHADER, POST_BINDINGS } from "./shaders/post.js";
@@ -86,6 +86,8 @@ export interface PipelineKeyOptions {
   fragmentEntry?: PipelineFragmentEntry;
   /** `prepass` only: bind the terrain material layout (the shader still uses the shared vertex path). */
   terrain?: boolean;
+  /** Bind the optional glTF `TEXCOORD_1` vertex stream at shader location 6. */
+  uv1?: boolean;
   /** Additive blending (one / one) — the bloom upsample accumulates into the finer mip. */
   additive?: boolean;
   /**
@@ -203,9 +205,9 @@ export class PipelineFactory {
     ssaoBlur: GPUBindGroupLayout;
     skin: GPUBindGroupLayout;
     /**
-     * The empty placeholder the skinned shadow/prepass layouts declare at group 2 (their programs
-     * have no material group, and the palette has to stay at group 3 so it is one index everywhere).
-     * A draw must *set* a bind group for it — an empty one — because Chromium rejects a draw whose
+     * The empty placeholder the skinned shadow layout declares at group 2 (the shadow program has no
+     * material group, and the palette has to stay at group 3 so it is one index everywhere). A shadow
+     * draw must *set* a bind group for it — an empty one — because Chromium rejects a draw whose
      * layout declares a group that was never bound; `Renderer.ensureSkinGapBindGroup` creates it.
      */
     skinGap: GPUBindGroupLayout;
@@ -410,10 +412,10 @@ export class PipelineFactory {
         },
       ],
     });
-    // The shadow and prepass programs have no material group, but a pipeline layout has to be
-    // *dense*: group 3 exists only if groups 0..2 do. An empty layout is the placeholder for the
-    // index those programs do not use (and their shaders never declare), which keeps the palette at
-    // group 3 in every skinned module — the renderer binds one group index, whichever pass it is.
+    // The shadow program has no material group, but a pipeline layout has to be *dense*: group 3
+    // exists only if groups 0..2 do. An empty layout is the placeholder for the shadow program's
+    // unused group 2, which keeps the palette at group 3 in every skinned module — the renderer binds
+    // one palette index in every pass.
     this.skinPlaceholderLayout = d.createBindGroupLayout({ label: "skin.gap.layout", entries: [] });
     this.skinLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.materialLayout, this.skinBindGroupLayout] });
     this.skinDepthLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout, this.skinPlaceholderLayout, this.skinBindGroupLayout] });
@@ -528,6 +530,7 @@ export class PipelineFactory {
       options.instanced ? "inst" : "static",
       options.lod ? "lod" : "-",
       options.technique === "prepass" && options.terrain ? "terrain" : "-",
+      options.uv1 ? "uv1" : "-",
       skinnable(options) ? "skin" : "-",
       options.technique === "depth" && options.casterIndices ? "casteridx" : "-",
       options.sampleCount ?? 1,
@@ -646,6 +649,9 @@ export class PipelineFactory {
     // stage for alpha coverage. Keeping this separate lets the descriptor retain that stage.
     const isDepthOnly = isShadowDepth || isPrepass;
     const fullscreen = blit || post || sky || ssao || waterGrab || contactDepth;
+    // Standard colour, terrain and prepass entries carry the secondary UV location. Shadow and water
+    // modules intentionally retain their historical vertex interface.
+    const needsUv1 = options.uv1 !== false && !fullscreen && !debug && !isShadowDepth && !water;
     const layout = contactDepth
       ? this.contactDepthLayout!
       : waterGrab
@@ -695,7 +701,9 @@ export class PipelineFactory {
         // A skinned pipeline declares the second vertex slot (`SKIN_VERTEX_LAYOUT`, locations 4/5);
         // every other pipeline's shader asks for locations 0..3 only, which is why slot 1 stays
         // unbound for them (and why a skinned batch must never draw through a non-skinned pipeline).
-        buffers: fullscreen ? [] : debug ? [debugVertexBuffer()] : skinned ? [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT] : [VERTEX_LAYOUT],
+        buffers: fullscreen ? [] : debug ? [debugVertexBuffer()] : skinned
+          ? needsUv1 ? [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT, UV1_VERTEX_LAYOUT] : [VERTEX_LAYOUT, SKIN_VERTEX_LAYOUT]
+          : needsUv1 ? [VERTEX_LAYOUT, UV1_VERTEX_LAYOUT] : [VERTEX_LAYOUT],
       },
       fragment: isShadowDepth
         ? undefined

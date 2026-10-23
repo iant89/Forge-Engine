@@ -111,6 +111,7 @@ struct VertexInput {
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
 }
 `;
 
@@ -124,6 +125,7 @@ struct VertexInput {
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
   @location(4) joints: vec4<u32>,
   @location(5) weights: vec4<f32>,
 }
@@ -136,6 +138,7 @@ struct VertexOutput {
   @location(1) normal: vec3<f32>,
   @location(2) uv: vec2<f32>,
   @location(3) tangent: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
   @location(4) viewDepth: f32,
   @location(5) tint: vec4<f32>,
 }
@@ -419,6 +422,13 @@ const FLAGS_INSTANCED: u32 = 1u;
 const FLAGS_CLUSTERED: u32 = 32u;
 // perFrame.flags bit 8: the resolved prepass depth is available to transparent intersections.
 const FLAGS_DEPTH_REUSE: u32 = 256u;
+
+// Material UV-set selectors: bits 0..4 select TEXCOORD_1 for base colour, normal, metallic-roughness,
+// emissive and occlusion maps respectively. TEXCOORD_0 remains the default for every map;
+// bit 1 selects the optional TEXCOORD_1 stream.
+fn materialUv(uv0: vec2<f32>, uv1: vec2<f32>, bit: u32) -> vec2<f32> {
+  return select(uv0, uv1, ((material.uvSets >> bit) & 1u) != 0u);
+}
 `;
 
 /**
@@ -503,6 +513,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput {
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
@@ -537,6 +548,7 @@ fn vertexMainInstanced(input: VertexInput, @builtin(instance_index) instanceInde
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
@@ -569,6 +581,7 @@ fn vertexMainSkinned(input: VertexInput) -> VertexOutput {
   out.worldPos = world.xyz;
   out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   // A count-1 batch draws through this entry; its record (bound at the batch's instance offset)
@@ -594,6 +607,7 @@ fn vertexMainInstancedSkinned(input: VertexInput, @builtin(instance_index) insta
   out.worldPos = world.xyz;
   out.normal = normalize((model * (skin * vec4<f32>(input.normal, 0.0))).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
@@ -635,6 +649,7 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
   out.worldPos = world.xyz;
   out.normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
   out.uv = input.uv;
+  out.uv1 = input.uv1;
   out.tangent = input.tangent;
   out.viewDepth = select(out.clipPos.w, dot(world.xyz - perFrame.cameraPosRender, perFrame.cameraForwardRender.xyz), perFrame.cameraForwardRender.w > 0.5);
   out.tint = unpackTint(inst.tint);
@@ -648,13 +663,13 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
  * that already carries the declarations, so a module holds one copy of every struct.
  */
 const STANDARD_SURFACE_SETUP = /* wgsl */ `
-  let albedo = materialAlbedo(in.uv);
+  let albedo = materialAlbedo(materialUv(in.uv, in.uv1, 0u));
   var N = normalize(in.normal);
   let V = normalize(perFrame.cameraPosRender - in.worldPos);
   if ((perFrame.flags & 4u) != 0u) {
     // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
     if ((material.flags & FLAGS_NORMAL) != 0u) {
-      let sampled = textureSample(normalMap, normalSampler, in.uv * material.tiling + material.offset).xyz * 2.0 - 1.0;
+      let sampled = textureSample(normalMap, normalSampler, materialUv(in.uv, in.uv1, 1u) * material.tiling + material.offset).xyz * 2.0 - 1.0;
       let T = normalize(in.tangent.xyz);
       let B = cross(N, T) * in.tangent.w;
       let tbn = mat3x3<f32>(T, B, N);
@@ -664,7 +679,7 @@ const STANDARD_SURFACE_SETUP = /* wgsl */ `
   var metallic = material.metallic;
   var roughness = material.roughness;
   if ((material.flags & FLAGS_MR) != 0u) {
-    let mr = textureSample(mrMap, mrSampler, in.uv * material.tiling + material.offset);
+    let mr = textureSample(mrMap, mrSampler, materialUv(in.uv, in.uv1, 2u) * material.tiling + material.offset);
     metallic = metallic * mr.b;
     roughness = roughness * mr.g;
     // fe-38 convention: the MR map's alpha below 1 marks standing water (a moisture field's
@@ -969,8 +984,8 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   var standingWater = 0.0;
 ${surfaceSetup}
   // Sampled here, in uniform control flow, before the unlit/standard split.
-  let emission = materialEmission(in.uv);
-  let occlusion = materialOcclusion(in.uv);
+  let emission = materialEmission(materialUv(in.uv, in.uv1, 3u));
+  let occlusion = materialOcclusion(materialUv(in.uv, in.uv1, 4u));
   // glTF alpha MASK: alpha (texture × factor) below the cutoff is not drawn.
   if ((material.flags & FLAGS_ALPHA_TEST) != 0u && albedo.a * material.opacity < material.alphaCutoff) {
     discard;
@@ -1081,7 +1096,7 @@ export const STANDARD_FRAGMENT_BODY = createStandardFragmentBody();
 export const STANDARD_PREPASS_FRAGMENT = /* wgsl */ `
 @fragment
 fn fragmentDepth(in: VertexOutput) {
-  let uv = in.uv * material.tiling + material.offset;
+  let uv = materialUv(in.uv, in.uv1, 0u) * material.tiling + material.offset;
   var albedoAlpha = material.baseColorFactor.a;
   if ((material.flags & FLAGS_ALBEDO) != 0u) {
     albedoAlpha = albedoAlpha * textureSample(albedoMap, materialSampler, uv).a;

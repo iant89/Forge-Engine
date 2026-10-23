@@ -23,7 +23,8 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@h00w/basis-universal-transcoder": "2.1.0"
+    "@h00w/basis-universal-transcoder": "2.1.0",
+    "meshoptimizer": "^1.3.0"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.52",

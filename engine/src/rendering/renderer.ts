@@ -2307,6 +2307,10 @@ export class Renderer implements RenderFrameContext {
         if (genericArgs) pass.setBindGroup(1, b.genericCull!.compactedGroup, [b.objectOffset, 0]);
         else pass.setBindGroup(1, b.population!.compactedGroup!, [b.objectOffset, 0]);
         pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+        if (kind === "standard" || kind === "terrain") {
+          if (b.skin !== null) this.bindSkinning(pass, b, false);
+          else if (b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
+        }
         if (kind === "water") pass.setBindGroup(2, this.ensureWaterBindGroup());
         else pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
         const offset = this.populationCuller!.listRecordOffset(genericArgs ? b.genericCullSlot : b.popCullSlot);
@@ -2324,6 +2328,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(2, kind === "water" ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (b.skin !== null) this.bindSkinning(pass, b, false);
+      else if ((kind === "standard" || kind === "terrain") && b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
         pass.drawIndexed(b.indexCount, b.count, b.indexStart);
@@ -2409,6 +2414,7 @@ export class Renderer implements RenderFrameContext {
         instanced: batchInstanced,
         lod: batchLod,
         skinned: batchSkinned,
+        uv1: !isWater,
       };
       // Prepassed surfaces use a no-write forward variant once that pipeline is ready. If this
       // variant is still compiling, the depth-writing forward variant remains correct at equal depth
@@ -2443,6 +2449,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
       if (batchSkinned) this.bindSkinning(pass, b, false);
+      else if (!isWater && b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (cullArgs) {
         if (b.geometry.indexBuffer) {
           pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -4676,8 +4683,9 @@ export class Renderer implements RenderFrameContext {
   }
 
   /**
-   * Bind the two resources a skinned draw adds to an unskinned one: the skin vertex stream at slot
-   * 1 and the joint palette at group 3 (the pipeline's dynamic offset selects this batch's slot).
+   * Bind the resources a skinned draw adds to an unskinned one: the skin vertex stream at slot
+   * 1, the secondary UV stream at slot 2, and the joint palette at group 3 (the pipeline's dynamic
+   * offset selects this batch's slot).
    * Only ever called for a batch whose pipeline was fetched with `skinned: true`, because a
    * non-skinned pipeline layout has no group 3 and no second vertex slot.
    */
@@ -4686,7 +4694,13 @@ export class Renderer implements RenderFrameContext {
     // `SKIN_GAP_BINDING_GROUP`), and Chromium refuses the draw unless something is bound there.
     if (gap) pass.setBindGroup(SKIN_GAP_BINDING_GROUP, this.ensureSkinGapBindGroup());
     pass.setVertexBuffer(1, b.geometry.skinBuffer!);
+    if (b.geometry.uv1Buffer) pass.setVertexBuffer(2, b.geometry.uv1Buffer);
     pass.setBindGroup(SKIN_BINDING_GROUP, this.ensureSkinBindGroup(), [b.skinOffset]);
+  }
+
+  /** Bind the secondary UV stream for a standard (unskinned) pipeline. */
+  private bindUv1(pass: GPURenderPassEncoder, b: Batch, skinned: boolean): void {
+    pass.setVertexBuffer(skinned ? 2 : 1, b.geometry.uv1Buffer!);
   }
 
   /** The (empty) bind group for the skinned depth/prepass gap; a group with no entries, created once. */
@@ -5088,6 +5102,7 @@ function prepassPipelineOptions(b: Batch, depthFormat: GPUTextureFormat): Pipeli
     instanced: b.count > 1 || b.lodHiTriangles > 0,
     lod: b.lodHiTriangles > 0,
     skinned: b.skin !== null,
+    uv1: kind !== "water" && b.geometry.uv1Buffer !== null,
     writeDepth: true,
   } as const;
   if (kind === "water") return { ...common, technique: "water", fragmentEntry: "fragmentDepth" };
