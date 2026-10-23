@@ -33,6 +33,14 @@
         backdrop-filter: blur(4px);
       }
       #profiler-panel { z-index: 10; }
+      /* The console widget is a visible command terminal backed by DeveloperConsole; it never
+         evaluates input and keeps its own bounded transcript. */
+      #console-panel { z-index: 11; }
+      #console {
+        background: rgb(5 7 10 / 0.94);
+        color: #dbeafe;
+        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
       #toolbar {
         position: fixed;
         right: max(10px, env(safe-area-inset-right));
@@ -803,6 +811,7 @@
     <div id="hud">starting…</div>
     <pre id="profiler" aria-live="polite" aria-label="CPU and GPU profiler timeline"></pre>
     <div id="inspector" aria-label="Engine inspector"></div>
+    <div id="console" aria-label="Developer console"></div>
     <div id="rescue-hud" aria-live="off" aria-label="Alpine Rescue mission status"></div>
     <div id="toolbar">
       <button type="button" id="toolbar-toggle" aria-label="Demo settings" aria-controls="toolbar-panels" aria-expanded="false" title="Demo settings">☰</button>
@@ -865,6 +874,7 @@
             <button id="btn-bounds" title="Wireframe AABBs where every renderable (and the rover) is supposed to be">Bounds</button>
             <button id="btn-profiler" aria-pressed="false" title="Live CPU and asynchronous GPU scope timings">Profiler</button>
             <button id="btn-inspector" aria-pressed="false" title="Browse the engine's live state: ECS, systems, render graph, GPU, physics, terrain, particles, streaming, world">Inspector</button>
+            <button id="btn-console" aria-pressed="false" title="Run safe, registered developer diagnostics commands">Console</button>
           </div>
         </div>
       </div>

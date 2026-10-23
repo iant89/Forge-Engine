@@ -207,11 +207,13 @@ export class DeveloperConsole {
       const system = scene.world.systems.find((item) => item instanceof PhysicsSystem);
       if (!(system instanceof PhysicsSystem)) throw new Error("no PhysicsSystem is registered on the active scene");
       const maxBodies = parseLimit(args[0], 64);
-      const view = physicsDebugDraw(system.world, { maxBodies, showAabbs: true, showVelocity: true });
+      const view = physicsDebugDraw(system.world, { maxBodies, showAabbs: true, showVelocity: true, showContacts: true });
       return {
         bodyCount: view.bodyCount,
         processedBodies: view.processedBodies,
         truncatedBodies: view.truncatedBodies,
+        contactCount: view.contactCount,
+        truncatedContacts: view.truncatedContacts,
         debugLineCount: view.lineCount,
         bodies: system.world.bodies.slice(0, maxBodies).map((body) => ({
           id: body.id,

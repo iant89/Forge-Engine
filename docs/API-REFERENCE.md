@@ -880,10 +880,10 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PerFrameUniforms` | value | public | `sha256:59b33a064e88277908a1e8f88760b67e2cdea62d5533406e8d5ee9667fe616f2` | `sha256:1673b92437df68eca53881c701f71f7738af72375198219bf52618a41f977d9e` |
 | `PhysicsBackend` | type | public | `sha256:ca856d0c3d2407b2605afd2e92609eeaa78fbe75056fc3c0259c96d6a545e363` | `sha256:6ef5b006e7620dab31d60bfec731ba7fb47f2434336b48f1a5d3f7deb17abaf9` |
 | `PhysicsBackendKind` | type | experimental | `sha256:2a7e9e586624da3000f02dd0939cfc07f6ed549f0bceecc1fded763e5860dfb2` | `sha256:e6bfec189db5e92bc268ea23404ff98de8184f2752f45d186a39e9bd32f94a94` |
-| `PhysicsDebugLine` | type | public | `sha256:7856d969ec637212de4d329aee1e1c88ef79964f2898d5ca216594110d26ef7b` | `sha256:3686be562907cf5610190190bcd2ab5d64148aab5226958134512a8c0be30ea4` |
-| `PhysicsDebugLineKind` | type | public | `sha256:29ef338b1de97ce2bfc676bedcbeb2ad8c317603b37dd75a4c0c4a9e31f2d878` | `sha256:9f3db186be7a8dbb048e0be6bb70a8f7ad57627b129a637d7167f30d59d2fc92` |
-| `PhysicsDebugOptions` | type | public | `sha256:db174d3988e4cc42b9b302b54fffd5f5e4a58f4e676ef2289fbe70b274ec062a` | `sha256:3630a1dbf45506bfc15a1f4c720576d50a3779d9e556ec4ce1d14fe37769cf60` |
-| `PhysicsDebugView` | type | public | `sha256:e89fbe2b6240b374de230ccaac7a90b1b7715cd7c0f7ce978e9553067fe5f380` | `sha256:16e14a4ccd0fa7e558ebf87cfc064d0f4cabea249b02373b26aff096d2c3692a` |
+| `PhysicsDebugLine` | type | public | `sha256:7a68b3007d6fee872cfbaa9b6843240b11d701d74e2274e03a1cdd901cd131ef` | `sha256:71ef27f5eeaff097c20ee1e8a924ad68bbd7e84be44d3ad631ca32e1c5348b0e` |
+| `PhysicsDebugLineKind` | type | public | `sha256:749598ae23eac552e9b91b95b84669b2cbf90f9c62ab4668e933cadd8e5f7fb5` | `sha256:aed7c817f8074b3cf28e9de090e225e703e3ef1ce22a7fd535dc154d4aafd1a1` |
+| `PhysicsDebugOptions` | type | public | `sha256:8534a36c8a76f2436ca0a780c0089ab17b5335c1ebe0be011d3fafb1dbb60d69` | `sha256:24559a692af56cfaa4855de7751d942d830faa7c1e0b35bf6570e4a353c40ab8` |
+| `PhysicsDebugView` | type | public | `sha256:cbf816bc39e9e0b1e20cbc239f386fa5176718b955a957187da3001cb21d9a07` | `sha256:6064d83ca7c166d984379ae9dda6d28c75c07b154101b537ac3ea7118d6bff59` |
 | `PhysicsRaycastGroundOptions` | type | public | `sha256:42b52fa1f3e1bd7b6edfb5dad2da22eaff124d528f2517ce538d2b2ecd017b4e` | `sha256:649c13864165f91b130e113565f0a49336a79c7f1bf1041944afa0e065e52b62` |
 | `PhysicsSystem` | type-and-value | public | `sha256:b0386ecbc7179b50435d752b9162971868d86868258818a36773ff4c433c0933` | `sha256:65ce9b68393de12af0389ab2112e986a400bf366d13ea67e7ef762c11c03aab6` |
 | `PhysicsSystemOptions` | type | public | `sha256:10b23f89dea925489dc58ad28a12cb2d4d8028956e160914fbfd7ebee569bb63` | `sha256:4e6bc5a8ffff1dab820afcf5f7bc9de2b92f51d5138d6e6a9b5ad76d83a39361` |
@@ -1836,7 +1836,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `dopplerRatio` | value | public | `sha256:8a6573ca2c696e7e4d546e5397fecd91d83c4f53b6a8e5c526601283783202ab` | `sha256:c563812049f15252abf9b3de01f808ee6e3c6d1f315d0d5e7f645e1fafb547a0` |
 | `drawEnvironmentDebug` | value | public | `sha256:ee544dda3e07c945001d0163e62944f3c3309a47933354666643796958607c44` | `sha256:1df044d4e623a0dbb167491caceecb058999acf213c42c27e5b0b005f6573cd9` |
 | `drawParticleDebug` | value | public | `sha256:dc652b2db7a4246abf3c7e44640f3dca0860d1ccbeb0c253c7fbf5ee0bf060af` | `sha256:025a6e3cf445f5341613664453130e5682712c14db2ae1528cdc1edda367181d` |
-| `drawPhysicsDebug` | value | public | `sha256:99809bcdaa16d7ae1941ee0221af9b3a44685ad081b76eecfee25a5bad7cfb46` | `sha256:7c35244ab81a64ef50c63d165e9ebbb4d6e966daf1d5d8864c5e752bd865bd69` |
+| `drawPhysicsDebug` | value | public | `sha256:99809bcdaa16d7ae1941ee0221af9b3a44685ad081b76eecfee25a5bad7cfb46` | `sha256:4f67dba350f13c0d14fc4b86dc6c93f0d1363b997b58aab2fe303b63e7fc05ee` |
 | `drawTerrainDebug` | value | public | `sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33` | `sha256:48b0e8a2a15f361c51e38303904b39b36b2de8c822e22bac9e2b04ad81ceaa2a` |
 | `elevationAzimuthOf` | value | public | `sha256:908cc30e4300cf20ffbace607b73b11c479504b9540ced13135ed91e254e5f24` | `sha256:a0706d14a73862ed0a2498c0de4b16eea0dd7a1678eaeb07ae1e0aaa937c94ef` |
 | `emptyPopulationCullStats` | value | public | `sha256:f992cfb5163c9442aef83f2ba45658654bafd1382379f72d187eb95df89588a2` | `sha256:b7033aaecfe295f5512dd22ecdd6d953928ebe58ab1e49fa80a9b58db51a0dcb` |
@@ -2041,7 +2041,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `particleSoundLevels` | value | public | `sha256:82ae88342a23a8e616d95d7b048856c579acbc04344a2f2bb074e81c1679abc0` | `sha256:dbdef1a3383cc39bdfc95c5b2676131d776604ec52ad7d72df8c565936733ee1` |
 | `perlin2` | value | public | `sha256:dfd9092523c30c99c95e7c46a652c85114a2a4de3c9b853b9fd6921c89234b25` | `sha256:1889b6ce994dbab2bc7c35275203c32cd44a854d4e81cd595de5765c4d3c2e84` |
 | `perlin3` | value | public | `sha256:86e2ba3333e6e543bff1ca51409fa3f244383c74bcaeea57f30f96e5c988b397` | `sha256:914de3864ce382fdce37c0982565d9321d4c000d135a8596a3bc4b83356b65a6` |
-| `physicsDebugDraw` | value | public | `sha256:d233197e2b8d118d22bc8d03aff39c622819cca683e9f3ca0d5b711e93cd2221` | `sha256:3cd5c2f43a238cf2179799195140e4587034aff3c1c73ae499974a5e9f548d82` |
+| `physicsDebugDraw` | value | public | `sha256:d233197e2b8d118d22bc8d03aff39c622819cca683e9f3ca0d5b711e93cd2221` | `sha256:e3c6803b7d753f56d5d20dfe16522f797b6f69c095738e37be03bc2d5a2613e8` |
 | `physicsGroundQuery` | value | public | `sha256:43b71e07f549b3424c1b86285c77151ed6cfc9d01da4c3f5f75ce44d1eca100a` | `sha256:b28d76aeb3e236e8c882cf2dd97370242b32ba4b790da859efe104e3143eb807` |
 | `physicsRaycastGroundQuery` | value | public | `sha256:e9582764337de15366ad2a4daab53ea2519ebb6d1acc67e1a95386c82f448857` | `sha256:cd5a5bfaa55a1f808e39672987867882ed9086f79dcdaf8e03fcc000af307a9a` |
 | `pickHdrFormat` | value | public | `sha256:df81c7a8847eeceff1c7fcafa503f2288d5c5e81eddb96d1cb6797882efba6a4` | `sha256:6ec6706a1d78a6b55f319be64b1534759195dc7a83e806531baeddc78456d5bb` |

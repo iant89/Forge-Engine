@@ -6,12 +6,15 @@
 import { Vec3, type Vec3Ops } from "../math/vec.js";
 import type { PhysicsWorld } from "../physics/world.js";
 import { RigidBody } from "../physics/body.js";
+import { collideBodies } from "../physics/collision.js";
 import { BoxShape, CapsuleShape, CylinderShape, HeightfieldShape, PlaneShape, SphereShape } from "../physics/shapes.js";
 
-export type PhysicsDebugLineKind = "shape" | "aabb" | "velocity";
+export type PhysicsDebugLineKind = "shape" | "aabb" | "velocity" | "contact" | "contactNormal";
 
 export interface PhysicsDebugLine {
   bodyId: number;
+  /** The other body for contact lines; absent for shape/AABB/velocity lines. */
+  otherBodyId?: number;
   kind: PhysicsDebugLineKind;
   start: [number, number, number];
   end: [number, number, number];
@@ -23,6 +26,9 @@ export interface PhysicsDebugView {
   bodyCount: number;
   processedBodies: number;
   truncatedBodies: number;
+  /** Contact points represented by the optional contact overlay. */
+  contactCount: number;
+  truncatedContacts: number;
   lineCount: number;
   lines: PhysicsDebugLine[];
 }
@@ -37,6 +43,14 @@ export interface PhysicsDebugOptions {
   /** Draw linear-velocity vectors. */
   showVelocity?: boolean;
   velocityScale?: number;
+  /** Draw current narrowphase contact points and their normals. */
+  showContacts?: boolean;
+  /** Bound contact points independently of the body bound. Defaults to 512. */
+  maxContacts?: number;
+  /** Length of each contact-normal ray in world units. Defaults to 0.35. */
+  contactNormalScale?: number;
+  /** Half-width of the cross marking a contact point. Defaults to 0.04. */
+  contactPointSize?: number;
   /** Half-width for infinite-plane wireframes. */
   planeExtent?: number;
   /** Skip oversized heightfield bounds to avoid a planet-sized debug rectangle. */
@@ -46,6 +60,8 @@ export interface PhysicsDebugOptions {
   kinematicColor?: number;
   aabbColor?: number;
   velocityColor?: number;
+  contactColor?: number;
+  contactNormalColor?: number;
 }
 
 const DEFAULT_COLORS = {
@@ -54,6 +70,8 @@ const DEFAULT_COLORS = {
   kinematic: 0xff40a0ff,
   aabb: 0xffff40ff,
   velocity: 0xff40e0ff,
+  contact: 0xffff4060,
+  contactNormal: 0xffffd040,
 } as const;
 
 const BOX_EDGES: ReadonlyArray<readonly [number, number]> = [
@@ -76,7 +94,7 @@ export function physicsDebugDraw(world: PhysicsWorld, options: PhysicsDebugOptio
     drawShape(scratch, body, color, segments, options.planeExtent ?? 10, options.maxHeightfieldExtent ?? 5000);
     if (options.showAabbs) scratch.worldAabb(body, body.aabb, options.aabbColor ?? DEFAULT_COLORS.aabb);
     if (options.showVelocity && body.type === "dynamic") {
-      const scale = options.velocityScale ?? 0.5;
+      const scale = Number.isFinite(options.velocityScale) ? Math.max(0, options.velocityScale!) : 0.5;
       scratch.worldLine(
         body.id,
         "velocity",
@@ -87,10 +105,44 @@ export function physicsDebugDraw(world: PhysicsWorld, options: PhysicsDebugOptio
     }
   }
 
+  let contactCount = 0;
+  let truncatedContacts = 0;
+  if (options.showContacts && processedBodies > 1) {
+    const maxContacts = Number.isFinite(options.maxContacts) ? Math.max(0, Math.floor(options.maxContacts!)) : 512;
+    const pointSize = Number.isFinite(options.contactPointSize) ? Math.max(0, options.contactPointSize!) : 0.04;
+    const normalScale = Number.isFinite(options.contactNormalScale) ? Math.max(0, options.contactNormalScale!) : 0.35;
+    const contactColor = options.contactColor ?? DEFAULT_COLORS.contact;
+    const normalColor = options.contactNormalColor ?? DEFAULT_COLORS.contactNormal;
+    // This is deliberately a diagnostic-only narrowphase query. It creates fresh manifolds without
+    // running the solver, changing body state, or replacing the world's listener/report stream. The
+    // body bound keeps the O(n²) fallback bounded and mirrors the shapes the overlay actually drew.
+    for (let i = 0; i < processedBodies; i++) {
+      const bodyA = world.bodies[i]!;
+      for (let j = i + 1; j < processedBodies; j++) {
+        const bodyB = world.bodies[j]!;
+        if (bodyA.invMass === 0 && bodyB.invMass === 0) continue;
+        const manifold = collideBodies(bodyA, bodyB);
+        if (!manifold) continue;
+        for (const contact of manifold.contacts) {
+          if (contactCount >= maxContacts) {
+            truncatedContacts++;
+            continue;
+          }
+          contactCount++;
+          scratch.contact(bodyA.id, bodyB.id, contact.point, contact.normal, pointSize, normalScale, contactColor, normalColor);
+        }
+      }
+    }
+    // The nested loop above can encounter more points after the cap; report the count without
+    // allocating a second manifold list. `truncatedContacts` already counts every omitted point.
+  }
+
   return {
     bodyCount: world.bodies.length,
     processedBodies,
     truncatedBodies: world.bodies.length - processedBodies,
+    contactCount,
+    truncatedContacts,
     lineCount: lines.length,
     lines,
   };
@@ -131,6 +183,24 @@ class PhysicsLineBuilder {
     this.push(id, kind, a, b, color);
   }
 
+  contact(
+    bodyId: number,
+    otherBodyId: number,
+    point: Vec3Ops,
+    normal: Vec3Ops,
+    pointSize: number,
+    normalScale: number,
+    pointColor: number,
+    normalColor: number,
+  ): void {
+    // A three-axis cross remains visible even when the normal points into a collider or the camera
+    // is edge-on. The normal ray is a separate kind so hosts can style/filter it independently.
+    this.push(bodyId, "contact", { x: point.x - pointSize, y: point.y, z: point.z }, { x: point.x + pointSize, y: point.y, z: point.z }, pointColor, otherBodyId);
+    this.push(bodyId, "contact", { x: point.x, y: point.y - pointSize, z: point.z }, { x: point.x, y: point.y + pointSize, z: point.z }, pointColor, otherBodyId);
+    this.push(bodyId, "contact", { x: point.x, y: point.y, z: point.z - pointSize }, { x: point.x, y: point.y, z: point.z + pointSize }, pointColor, otherBodyId);
+    this.push(bodyId, "contactNormal", point, { x: point.x + normal.x * normalScale, y: point.y + normal.y * normalScale, z: point.z + normal.z * normalScale }, normalColor, otherBodyId);
+  }
+
   worldAabb(body: RigidBody, bounds: { min: Vec3Ops; max: Vec3Ops }, color: number): void {
     const { min, max } = bounds;
     const x = [min.x, max.x, max.x, min.x, min.x, max.x, max.x, min.x];
@@ -151,8 +221,8 @@ class PhysicsLineBuilder {
     this.push(id, "aabb", { x: ax, y: ay, z: az }, { x: bx, y: by, z: bz }, color);
   }
 
-  private push(id: number, kind: PhysicsDebugLineKind, a: Vec3Ops, b: Vec3Ops, color: number): void {
-    this.lines.push({ bodyId: id, kind, start: [a.x, a.y, a.z], end: [b.x, b.y, b.z], color: color >>> 0 });
+  private push(id: number, kind: PhysicsDebugLineKind, a: Vec3Ops, b: Vec3Ops, color: number, otherBodyId?: number): void {
+    this.lines.push({ bodyId: id, ...(otherBodyId === undefined ? {} : { otherBodyId }), kind, start: [a.x, a.y, a.z], end: [b.x, b.y, b.z], color: color >>> 0 });
   }
 }
 

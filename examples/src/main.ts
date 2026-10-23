@@ -76,6 +76,7 @@ import type { DiagForge } from "./diag/iosReport.js";
 import { ICONS, mountDebugPanel } from "./diag/debugPanel.js";
 import { mountProfilerPanel, PROFILER_AVOID } from "./diag/profilerPanel.js";
 import { mountInspectorPanel } from "./diag/inspectorPanel.js";
+import { mountConsolePanel } from "./diag/consolePanel.js";
 import { INSPECTOR_TABS, type InspectorSource } from "./diag/inspectorTabs.js";
 import { bounds } from "./diag/panelLayout.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -126,7 +127,9 @@ const btnCascades = document.getElementById("btn-cascades") as HTMLButtonElement
 const btnBounds = document.getElementById("btn-bounds") as HTMLButtonElement | null;
 const btnProfiler = document.getElementById("btn-profiler") as HTMLButtonElement | null;
 const btnInspector = document.getElementById("btn-inspector") as HTMLButtonElement | null;
+const btnConsole = document.getElementById("btn-console") as HTMLButtonElement | null;
 const inspectorBody = document.getElementById("inspector") as HTMLDivElement | null;
+const consoleBody = document.getElementById("console") as HTMLDivElement | null;
 const profilerBody = document.getElementById("profiler") as HTMLPreElement | null;
 const loadingOverlay = document.getElementById("loading") as HTMLDivElement | null;
 const loadingModel = document.getElementById("loading-model") as HTMLDivElement | null;
@@ -184,6 +187,26 @@ async function main(): Promise<void> {
   });
   inspector.ui.root.id = "inspector-panel";
   inspector.ui.icon.id = "inspector-icon";
+  // Visible terminal for the same safe command model used by the Inspector. Input is tokenized by
+  // DeveloperConsole; the demo never evaluates command text as JavaScript.
+  const consolePanel = mountConsolePanel({
+    body: consoleBody!,
+    button: btnConsole,
+    host: {
+      get currentScene() {
+        return engine.currentScene;
+      },
+      profiler: engine.profiler,
+      renderer: engine.renderer,
+      gpu: engine.gpu,
+      streamer: engine.streamer,
+      tasks: engine.tasks,
+      stats: () => engine.stats(),
+    },
+    avoid: [...PROFILER_AVOID, "#profiler-icon", "#inspector-icon"],
+  });
+  consolePanel.ui.root.id = "console-panel";
+  consolePanel.ui.icon.id = "console-icon";
   const where = `${platform.browser}/${platform.os}  ${engine.gpu.format}  dpr ${Math.min(platform.devicePixelRatio, 2).toFixed(2)}  build ${FORGE_BUILD}`;
 
   // DEMO SCENE / TONE MAPPING / RENDERING start collapsed behind the hamburger so a phone-sized
@@ -809,6 +832,9 @@ async function main(): Promise<void> {
     /** The panel's frame timeline: history, columns, selection and the readout (browser gate). */
     profilerTimeline: () => profilerTimeline(),
     setInspectorVisible: (visible: boolean) => inspector.setVisible(visible),
+    setConsoleVisible: (visible: boolean) => consolePanel.setVisible(visible),
+    consoleState: () => consolePanel.state(),
+    executeConsole: (input: string) => consolePanel.execute(input),
     /** Inspector state (tab · rows · selection · overlays) and geometry for the browser gate. */
     inspectorState: () => inspector.state(),
     inspectorLayout: () => inspector.layout(),

@@ -276,6 +276,39 @@ group("selection", () => {
     rig.canvas.fire("pointerdown", { clientX: 400, clientY: 20 });
     assert.equal(rig.timeline.state().pinned, false, "a tap past the right edge does not pin the last column");
   });
+
+  test("scrubbing moves the bounded window and zoom keeps its centre", () => {
+    const e = env();
+    const surface = new FakeSurface();
+    const canvas = new FakeEl("canvas");
+    const records = Array.from({ length: 40 }, (_, i) => rec(100 + i, 8 + (i % 4)));
+    e.body.appendChild(canvas);
+    const timeline = mountProfilerTimeline({
+      frames: () => records,
+      canvas: canvas as unknown as HTMLCanvasElement,
+      createContext: () => surface,
+      maxFrames: 12,
+      doc: e.doc,
+      win: e.win,
+      now: e.now,
+    });
+    timeline.resize(360, 96);
+    assert.equal(timeline.state().view.windowStart, 128);
+    assert.equal(timeline.state().view.windowEnd, 139);
+    timeline.scrub(120);
+    assert.equal(timeline.state().selectedFrame, 120);
+    assert.equal(timeline.state().view.windowEnd, 120);
+    assert.equal(timeline.state().view.scrubbed, true);
+    timeline.zoom(2);
+    assert.equal(timeline.state().view.windowFrames, 6);
+    assert.equal(timeline.state().frames, 6);
+    canvas.fire("wheel", { deltaY: -100, preventDefault() {} });
+    assert.equal(timeline.state().view.windowFrames, 5, "wheel zooms in without requiring a browser-specific control");
+    timeline.resetView();
+    assert.equal(timeline.state().view.windowEnd, 139);
+    assert.equal(timeline.state().view.scrubbed, false);
+    timeline.dispose();
+  });
 });
 
 group("in the floating panel", () => {

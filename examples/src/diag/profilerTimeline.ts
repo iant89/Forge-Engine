@@ -83,7 +83,7 @@ export interface ProfilerTimelineOptions {
   height?: number;
   /** Frame budget drawn as a line, ms. Default 1000/60. */
   budgetMs?: number;
-  /** Newest frames kept. Default 180. */
+  /** Maximum visible frames before zooming in; the profiler's retained history remains the upper bound. Default 180. */
   maxFrames?: number;
   /** Share of the height given to the history band. Default 0.58. */
   bandRatio?: number;
@@ -104,8 +104,22 @@ export interface ProfilerTimelineOptions {
   now?: () => number;
 }
 
+export interface TimelineViewState {
+  /** Number of source records currently available to the strip. */
+  availableFrames: number;
+  /** First and last engine frame numbers in the visible window, or null when empty. */
+  windowStart: number | null;
+  windowEnd: number | null;
+  /** Visible frame count after zooming, capped by the available history. */
+  windowFrames: number;
+  /** True when the window has been moved away from the newest retained frame. */
+  scrubbed: boolean;
+  /** 1 means the configured window, larger values show a closer view. */
+  zoom: number;
+}
+
 export interface TimelineState {
-  /** Frames in the model (bounded by `maxFrames`). */
+  /** Frames in the visible model (bounded by the current zoom window). */
   frames: number;
   /** Columns actually drawn (a narrow strip shows fewer than `frames`). */
   columns: number;
@@ -126,6 +140,8 @@ export interface TimelineState {
   dpr: number;
   /** The selected frame as text — the readout under the strip. */
   readout: string;
+  /** Current bounded scrub/zoom window. */
+  view: TimelineViewState;
 }
 
 export interface ProfilerTimeline {
@@ -138,6 +154,12 @@ export interface ProfilerTimeline {
   resize(width: number, height: number): void;
   /** Pin a frame by engine frame number, or release the pin with `null`. */
   pin(frameIndex: number | null): void;
+  /** Move the right edge of the visible window to a retained frame and select it. */
+  scrub(frameIndex: number): void;
+  /** Zoom by a factor: values above one zoom in, below one zoom out. */
+  zoom(factor: number): void;
+  /** Return to the newest window at the configured maximum width. */
+  resetView(): void;
   state(): TimelineState;
   dispose(): void;
 }
@@ -273,11 +295,20 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
   let dpr = 1;
   let painted = 0;
   let lastPaint = -Infinity;
+  const configuredFrames = Math.max(1, Math.floor(options.maxFrames ?? 180));
   /** Pinned / hovered frames are held by engine frame number: positions shift as the ring turns. */
   let pinnedFrame: number | null = null;
   let hoverFrame: number | null = null;
   let lastSelection: number | null = null;
+  /** The right edge is an engine frame id, not an array position, so a profiler ring can advance. */
+  let viewEndFrame: number | null = null;
+  let windowFrames = configuredFrames;
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartEndFrame: number | null = null;
   let disposed = false;
+  el.tabIndex = 0;
+  el.setAttribute("aria-label", "Profiler frame timeline. Use the mouse wheel to zoom and Shift-wheel or drag to scrub.");
 
   const measure = (): { w: number; h: number } => {
     if (cssWidth > 0 && cssHeight > 0) return { w: cssWidth, h: cssHeight };
@@ -304,12 +335,52 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
   };
 
   let readout = "";
-  let latest: { model: TimelineModel; layout: TimelineLayout; selected: number | null; frame: TimelineFrame | null } = {
-    model: frameTimeline([], { maxFrames: options.maxFrames, budgetMs: options.budgetMs }),
-    layout: layoutTimeline(frameTimeline([], { maxFrames: options.maxFrames, budgetMs: options.budgetMs }), { width: 0, height: 0 }),
+  let latest: {
+    model: TimelineModel;
+    layout: TimelineLayout;
+    selected: number | null;
+    frame: TimelineFrame | null;
+    available: number;
+    start: number;
+    end: number;
+  } = {
+    model: frameTimeline([], { maxFrames: configuredFrames, budgetMs: options.budgetMs }),
+    layout: layoutTimeline(frameTimeline([], { maxFrames: configuredFrames, budgetMs: options.budgetMs }), { width: 0, height: 0 }),
     selected: null,
     frame: null,
+    available: 0,
+    start: 0,
+    end: 0,
   };
+
+  const recordsWindow = (records: readonly FrameRecord[]): { records: readonly FrameRecord[]; start: number; end: number } => {
+    if (records.length === 0) return { records, start: 0, end: 0 };
+    let end = records.length;
+    if (viewEndFrame !== null) {
+      const edge = records.findIndex((record) => record.index === viewEndFrame);
+      if (edge >= 0) end = edge + 1;
+      else viewEndFrame = null;
+    }
+    const start = Math.max(0, end - Math.min(windowFrames, records.length));
+    // A scrubbed window cannot end before its first record. Keep the identity at the right edge so
+    // newly appended records do not silently snap the user's old spike back to the live tail.
+    const visible = records.slice(start, end);
+    return { records: visible, start, end };
+  };
+
+  const sourceIndex = (records: readonly FrameRecord[], frame: number | null): number => {
+    if (frame === null) return -1;
+    return records.findIndex((record) => record.index === frame);
+  };
+
+  const viewState = (): TimelineViewState => ({
+    availableFrames: latest.available,
+    windowStart: latest.model.frames[0]?.index ?? null,
+    windowEnd: latest.model.frames.at(-1)?.index ?? null,
+    windowFrames: latest.model.frames.length,
+    scrubbed: latest.end < latest.available,
+    zoom: latest.model.frames.length > 0 ? Math.max(1, Math.min(configuredFrames, latest.available) / latest.model.frames.length) : 1,
+  });
 
   const paint = (): void => {
     if (disposed || !ctx) return;
@@ -317,12 +388,13 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
     syncBackingStore(box.w, box.h);
     if (box.w <= 0 || box.h <= 0) return;
     const records = options.frames() ?? [];
-    const model = frameTimeline(records, {
-      maxFrames: options.maxFrames,
+    const window = recordsWindow(records);
+    const model = frameTimeline(window.records, {
+      maxFrames: configuredFrames,
       budgetMs: options.budgetMs,
     });
-    // A pinned frame that has scrolled out of the window cannot be kept; drop the pin rather than
-    // silently showing a different frame than the one the user picked.
+    // A pinned frame that has scrolled out of the visible window cannot be kept; drop the pin rather
+    // than silently showing a different frame than the one the user picked.
     if (pinnedFrame !== null && resolve(model, pinnedFrame) === null) pinnedFrame = null;
     if (hoverFrame !== null && resolve(model, hoverFrame) === null) hoverFrame = null;
     const hovered = resolve(model, hoverFrame);
@@ -341,12 +413,14 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
     painted++;
     lastPaint = now();
     const frame = selected === null ? null : model.frames[selected] ?? null;
-    if (selected !== lastSelection) {
-      lastSelection = selected;
+    const selectedFrame = frame?.index ?? null;
+    if (selectedFrame !== lastSelection) {
+      lastSelection = selectedFrame;
       options.onSelect?.(frame);
     }
-    readout = frame ? formatTimelineFrame(frame, model.budgetMs) : "";
-    latest = { model, layout, selected, frame };
+    const view = `view ${model.frames[0]?.index ?? "—"}–${model.frames.at(-1)?.index ?? "—"} / ${records.length}  ·  wheel zoom · shift-wheel or drag scrub`;
+    readout = frame ? `${formatTimelineFrame(frame, model.budgetMs)}\n  ${view}` : records.length > 0 ? view : "";
+    latest = { model, layout, selected, frame, available: records.length, start: window.start, end: window.end };
   };
 
   const hover = (frameNumber: number | null): void => {
@@ -380,23 +454,136 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
     return frame ? frame.index : null;
   };
 
-  const onMove = (event: unknown): void => {
-    if (pinnedFrame !== null) return; // pinned: the strip is frozen until released
-    hover(hit(event as { clientX: number; clientY: number }));
-  };
-  const onDown = (event: unknown): void => {
-    const frameNumber = hit(event as { clientX: number; clientY: number });
-    if (frameNumber === null) return;
-    // Tap the pinned frame to release it; tap any other to pin that one.
-    pinnedFrame = pinnedFrame === frameNumber ? null : frameNumber;
+  const recordsNow = (): readonly FrameRecord[] => options.frames() ?? [];
+
+  const moveWindowBy = (delta: number): void => {
+    const records = recordsNow();
+    if (records.length === 0 || !Number.isFinite(delta)) return;
+    const currentEnd = viewEndFrame === null ? records.length : Math.max(1, sourceIndex(records, viewEndFrame) + 1);
+    const nextEnd = Math.max(1, Math.min(records.length, currentEnd + Math.round(delta)));
+    if (nextEnd === currentEnd) return;
+    viewEndFrame = records[nextEnd - 1]!.index;
+    hoverFrame = null;
     paint();
   };
-  const onLeave = (): void => hover(null);
+
+  const scrub = (frameIndex: number): void => {
+    const records = recordsNow();
+    const index = sourceIndex(records, frameIndex);
+    if (index < 0) return;
+    viewEndFrame = records[index]!.index;
+    pinnedFrame = records[index]!.index;
+    hoverFrame = null;
+    paint();
+  };
+
+  const zoom = (factor: number): void => {
+    if (!Number.isFinite(factor) || factor <= 0) return;
+    const records = recordsNow();
+    if (records.length === 0) return;
+    const currentEnd = viewEndFrame === null ? records.length : Math.max(1, sourceIndex(records, viewEndFrame) + 1);
+    const currentStart = Math.max(0, currentEnd - Math.min(windowFrames, records.length));
+    const target = Math.max(1, Math.min(records.length, Math.round(windowFrames / factor)));
+    if (target === windowFrames && currentStart === 0 && currentEnd === records.length) return;
+    const center = Math.min(records.length - 1, currentStart + Math.floor(Math.max(0, currentEnd - currentStart - 1) / 2));
+    let start = Math.max(0, center - Math.floor(target / 2));
+    let end = Math.min(records.length, start + target);
+    start = Math.max(0, end - target);
+    windowFrames = target;
+    viewEndFrame = end === records.length && start === 0 ? null : records[end - 1]!.index;
+    hoverFrame = null;
+    paint();
+  };
+
+  const resetView = (): void => {
+    viewEndFrame = null;
+    windowFrames = configuredFrames;
+    pinnedFrame = null;
+    hoverFrame = null;
+    paint();
+  };
+
+  const onMove = (event: unknown): void => {
+    const input = event as { clientX: number; clientY: number; buttons?: number };
+    if (dragStartEndFrame !== null && (input.buttons ?? 0) & 1) {
+      const deltaX = input.clientX - dragStartX;
+      if (!dragging && Math.abs(deltaX) >= 4) dragging = true;
+      if (dragging) {
+        const columns = Math.max(1, latest.layout.columns.length);
+        const records = recordsNow();
+        const base = sourceIndex(records, dragStartEndFrame);
+        if (base >= 0) {
+          const offset = Math.round(-deltaX / Math.max(1, measure().w / columns));
+          const nextEnd = Math.max(1, Math.min(records.length, base + 1 + offset));
+          viewEndFrame = records[nextEnd - 1]!.index;
+          pinnedFrame = null;
+          hoverFrame = null;
+          paint();
+        }
+        return;
+      }
+    }
+    if (pinnedFrame !== null) return; // pinned: the strip is frozen where the user put it
+    hover(hit(input));
+  };
+  const onDown = (event: unknown): void => {
+    const input = event as { clientX: number; clientY: number };
+    const frameNumber = hit(input);
+    if (frameNumber === null) return;
+    dragStartX = input.clientX;
+    dragStartEndFrame = viewEndFrame ?? latest.model.frames.at(-1)?.index ?? null;
+    dragging = false;
+    // Tap the pinned frame to release it; tap any other to pin that one. A real drag clears this pin
+    // once movement passes the threshold and scrubs the retained window instead.
+    pinnedFrame = pinnedFrame === frameNumber ? null : frameNumber;
+    el.focus?.();
+    paint();
+  };
+  const onUp = (): void => {
+    dragStartEndFrame = null;
+    dragging = false;
+  };
+  const onWheel = (event: unknown): void => {
+    const input = event as { deltaY?: number; deltaX?: number; shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; preventDefault?: () => void };
+    const dy = Number.isFinite(input.deltaY) ? input.deltaY! : 0;
+    const dx = Number.isFinite(input.deltaX) ? input.deltaX! : 0;
+    if ((input.shiftKey || Math.abs(dx) > Math.abs(dy)) && (dx !== 0 || dy !== 0)) {
+      const direction = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      moveWindowBy(direction > 0 ? -Math.max(1, Math.round(windowFrames / 8)) : Math.max(1, Math.round(windowFrames / 8)));
+    } else if (dy !== 0 || input.ctrlKey || input.metaKey) {
+      zoom(dy > 0 ? 0.8 : 1.25);
+    }
+    input.preventDefault?.();
+  };
+  const onKeyDown = (event: unknown): void => {
+    const input = event as { key?: string; preventDefault?: () => void };
+    switch (input.key) {
+      case "ArrowLeft": moveWindowBy(-(input.key === "ArrowLeft" ? 1 : 0)); input.preventDefault?.(); break;
+      case "ArrowRight": moveWindowBy(1); input.preventDefault?.(); break;
+      case "PageUp": moveWindowBy(-Math.max(1, Math.round(windowFrames / 2))); input.preventDefault?.(); break;
+      case "PageDown": moveWindowBy(Math.max(1, Math.round(windowFrames / 2))); input.preventDefault?.(); break;
+      case "+": case "=": zoom(1.5); input.preventDefault?.(); break;
+      case "-": case "_": zoom(0.67); input.preventDefault?.(); break;
+      case "Home": resetView(); moveWindowBy(-recordsNow().length); input.preventDefault?.(); break;
+      case "End": resetView(); input.preventDefault?.(); break;
+      default: break;
+    }
+  };
+  const onLeave = (): void => {
+    if (!dragging) hover(null);
+  };
+  const onCancel = (): void => {
+    onUp();
+    hover(null);
+  };
 
   el.addEventListener("pointermove", onMove);
   el.addEventListener("pointerdown", onDown);
+  el.addEventListener("pointerup", onUp);
   el.addEventListener("pointerleave", onLeave);
-  el.addEventListener("pointercancel", onLeave);
+  el.addEventListener("pointercancel", onCancel);
+  el.addEventListener("wheel", onWheel);
+  el.addEventListener("keydown", onKeyDown);
 
   return {
     el,
@@ -415,6 +602,9 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
       pinnedFrame = frameIndex;
       paint();
     },
+    scrub,
+    zoom,
+    resetView,
     state(): TimelineState {
       const box = measure();
       return {
@@ -430,14 +620,18 @@ export function mountProfilerTimeline(options: ProfilerTimelineOptions): Profile
         cssHeight: box.h,
         dpr,
         readout,
+        view: viewState(),
       };
     },
     dispose() {
       disposed = true;
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointerleave", onLeave);
-      el.removeEventListener("pointercancel", onLeave);
+      el.removeEventListener("pointercancel", onCancel);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("keydown", onKeyDown);
     },
   };
 }

@@ -43,6 +43,24 @@ group("physics debug draw", () => {
     assert.equal(forwardedView.truncatedBodies, 2);
   });
 
+  test("draws bounded contact points and normals without stepping the world", () => {
+    const world = new PhysicsWorld({ gravity: new Vec3(0, 0, 0) });
+    const a = new RigidBody({ shape: new SphereShape(1), position: new Vec3(0, 0, 0) });
+    const b = new RigidBody({ type: "static", shape: new SphereShape(1), position: new Vec3(1.5, 0, 0) });
+    world.addBody(a);
+    world.addBody(b);
+    const before = [world.time, world.stepCount, a.position.x, b.position.x];
+    const view = physicsDebugDraw(world, { showContacts: true, maxContacts: 1, contactNormalScale: 0.5 });
+    assert.equal(view.contactCount, 1);
+    assert.equal(view.truncatedContacts, 0);
+    assert.equal(view.lines.filter((line) => line.kind === "contact").length, 3);
+    const normal = view.lines.find((line) => line.kind === "contactNormal")!;
+    assert.equal(normal.otherBodyId, b.id);
+    assert.deepEqual(normal.start, [0.75, 0, 0]);
+    assert.deepEqual(normal.end, [1.25, 0, 0]);
+    assert.deepEqual([world.time, world.stepCount, a.position.x, b.position.x], before);
+  });
+
   test("places finite plane wireframes according to the plane equation", () => {
     const world = new PhysicsWorld({ gravity: new Vec3(0, 0, 0) });
     world.addBody(new RigidBody({ type: "static", shape: new PlaneShape(new Vec3(0, 1, 0), -3), position: new Vec3(10, 20, 30) }));

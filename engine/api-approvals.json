@@ -133,6 +133,18 @@
       ]
     },
     {
+      "id": "debug/2",
+      "decision": "approved-1.0-candidate",
+      "summary": "Review the Phase 21 physics debug contact-overlay additions: bounded contact-point crosses and normal rays, optional colours/scales, and the body-pair metadata remain renderer-independent and read-only.",
+      "evidence": [
+        "docs/API-REVIEW.md",
+        "tests/core/runtimeApi.test.ts",
+        "engine/src/debug/physicsDebugDraw.ts",
+        "tests/core/physicsDebugDraw.test.ts",
+        "examples/src/diag/inspectorTabs.ts"
+      ]
+    },
+    {
       "id": "environment/1",
       "decision": "approved-1.0-candidate",
       "summary": "Approve atmosphere, clouds, cyclones, day/night, fog, lightning, moisture, scattering, ocean, snow, solar, sound-input, surface-weather, water, waterspout, weather, and wind-buffet contracts; deterministic updates, physical bounds, coupled systems, and rendering data are exercised by the cited suites.",
@@ -6210,30 +6222,30 @@
     {
       "name": "PhysicsDebugLine",
       "kind": "type",
-      "declarationHash": "sha256:7856d969ec637212de4d329aee1e1c88ef79964f2898d5ca216594110d26ef7b",
-      "contractHash": "sha256:3686be562907cf5610190190bcd2ab5d64148aab5226958134512a8c0be30ea4",
-      "review": "debug/1"
+      "declarationHash": "sha256:7a68b3007d6fee872cfbaa9b6843240b11d701d74e2274e03a1cdd901cd131ef",
+      "contractHash": "sha256:71ef27f5eeaff097c20ee1e8a924ad68bbd7e84be44d3ad631ca32e1c5348b0e",
+      "review": "debug/2"
     },
     {
       "name": "PhysicsDebugLineKind",
       "kind": "type",
-      "declarationHash": "sha256:29ef338b1de97ce2bfc676bedcbeb2ad8c317603b37dd75a4c0c4a9e31f2d878",
-      "contractHash": "sha256:9f3db186be7a8dbb048e0be6bb70a8f7ad57627b129a637d7167f30d59d2fc92",
-      "review": "debug/1"
+      "declarationHash": "sha256:749598ae23eac552e9b91b95b84669b2cbf90f9c62ab4668e933cadd8e5f7fb5",
+      "contractHash": "sha256:aed7c817f8074b3cf28e9de090e225e703e3ef1ce22a7fd535dc154d4aafd1a1",
+      "review": "debug/2"
     },
     {
       "name": "PhysicsDebugOptions",
       "kind": "type",
-      "declarationHash": "sha256:db174d3988e4cc42b9b302b54fffd5f5e4a58f4e676ef2289fbe70b274ec062a",
-      "contractHash": "sha256:3630a1dbf45506bfc15a1f4c720576d50a3779d9e556ec4ce1d14fe37769cf60",
-      "review": "debug/1"
+      "declarationHash": "sha256:8534a36c8a76f2436ca0a780c0089ab17b5335c1ebe0be011d3fafb1dbb60d69",
+      "contractHash": "sha256:24559a692af56cfaa4855de7751d942d830faa7c1e0b35bf6570e4a353c40ab8",
+      "review": "debug/2"
     },
     {
       "name": "PhysicsDebugView",
       "kind": "type",
-      "declarationHash": "sha256:e89fbe2b6240b374de230ccaac7a90b1b7715cd7c0f7ce978e9553067fe5f380",
-      "contractHash": "sha256:16e14a4ccd0fa7e558ebf87cfc064d0f4cabea249b02373b26aff096d2c3692a",
-      "review": "debug/1"
+      "declarationHash": "sha256:cbf816bc39e9e0b1e20cbc239f386fa5176718b955a957187da3001cb21d9a07",
+      "contractHash": "sha256:6064d83ca7c166d984379ae9dda6d28c75c07b154101b537ac3ea7118d6bff59",
+      "review": "debug/2"
     },
     {
       "name": "PhysicsRaycastGroundOptions",
@@ -12861,8 +12873,8 @@
       "name": "drawPhysicsDebug",
       "kind": "value",
       "declarationHash": "sha256:99809bcdaa16d7ae1941ee0221af9b3a44685ad081b76eecfee25a5bad7cfb46",
-      "contractHash": "sha256:7c35244ab81a64ef50c63d165e9ebbb4d6e966daf1d5d8864c5e752bd865bd69",
-      "review": "debug/1"
+      "contractHash": "sha256:4f67dba350f13c0d14fc4b86dc6c93f0d1363b997b58aab2fe303b63e7fc05ee",
+      "review": "debug/2"
     },
     {
       "name": "drawTerrainDebug",
@@ -14296,8 +14308,8 @@
       "name": "physicsDebugDraw",
       "kind": "value",
       "declarationHash": "sha256:d233197e2b8d118d22bc8d03aff39c622819cca683e9f3ca0d5b711e93cd2221",
-      "contractHash": "sha256:3cd5c2f43a238cf2179799195140e4587034aff3c1c73ae499974a5e9f548d82",
-      "review": "debug/1"
+      "contractHash": "sha256:e3c6803b7d753f56d5d20dfe16522f797b6f69c095738e37be03bc2d5a2613e8",
+      "review": "debug/2"
     },
     {
       "name": "physicsGroundQuery",

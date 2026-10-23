@@ -15,7 +15,7 @@ released surface adds the 16 public extension-contract exports plus the reviewed
 shader export, for **2,188 approved public exports**. Phase 14 adds a separately reviewed population
 batch of 13 canonical sampling, worker-task, and resident-raycast exports, and Phase 16 adds ten glTF,
 morph-animation, and secondary-UV contracts across three follow-up batches, for **2,211 approved public
-exports** out of 2,220 total across 27 review batches. Each approved row has an exact declaration kind,
+exports** out of 2,220 total across 28 review batches. Each approved row has an exact declaration kind,
 direct declaration hash, transitive contract hash, and subsystem review. The nine exports already marked
 experimental remain experimental and are not approvals. There are no deprecated exports and no pending
 public candidates.
@@ -56,7 +56,8 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `core-runtime/1` | 78 | capabilities, config, device tiers, engine lifecycle, events, logging, pools, platform probes, snapshots, `VERSION` | runtime API, architecture, device-tier, and snapshot suites |
 | `core-tasks/1` | 63 | task protocols, registries, schedulers, worker scope, glTF task handlers | task, worker-bundling, and glTF suites |
 | `core-time/1` | 6 | clock configuration, frame timing, fixed-step accumulation | clock, replay, and environment timing suites |
-| `debug/1` | 100 | console, profiler/timeline, ECS/GPU/render-graph/physics/particle/environment/terrain/streaming inspectors | twelve focused debug suites |
+| `debug/1` | 94 | console, profiler/timeline, ECS/GPU/render-graph/particle/environment/terrain/streaming inspectors | twelve focused debug suites |
+| `debug/2` | 6 | bounded physics contact-point and normal debug overlay additions | physics debug-draw and Inspector suites |
 | `environment/1` | 236 | atmosphere, clouds, cyclones, day/night, fog, lightning, ocean, snow, solar, water, weather, wind | environment, ocean, snow-melt, and storm-realism suites |
 | `extensions/1` | 16 | the Forge 1.0 systems, components, importers, terrain generators, materials, physics shapes, debug visualizers, and console commands contract | extension contract, API reference, migration, and runnable example suites |
 | `gpu/1` | 64 | constants, formats, layouts, buffer writing, device acquisition, shader cache | GPU fatal/memory and WGSL suites |

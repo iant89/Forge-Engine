@@ -45,7 +45,7 @@ CURRENT CODEBASE BASELINE:
                 deterministic push/roll/break and rover obstacle response, persistent deformation and
                 visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IN PROGRESS ([~]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
+                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
                 matrix covers ECS, math, scheduling and resource management, and the runner emits
                 a versioned host-described JSON snapshot; rendering, terrain, physics, particle/world
                 scale sweeps and automatic historical comparison remain. Phases 23 through 28 remain
@@ -182,7 +182,11 @@ PHASE 20 - AUDIO
     [x]
 
 PHASE 21 - PROFILER / DEBUG TOOLS
-    [~] IN PROGRESS (21.2–21.9 are browsable in the demo's Inspector window; the visible 21.10 console, contact-manifold overlays and the timeline's scrub/zoom remain)
+    [x] IMPLEMENTED / VERIFIED (the Profiler timeline is browsable and scrub/zoomable across the retained
+        history; Physics overlays include bounded contact points and normals; the Inspector's overlays
+        use those contacts, and the visible Console provides safe registered commands with bounded
+        transcript/history. GPU particle positions remain intentionally device-authoritative; the
+        debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
     [~] IN PROGRESS (22.1 core matrix and snapshot schema landed; 22.2–22.6 coverage and automatic historical comparison remain)
@@ -2334,8 +2338,9 @@ GOAL:
     report: hover a column to select that frame, tap to pin it. Pinned by
     tests/core/frameBreakdown.test.ts and tests/core/frameTimeline.test.ts (model and geometry),
     tests/examples/profilerTimeline.test.ts (the strip, against a fake canvas) and check:browser:ui
-    (real pointer input on real WebGPU frame records). The strip's own follow-ups — a bounded window
-    with no scrub or zoom, a frame-total-only GPU marker — are in docs/KNOWN-ISSUES.md.
+    (real pointer input on real WebGPU frame records). The strip now supports bounded scrub and zoom
+    across the retained history by wheel, keyboard, and pointer drag; its GPU marker remains a
+    frame-total marker while per-pass device times stay in the text report.
 
 
 21.2 ECS Inspector
@@ -2360,11 +2365,12 @@ GOAL:
 
 21.5 Physics Debug Draw
 
-    [~] Bounded read-only collider wireframes for rigid bodies, with optional AABBs and linear
-        velocity vectors. Backend-independent line data/callback can be forwarded to Renderer.drawLine
-        (engine/src/debug/physicsDebugDraw.ts, tests/core/physicsDebugDraw.test.ts). The Inspector
-        window's Physics tab lists bodies and switches the wireframe overlay on each frame;
-        contact-manifold overlays remain open.
+    [x] Bounded read-only collider wireframes for rigid bodies, with optional AABBs, linear velocity
+        vectors, and current narrowphase contact-point/normal overlays. Backend-independent line
+        data/callback can be forwarded to Renderer.drawLine (engine/src/debug/physicsDebugDraw.ts,
+        tests/core/physicsDebugDraw.test.ts). The Inspector window's Physics tab lists bodies and
+        switches the complete overlay on each frame; contact points are capped independently so a
+        dense scene cannot make the debug pass unbounded.
 
 21.6 Terrain Debugger
 
@@ -2406,24 +2412,25 @@ GOAL:
     input, and output. Built-ins expose CPU/GPU profiler scopes and recent frame slices, engine
     stats, plus the ECS, render graph, GPU resources, physics, terrain, particles, streaming, and
     environment diagnostics already added in Phase 21.
-    A host can attach the model to a terminal/editor surface; no visible demo console panel has
-    been added yet. See tests/core/developerConsole.test.ts.
+    A host can attach the model to a terminal/editor surface, and the demo now does: the floating
+    Console window (examples/src/diag/consolePanel.ts) provides a real input, bounded transcript,
+    Up/Down history and Tab completion while still dispatching only registered commands. Pinned by
+    tests/core/developerConsole.test.ts, tests/examples/consolePanel.test.ts and section 7c of
+    check:browser:ui.
 
-    The milestone's diagnostics are browsed interactively instead, in the demo's floating Inspector
-    window (examples/src/diag/inspectorPanel.ts and examples/src/diag/inspectorTabs.ts, opened from
-    the toolbar's Inspector button): one tab per API above — ECS, systems, render graph, GPU
-    resources, physics, terrain, particles, streaming and world — each with a summary strip, a filter,
-    a list and a detail pane for the selected row, refreshing at 2 Hz while it is open and costing
-    nothing while it is closed. Rows carry a stable key, so a selection survives a refresh by identity
-    and not by position; the detail is computed lazily for the selected row only; the list is rebuilt
+    The milestone's diagnostics are browsed interactively in the demo's floating Inspector window
+    (examples/src/diag/inspectorPanel.ts and examples/src/diag/inspectorTabs.ts, opened from the
+    toolbar's Inspector button): one tab per API above — ECS, systems, render graph, GPU resources,
+    physics, terrain, particles, streaming and world — each with a summary strip, a filter, a list
+    and a detail pane for the selected row, refreshing at 2 Hz while it is open and costing nothing
+    while it is closed. Rows carry a stable key, so a selection survives a refresh by identity and
+    not by position; the detail is computed lazily for the selected row only; the list is rebuilt
     only when its contents change; a tab whose subsystem is missing from the scene reports a note
-    instead of throwing; and four tabs offer a debug-line overlay that the panel only flags — the
-    demo's frame loop asks what to draw and pushes the lines through `Renderer.drawLine`, so an
-    overlay costs nothing until it is switched on. Pinned by tests/examples/inspectorPanel.test.ts
-    (the whole window against a fake DOM) and by section 7b of check:browser:ui (real Chromium, real
-    terrain chunks and real debug lines). Its remaining limits — one window, one tab at a time,
-    read-only, capped rows, no contact manifolds, no GPU particle rows — are in docs/KNOWN-ISSUES.md
-    against capability diagnostics.inspectorPanel.
+    instead of throwing; and four tabs offer opt-in debug-line overlays, including bounded contact
+    points and normals, that the frame loop forwards through Renderer.drawLine. Pinned by
+    tests/examples/inspectorPanel.test.ts and section 7b of check:browser:ui. The Inspector remains
+    one read-only window with capped rows, and GPU particle positions remain device-authoritative;
+    their counters/configuration are shown without a synchronization readback.
 
 
 EXIT CRITERIA:

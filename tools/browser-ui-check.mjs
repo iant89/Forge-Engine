@@ -24,11 +24,14 @@
  *     corner grip resizes it, the bar's collapse button leaves only a corner icon that re-opens it,
  *     and holding a drag near a viewport edge for the dwell docks it flush there;
  *  7a. the panel's frame timeline strip paints a real frame history, hovering a column selects that
- *     frame and a click pins it (and a second click releases it);
+ *     frame and a click pins it (and a second click releases it), while wheel zoom and Shift-wheel
+ *     move the bounded retained window;
  *  7b. the demo's floating Inspector window browses the Phase 21 diagnostic APIs on a scene that has
  *     terrain in it: the toolbar button opens it, all nine tabs load and paint rows, a click on a row
  *     fills the detail pane, the filter narrows the list, and the Terrain tab's overlay checkbox
- *     switches on debug lines the frame loop really draws.
+ *     switches on debug lines the frame loop really draws;
+ *  7c. the visible Console opens, executes a registered stats command and rejects/effectively
+ *     displays an unregistered JavaScript-looking command without evaluating it.
  *
  * Screenshots: `tools/.browser-ui-<page>.png`, `tools/.browser-ui-profiler-timeline.png` and
  * `tools/.browser-ui-inspector.png` (git-ignored). Look at them.
@@ -266,6 +269,18 @@ for (let attempt = 0; attempt < 3 && released.pinned; attempt++) {
   released = await timelineState();
 }
 check(released.pinned === false, "clicking the pinned frame again releases it");
+await page.mouse.move(stripBox.x + stripBox.width / 2, stripBox.y + stripBox.height * 0.25);
+const zoomBefore = await timelineState();
+await page.mouse.wheel(0, -120);
+await sleep(400);
+const zoomed = await timelineState();
+check(zoomed.view.zoom > zoomBefore.view.zoom, `wheel zooms the retained history (${zoomBefore.view.windowFrames} → ${zoomed.view.windowFrames} frames)`);
+await page.keyboard.down("Shift");
+await page.mouse.wheel(0, 120);
+await page.keyboard.up("Shift");
+await sleep(400);
+const scrubbed = await timelineState();
+check(scrubbed.view.scrubbed === true, `Shift-wheel scrubs to an older retained window (end #${scrubbed.view.windowEnd})`);
 await page.mouse.move(stripBox.x + stripBox.width / 2, stripBox.y - 60);
 
 const at = await panelLayout();
@@ -608,6 +623,23 @@ await waitFrames(2);
 check((await inspectorLayout()).visible === true, "the corner icon brings it back");
 await page.evaluate(() => window.__forge.setInspectorVisible(false));
 check((await inspectorLayout()).visible === false, "the Inspector button closes it again");
+
+// 7c. The visible terminal uses the same registered-command model as the embeddable API. The
+// programmatic hook is only a deterministic assertion aid; the button and input are real DOM controls.
+const consoleState = () => page.evaluate(() => window.__forge.consoleState());
+const consoleErrorsBefore = consoleErrors.length;
+check((await consoleState()).visible === false, "the Console starts closed");
+await page.locator("#btn-console").click();
+await waitFrames(1);
+check((await consoleState()).visible === true, "the Console toolbar button opens it");
+const statsResult = await page.evaluate(() => window.__forge.executeConsole("stats"));
+check(statsResult.ok === true && (await consoleState()).entries >= 1, "the visible Console runs the registered stats command");
+const unsafeResult = await page.evaluate(() => window.__forge.executeConsole("Math.max 1 2"));
+check(unsafeResult.ok === false && /unknown command|never evaluated/i.test(unsafeResult.output.join("\n")), "JavaScript-looking input is rejected as a command, not evaluated");
+check((await page.locator("#console-panel .forge-console-output").textContent()).includes("stats"), "the terminal transcript is visible");
+await page.evaluate(() => window.__forge.setConsoleVisible(false));
+check((await consoleState()).visible === false, "the Console button closes it again");
+check(consoleErrors.length === consoleErrorsBefore, `no page console errors from the Console run (${consoleErrors.slice(consoleErrorsBefore, consoleErrorsBefore + 3).join(" | ")})`);
 check(consoleErrors.length === errorsBeforeInspector, `no page console errors from the Inspector run (${consoleErrors.slice(errorsBeforeInspector, errorsBeforeInspector + 3).join(" | ")})`);
 
 console.log(`screenshots: ${menuShot} and tools/.browser-ui-{settings,hud,inventory,widgets,data,saved,dialog,light,parchment,large,compact,compact-saved,inspector,inspector-overlay}.png`);
