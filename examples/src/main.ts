@@ -59,6 +59,7 @@ import { buildSkyScene, type SkySceneHandle } from "./scenes/skyScene.js";
 import { buildWeatherScene, type WeatherSceneHandle } from "./scenes/weatherScene.js";
 import { buildThawScene, type ThawSceneHandle } from "./scenes/thawScene.js";
 import { buildMarsShowcaseScene, type MarsShowcaseSceneHandle } from "./scenes/marsShowcaseScene.js";
+import { MARS_WEATHER_NAMES, type MarsWeatherMode } from "./scenes/marsWeather.js";
 import { buildRoverCourseScene, type RoverCourseHandle } from "./scenes/roverCourseScene.js";
 import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningScene.js";
 import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
@@ -336,6 +337,9 @@ async function main(): Promise<void> {
   let activeSceneName: DemoSceneName = resolveDemoSceneName(requestedScene);
   /** `?marssite=…` picks the ported Mars generator's site (the volcano by default). */
   const marsSiteParam = new URLSearchParams(window.location.search).get("marssite");
+  /** `?marsweather=clear|dust|global-dust` selects the dry Phase 23.2 showcase profile. */
+  const marsWeatherParam = new URLSearchParams(window.location.search).get("marsweather");
+  const marsWeather = MARS_WEATHER_NAMES.find((mode) => mode === marsWeatherParam);
 
   /** fe-29: one-shot Mars Dust Storm build overrides (Play again rebuilds in place with a new seed). */
   let stormOverride: { difficulty: StormDifficulty; courseSeed: number } | null = null;
@@ -394,7 +398,7 @@ async function main(): Promise<void> {
     } else if (name === "thaw") {
       currentHandle = buildThawScene(engine);
     } else if (name === "mars-showcase") {
-      currentHandle = buildMarsShowcaseScene(engine);
+      currentHandle = buildMarsShowcaseScene(engine, { marsWeather });
       if (boundsOn) (currentHandle as MarsShowcaseSceneHandle).setDebugBounds("on");
     } else if (name === "rover-course") {
       // fe-32: `?tier=` caps the lamp spot shadows (low 1, medium 2, high 6) like the other tier knobs.
@@ -1146,6 +1150,11 @@ async function main(): Promise<void> {
     setMarsSolarTime: (hours: number) => {
       if (activeSceneName === "mars-showcase")
         (currentHandle as MarsShowcaseSceneHandle | null)?.setMarsSolarTime?.(hours);
+    },
+    /** Phase 23.2: select a dry Mars weather profile; null outside Mars Showcase. */
+    setMarsWeather: (mode: MarsWeatherMode) => {
+      if (activeSceneName === "mars-showcase")
+        (currentHandle as MarsShowcaseSceneHandle | null)?.setMarsWeather?.(mode);
     },
     /** Phase 23: versioned telemetry/streaming/traversal contract; null outside Mars Showcase. */
     marsReferenceState: () => {

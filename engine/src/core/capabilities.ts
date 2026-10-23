@@ -405,6 +405,21 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "Schema forge.mars-reference/1 aggregates public Engine.stats()/frameBreakdown() data with scene-owned terrain, particle and traversal counters. GPU time is null/n/a without resolved timestamp queries, GPU bytes do not double-count graph pools, and moving-time terrain gaps plus discontinuities remain visible. Focused tests are present; a real-browser contract assertion and sustained traversal thresholds/logging remain before this becomes a completed validation gate.",
   },
   {
+    id: "environment.marsReferenceWeather",
+    phase: "23.2",
+    status: "inProgress",
+    summary: "Dry Mars clear, regional-dust and global-dust profiles drive deterministic wind, storm haze, lighting attenuation and a thin high cloud/dust veil in the reference showcase",
+    evidence: [
+      "examples/src/scenes/marsWeather.ts",
+      "examples/src/scenes/marsShowcaseScene.ts",
+      "tests/examples/marsShowcase.test.ts",
+      "tests/environment/environment8b.test.ts",
+      "ROADMAP.md",
+    ],
+    closesWith: "23.2",
+    notes: "Precipitation, wetness, snow, water and vehicle-grip drives remain disabled for Mars. A sustained environment acceptance gate and richer Mars dust transport remain before 23.2 can be verified.",
+  },
+  {
     id: "diagnostics.frameTimeline",
     phase: "21.1",
     status: "verified",

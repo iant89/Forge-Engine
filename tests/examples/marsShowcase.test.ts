@@ -23,6 +23,7 @@
  * @covers engine/src/vehicles/ground.ts
  * @covers examples/src/controls/orbitControls.ts
  * @covers examples/src/scenes/marsShowcaseScene.ts
+ * @covers examples/src/scenes/marsWeather.ts
  * @desc The actual Mars Showcase assembly on the strict mock GPU. Only the browser DOM and the pending
  */
 
@@ -51,7 +52,8 @@ export const suite = {
     "engine/src/vehicles/electric.ts",
     "engine/src/vehicles/ground.ts",
     "examples/src/controls/orbitControls.ts",
-    "examples/src/scenes/marsShowcaseScene.ts"
+    "examples/src/scenes/marsShowcaseScene.ts",
+    "examples/src/scenes/marsWeather.ts"
   ],
   desc: "The actual Mars Showcase assembly on the strict mock GPU. Only the browser DOM and the pending",
 };
@@ -83,6 +85,7 @@ import {
   TerrainWorld,
   Vec3,
   VehicleComponent,
+  WeatherSystem,
   chunkCoordKey,
   flatGround,
   heightFunctionGround,
@@ -98,6 +101,7 @@ import {
   layoutBreakFragments,
   MARS_SHOWCASE_SITE,
 } from "../../examples/src/scenes/marsShowcaseScene.js";
+import { MARS_WEATHER_PROFILES } from "../../examples/src/scenes/marsWeather.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -246,6 +250,34 @@ group("Mars Showcase — ported terrain integration", () => {
     const after = handle.marsState().solarCycle;
     assert.ok(after.simulatedSeconds > before);
     assert.ok(after.timeOfDay > 12);
+  });
+
+  test("integrates deterministic dry Mars weather, dust haze and high cloud cover without wetting the ground", async () => {
+    const { handle, scene, tick } = await fixture();
+    const weather = scene.object<WeatherSystem>("marsWeather");
+    assert.ok(weather);
+    assert.deepEqual(weather!.state, MARS_WEATHER_PROFILES.clear);
+    const clear = handle.marsState().weather;
+    assert.equal(clear.mode, "clear");
+    assert.equal(clear.dust01, 0);
+    assert.equal(weather!.state.precipitation01, 0);
+
+    handle.setMarsWeather("global-dust");
+    const dust = handle.marsState().weather;
+    assert.equal(dust.mode, "global-dust");
+    assert.equal(dust.dust01, MARS_WEATHER_PROFILES["global-dust"].storm01);
+    assert.equal(weather!.state.precipitation01, 0);
+    assert.ok(dust.cloudCoverage > clear.cloudCoverage);
+    assert.ok(dust.fogDensity > clear.fogDensity);
+    assert.equal(scene.settings.surface.wetness, 0);
+    assert.equal(scene.settings.surface.puddles, 0);
+    assert.equal(scene.settings.surface.snow, 0);
+
+    const before = dust.simulatedSeconds;
+    tick();
+    assert.ok(handle.marsState().weather.simulatedSeconds > before);
+    handle.setMarsWeather("clear");
+    assert.equal(handle.marsState().weather.dust01, 0);
   });
 
   test("uploads the actual Mars weights into tile-owned masks and toggles layering without changing geometry", async () => {

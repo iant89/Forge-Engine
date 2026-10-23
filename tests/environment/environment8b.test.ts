@@ -161,6 +161,27 @@ group("weather state", () => {
     assertCloseTo(Math.min(converged, 2 * Math.PI - converged), 0, 6);
   });
 
+  test("supports dry storm haze independently from precipitation fog", () => {
+    const scene = new Scene({ name: "dry-storm-haze" });
+    const baseFog = scene.settings.fog.density;
+    const w = new WeatherSystem({
+      initial: { precipitation01: 0, storm01: 1 },
+      target: { precipitation01: 0, storm01: 1 },
+      stormFogDensity: 0.004,
+      driveSurface: false,
+      driveVehicles: false,
+    });
+    scene.add(w);
+    assertCloseTo(scene.settings.fog.density, baseFog + 0.004, 12);
+    assert.equal(w.saveState().stormFogDensity, 0.004);
+    const restored = new WeatherSystem({ stormFogDensity: 0 });
+    restored.loadState(w.saveState());
+    assert.equal(restored.stormFogDensity, 0.004);
+    assert.equal(scene.settings.surface.wetness, 0);
+    assert.equal(scene.settings.surface.puddles, 0);
+    assert.equal(scene.settings.surface.snow, 0);
+  });
+
   test("drives fog, turbidity, cover and deck wind into the scene (or nothing when told not to)", () => {
     const scene = new Scene({ name: "weather-drive" });
     const baseFog = scene.settings.fog.density;

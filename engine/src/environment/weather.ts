@@ -174,10 +174,12 @@ export interface WeatherOptions {
   gustScale?: number;
   /** Spatial scale of the temperature/precipitation patches. Default 0.004 (≈ 250 m). */
   patchScale?: number;
-  /** Write `scene.settings.fog.density` from the precipitation. Default true. */
+  /** Write `scene.settings.fog.density` from precipitation and optional storm haze. Default true. */
   driveFog?: boolean;
   /** Fog density added at full precipitation. Default 0.02. */
   rainFogDensity?: number;
+  /** Extra fog density added at full storm, useful for dry dust storms. Default 0. */
+  stormFogDensity?: number;
   /** Write `scene.settings.sky.turbidity` from humidity/storm. Default true. */
   driveSky?: boolean;
   /** Extra turbidity at full humidity / full storm. Defaults 2 / 4. */
@@ -233,6 +235,7 @@ export class WeatherSystem extends SceneObject {
   readonly patchScale: number;
   driveFog: boolean;
   rainFogDensity: number;
+  stormFogDensity: number;
   driveSky: boolean;
   humidityTurbidity: number;
   stormTurbidity: number;
@@ -277,6 +280,7 @@ export class WeatherSystem extends SceneObject {
     this.patchScale = options.patchScale ?? 0.004;
     this.driveFog = options.driveFog ?? true;
     this.rainFogDensity = options.rainFogDensity ?? 0.02;
+    this.stormFogDensity = Math.max(0, options.stormFogDensity ?? 0);
     this.driveSky = options.driveSky ?? true;
     this.humidityTurbidity = options.humidityTurbidity ?? 2;
     this.stormTurbidity = options.stormTurbidity ?? 4;
@@ -318,7 +322,11 @@ export class WeatherSystem extends SceneObject {
    * simulated clock (the gust field is a pure function of seed and clock) and the drive knobs.
    */
   override saveState(): Record<string, unknown> {
-    return {
+    // Keep the default snapshot byte-for-byte compatible with the pre-dust-haze contract. The new
+    // option is opt-in, so only persist it when it is active; loadState treats an absent value as the
+    // existing zero default. This avoids changing unrelated replay fixtures while still round-tripping
+    // a Mars dry-storm configuration.
+    const saved: Record<string, unknown> = {
       seed: this.seed,
       gustScale: this.gustScale,
       patchScale: this.patchScale,
@@ -341,6 +349,8 @@ export class WeatherSystem extends SceneObject {
       cloudDiffuseTransfer: this.cloudDiffuseTransfer,
       cloudShadowFill: this.cloudShadowFill,
     };
+    if (this.stormFogDensity !== 0) saved.stormFogDensity = this.stormFogDensity;
+    return saved;
   }
 
   /** Returns warnings for construction-time settings (seed, time constants, scales) that differ. */
@@ -367,7 +377,7 @@ export class WeatherSystem extends SceneObject {
     for (const k of ["driveFog", "driveSky", "driveClouds", "driveLighting", "driveSurface", "driveVehicles"] as const) {
       if (typeof saved[k] === "boolean") this[k] = saved[k] as boolean;
     }
-    for (const k of ["rainFogDensity", "humidityTurbidity", "stormTurbidity", "minimumSunLight", "minimumAmbientLight", "cloudDiffuseTransfer", "cloudShadowFill"] as const) {
+    for (const k of ["rainFogDensity", "stormFogDensity", "humidityTurbidity", "stormTurbidity", "minimumSunLight", "minimumAmbientLight", "cloudDiffuseTransfer", "cloudShadowFill"] as const) {
       const v = num(saved[k]);
       if (v !== undefined) this[k] = v;
     }
@@ -431,7 +441,12 @@ export class WeatherSystem extends SceneObject {
   apply(): void {
     const scene = this.scene;
     if (!scene || !this.captured) return;
-    if (this.driveFog) scene.settings.fog.density = Math.max(0, this.baseFogDensity + this.state.precipitation01 * this.rainFogDensity);
+    if (this.driveFog) {
+      scene.settings.fog.density = Math.max(
+        0,
+        this.baseFogDensity + this.state.precipitation01 * this.rainFogDensity + this.state.storm01 * this.stormFogDensity,
+      );
+    }
     if (this.driveSky) scene.settings.sky.turbidity = clamp(this.baseTurbidity + this.state.humidity01 * this.humidityTurbidity + this.state.storm01 * this.stormTurbidity, 2, 14);
     if (this.driveClouds) {
       scene.settings.clouds.coverage = this.state.cloudCoverage;

@@ -195,8 +195,9 @@ PHASE 22 - BENCHMARK + REGRESSION SYSTEM
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
-        versioned telemetry/streaming/traversal contract; erosion, environment breadth, continuous
-        traversal validation, camera modes and integrated deterministic replay remain)
+        versioned telemetry/streaming/traversal contract; dry Mars weather/cloud integration has
+        started; erosion, the environment acceptance gate, continuous traversal validation, camera
+        modes and integrated deterministic replay remain)
 
 PHASE 24 - GPU-DRIVEN WORLD SCALE
     [~] IN PROGRESS (streamed terrain can now hand CPU-rejected bounds to device culling and, when
@@ -2595,15 +2596,20 @@ This is the primary validation environment for Forge.
     [x] Mars atmosphere
     [x] dust haze
     [x] solar cycle
-    [ ] weather
-    [ ] clouds where appropriate
+    [~] weather
+    [~] clouds where appropriate
     [x] lighting
 
     As built: the showcase uses the Mars atmosphere, exponential dust haze, and a fixed-step
     `DayNightCycle` that drives the sun direction/intensity, ambient, sky direction and horizon fog.
     The deterministic Mars clock is exposed in `marsState().solarCycle` and can be scrubbed through
-    `window.__forge.setMarsSolarTime(hours)`. Mars weather and cloud integration remain separate
-    unchecked items; the reference slice still has no Stage A erosion cache (`23.1`).
+    `window.__forge.setMarsSolarTime(hours)`. Phase 23.2 now starts the dry Mars weather integration:
+    `WeatherSystem` owns deterministic clear/regional-dust/global-dust profiles, wind/advection,
+    storm haze and light attenuation; a thin high cloud/dust veil is driven by the same state, and
+    `window.__forge.setMarsWeather(mode)` plus `?marsweather=` expose it to diagnostics. The ground
+    deliberately keeps precipitation, wetness, snow, water and tyre-grip drives off. The remaining
+    gap is a sustained reference-weather acceptance gate and richer Mars-specific dust transport;
+    the reference slice still has no Stage A erosion cache (`23.1`).
 
 
 23.3 Rover
