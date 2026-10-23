@@ -9,6 +9,7 @@
  * @covers engine/src/physics/world.ts
  * @covers engine/src/vehicles/chassis.ts
  * @covers engine/src/vehicles/components.ts
+ * @covers engine/src/vehicles/dynamicChassis.ts
  * @covers engine/src/vehicles/ground.ts
  * @covers engine/src/vehicles/physicsGround.ts
  * @covers engine/src/vehicles/system.ts
@@ -28,6 +29,7 @@ export const suite = {
     "engine/src/physics/world.ts",
     "engine/src/vehicles/chassis.ts",
     "engine/src/vehicles/components.ts",
+    "engine/src/vehicles/dynamicChassis.ts",
     "engine/src/vehicles/ground.ts",
     "engine/src/vehicles/physicsGround.ts",
     "engine/src/vehicles/system.ts",
@@ -743,6 +745,163 @@ group("Phase 11.3 — chassis participates; props collide", () => {
     assert.ok(prop.linearVelocity.z > vz0);
     assertNotCloseTo(prop.linearVelocity.z, vz0, 1);
     world.dispose();
+  });
+});
+
+group("Phase 23.3 — dynamic chassis coupling", () => {
+  test("dynamic chassis bridges wheel-model acceleration into the shared fixed-step body", async () => {
+    const {
+      Clock,
+      EntityWorld,
+      Logger,
+      Profiler,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 900, aero: null }));
+    vehicle.placeOnGround(ground);
+    const chassis = createVehicleChassis(vehicle, physicsWorld, {
+      type: "dynamic",
+      halfExtents: { x: 0.8, y: 0.35, z: 0.9 },
+    });
+    assert.equal(chassis.type, "dynamic");
+    assertCloseTo(chassis.mass, 900, 5);
+    assertCloseTo(chassis.linearDamping, 0, 8);
+    assertCloseTo(chassis.angularDamping, 0, 8);
+
+    const ecs = new EntityWorld();
+    ecs.registerSystem(new VehicleSystem());
+    const physics = new PhysicsSystem({ world: physicsWorld });
+    ecs.registerSystem(physics);
+    const entity = ecs.createEntity("dynamic-car");
+    const transform = new Transform();
+    transform.setPosition(vehicle.position.x, vehicle.position.y, vehicle.position.z);
+    entity.add(transform);
+    const component = new VehicleComponent(vehicle, ground);
+    component.attachChassis(chassis, physicsWorld);
+    entity.add(component);
+
+    vehicle.input.throttle = 1;
+    let frame = 0;
+    const runFrame = (fixedSteps = 1): void => {
+      frame++;
+      const dt = fixedSteps / 60;
+      ecs.runSystems({
+        world: ecs,
+        clock: new Clock(),
+        dt,
+        fixedDt: 1 / 60,
+        fixedSteps,
+        alpha: 0,
+        elapsed: frame * dt,
+        frame,
+        logger: new Logger(),
+        profiler: new Profiler(),
+        services: { get: () => undefined, engineConfig: {} },
+        scratch: new SystemScratch(),
+      });
+    };
+
+    const startZ = chassis.position.z;
+    for (let i = 0; i < 20; i++) runFrame(i === 5 ? 3 : 1);
+    assert.ok(chassis.position.z > startZ + 0.05, `dynamic chassis did not receive drive acceleration: z=${chassis.position.z}`);
+    assert.ok(vehicle.position.z > startZ + 0.05, "vehicle pose was not synchronized back from the body");
+    assert.equal(physicsWorld.stepCount, 22);
+    assertCloseTo(transform.position.z, chassis.renderPosition.z, 6);
+    assert.ok(Number.isFinite(chassis.position.y));
+    ecs.dispose();
+  });
+
+  test("dynamic chassis solver contact stops a high-speed wall approach without a kinematic snap", async () => {
+    const {
+      Clock,
+      EntityWorld,
+      Logger,
+      Profiler,
+      SystemScratch,
+      Transform,
+    } = await import("@forge/engine");
+
+    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ mass: 1200, aero: null }));
+    vehicle.placeOnGround(ground);
+    vehicle.setVelocity(0, 0, 55);
+    const chassis = createVehicleChassis(vehicle, physicsWorld, {
+      type: "dynamic",
+      halfExtents: { x: 0.7, y: 0.35, z: 0.55 },
+      restitution: 0,
+    });
+    const wall = new RigidBody({
+      type: "static",
+      shape: new BoxShape(1.5, 2, 0.15),
+      position: { x: 0, y: vehicle.position.y, z: 3 },
+      restitution: 0,
+      friction: 0.4,
+    });
+    physicsWorld.addBody(wall);
+
+    const ecs = new EntityWorld();
+    ecs.registerSystem(new VehicleSystem());
+    ecs.registerSystem(new PhysicsSystem({ world: physicsWorld }));
+    const entity = ecs.createEntity("ccd-dynamic-car");
+    const transform = new Transform();
+    transform.setPosition(vehicle.position.x, vehicle.position.y, vehicle.position.z);
+    entity.add(transform);
+    const component = new VehicleComponent(vehicle, ground);
+    component.attachChassis(chassis, physicsWorld);
+    entity.add(component);
+
+    const context = {
+      world: ecs,
+      clock: new Clock(),
+      dt: 1 / 60,
+      fixedDt: 1 / 60,
+      fixedSteps: 1,
+      alpha: 0,
+      elapsed: 1 / 60,
+      frame: 1,
+      logger: new Logger(),
+      profiler: new Profiler(),
+      services: { get: () => undefined, engineConfig: {} },
+      scratch: new SystemScratch(),
+    };
+    for (let i = 0; i < 8; i++) {
+      context.frame = i + 1;
+      context.elapsed = (i + 1) / 60;
+      ecs.runSystems(context);
+    }
+
+    // The conservative box CCD path must not allow the dynamic chassis to tunnel through the wall
+    // in a 55 m/s fixed-step approach. The wall's front face is z=2.85 and the chassis half-depth is .55.
+    assert.ok(chassis.position.z < 2.5, `dynamic chassis tunneled through wall: z=${chassis.position.z}`);
+    assert.ok(chassis.linearVelocity.z < 55, "solver did not change the incoming chassis velocity");
+    assertCloseTo(transform.position.z, chassis.renderPosition.z, 6);
+    ecs.dispose();
+  });
+
+  test("dynamic chassis teardown removes the body from a shared world", async () => {
+    const { EntityWorld, Transform } = await import("@forge/engine");
+    const physicsWorld = new PhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
+    const ground = flatGround(0);
+    const vehicle = new Vehicle(createVehicleConfig({ aero: null }));
+    vehicle.placeOnGround(ground);
+    const chassis = createVehicleChassis(vehicle, physicsWorld, { type: "dynamic" });
+    const ecs = new EntityWorld();
+    const entity = ecs.createEntity("teardown-dynamic-car");
+    entity.add(new Transform());
+    const component = new VehicleComponent(vehicle, ground);
+    component.attachChassis(chassis, physicsWorld);
+    entity.add(component);
+    assertContains(physicsWorld.bodies, chassis);
+    ecs.destroyEntity(entity.id);
+    assertNotContains(physicsWorld.bodies, chassis);
+    assert.equal(component.chassisBody, null);
+    assert.equal(component.chassisWorld, null);
+    ecs.dispose();
   });
 });
 

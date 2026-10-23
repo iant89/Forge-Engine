@@ -5,7 +5,8 @@ raycast query — Phase 11), a spring/damper holds each one, and a Pacejka tire 
 contact into a force. The chassis is a point mass plus yaw/pitch/roll inertias; yaw comes from
 tire-plane moments, while pitch and roll integrate from suspension reaction torques plus a soft
 geometric spring (no tire pitch/roll moments this phase). An optional kinematic chassis box in the
-physics world lets props collide with the car.
+physics world lets props collide with the car, or an opt-in dynamic box lets the same wheel-model
+forces drive a solver body so contacts and supported CCD can push the chassis.
 
 ## Demo
 
@@ -268,6 +269,33 @@ vehicleComponent.attachChassis(chassis, backend.world);
 // chassis + heightfield are visible to PhysicsSystem.world (same identity)
 ```
 
+### Dynamic chassis coupling (Phase 23.3)
+
+The public helper remains kinematic by default. To make the chassis a solver body, opt in at
+construction time and keep the same shared-world recipe:
+
+```ts
+const chassis = createVehicleChassis(vehicle, backend, {
+  type: "dynamic",
+  mass: vehicle.config.mass,
+  // Optional: use the vehicle's own damping model (the helper defaults these to zero for dynamic bodies).
+});
+vehicleComponent.attachChassis(chassis, backend.world);
+```
+
+`VehicleSystem` still runs the existing wheel, suspension, tire and drivetrain integrator. It does
+not advance a second chassis pose: for each fixed substep it queues the resulting linear and angular
+acceleration, and `PhysicsSystem` consumes that command immediately before the matching
+`PhysicsWorld` step. The rigid body therefore receives solver contacts, static-body CCD and external
+impulses; after the solver, the body's authoritative pose and angular velocity are copied back into
+`Vehicle` for the next wheel-model step. World gravity is compensated in the bridge, so a Mars-tuned
+vehicle can share an Earth-gravity world without double gravity. A large explicit vehicle-to-body
+pose delta is treated as a spawn/reset teleport; ordinary motion remains body-authoritative.
+
+Do not call `syncVehicleChassis` every fixed step in the dynamic recipe. It is for initial/manual
+one-to-one loops; snapping a dynamic body would erase contact impulses. Teardown is unchanged:
+`VehicleComponent.onDetach` removes either body type from `chassisWorld`.
+
 Rules of thumb:
 
 - Default remains single-owner (`new ForgeJSPhysics()` / `new PhysicsSystem()` with no `world`).
@@ -282,12 +310,14 @@ Rules of thumb:
   both the backend and the system double-integrates. `PhysicsSystem` uses `world.stepOnce(fixedDt)`
   so adopted worlds get exactly one solver step per ECS fixed step (no accumulator 0/N).
 - Assign the chassis after `createVehicleChassis` with `attachChassis(chassis, backend.world)`
-  (or set `chassisBody` **and** `chassisWorld`). `VehicleSystem` writes the chassis `Transform`;
-  `PhysicsSystem` distributes that frame's pose delta across its substeps.
-  Do **not** call `syncVehicleChassis` every vehicle fixed step in this recipe — FixedSystems are
-  not interleaved, so snapping the chassis to the end pose/ω before physics runs leaves hitch
-  frames (`fixedSteps>1`) contacting a parked body. (`syncVehicleChassis` remains for manual
-  one-to-one `vehicle.step` / `world.step` loops outside ECS.)
+  (or set `chassisBody` **and** `chassisWorld`). For the default kinematic body, `VehicleSystem`
+  writes the chassis `Transform` and `PhysicsSystem` distributes that frame's pose delta across
+  its substeps. For a dynamic body, `VehicleSystem` queues per-substep acceleration and
+  `PhysicsSystem` consumes it while stepping, then publishes the solved pose. Do **not** call
+  `syncVehicleChassis` every vehicle fixed step in either recipe — FixedSystems are not interleaved,
+  so snapping before physics runs leaves hitch frames (`fixedSteps>1`) contacting a parked body and
+  erases dynamic contact impulses. (`syncVehicleChassis` remains for manual one-to-one
+  `vehicle.step` / `world.step` loops outside ECS.)
 - `PhysicsSystem.dispose()` clears the world only when it owns it (`ownsWorld === true`). Even
   when `ownsWorld === false`, it still **removes bodies it spawned** for `RigidBodyComponent`
   entities (so shared backends do not keep ghost colliders after a scene reload) and **nulls**
@@ -318,8 +348,9 @@ Rules of thumb:
   boxes against static or kinematic planes, boxes, spheres and heightfields. Box sweeps use a
   conservative bounding sphere, and dynamic-dynamic or fast rotational impacts still use the
   discrete solver path. `ForgeWasmPhysics` remains a state-ABI seam without an executable solver.
-- The chassis collider is kinematic: props bounce off the car, but the car is not pushed by the
-  sequential-impulse solver (drive forces still come from the raycast vehicle integrator).
+- The default chassis helper is kinematic for backward compatibility. The Phase 23.3 dynamic opt-in
+  is pushed by solver contacts and supported static-body CCD, but dynamic-dynamic and fast rotational
+  CCD remain on the PhysicsWorld limitation list; wheel contact itself is still the raycast model.
 - Pitch and roll integrate with rates (Phase 11.4); a soft geometric spring helps planted wheels
   settle on slopes. Extreme heightfield kinks can still excite that spring.
 - Wheel visuals are boxes. There is no tyre mesh, no suspension-arm skinning, and no steering wheel.

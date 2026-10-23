@@ -2608,8 +2608,8 @@ This is the primary validation environment for Forge.
 
 23.3 Rover
 
-    [~] physics chassis (vehicle dynamics and supported high-speed rigid-body CCD are live; the
-        showcase chassis itself remains a kinematic bridge rather than a fully dynamic rover body)
+    [x] physics chassis (the showcase uses an opt-in fully dynamic rigid-body chassis coupled to
+        the existing wheel/suspension/tire model; supported high-speed rigid-body CCD remains live)
     [x] suspension
     [x] wheels
     [x] tire model
@@ -2619,8 +2619,11 @@ This is the primary validation environment for Forge.
 
     As built: the six-wheel battery-electric rover uses the shared Vehicle simulation, per-wheel
     suspension/contact, combined-slip tires, reduction drivetrain, front/rear steering and
-    regenerative/friction braking. This does not upgrade the capability registry's honest partial
-    status for the chassis/contact architecture.
+    regenerative/friction braking. Its chassis is now a dynamic `RigidBody` in the same shared
+    terrain/rock `PhysicsWorld`: VehicleSystem queues wheel-model acceleration per fixed substep,
+    PhysicsSystem consumes those commands and feeds solver contacts/CCD back to the vehicle pose.
+    The public chassis helper remains kinematic by default so Alpine Rescue and other existing
+    recipes stay backward-compatible.
 
 
 23.4 Rover Environment Interaction
@@ -3258,8 +3261,9 @@ CHANGE:
         Vehicle phase is functional but not production-ready.
 
     Reason:
-        Vehicle contact is currently a GroundQuery rather than full physics-world
-        collision and pitch/roll remain kinematic.
+        Vehicle wheel contact is still a GroundQuery rather than full mesh/world
+        collision; the dynamic chassis coupling is opt-in in Phase 23.3 and the
+        existing public helper remains kinematic by default.
 
 
 CHANGE:

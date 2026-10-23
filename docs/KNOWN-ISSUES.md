@@ -143,13 +143,15 @@ PhysicsWorld uses deterministic sweep-and-prune for rigid-body pair candidates.
   is created; a state frame applies only to a host world with matching ids, order, body types and
   shape parameters. (capability: physics.wasmBackend)
 
-## Vehicles (Phase 6 / 11)
+## Vehicles (Phase 6 / 11 / 23.3)
 
 Phase 11 connected the raycast car to the physics heightfield and a kinematic chassis collider.
-Phase 6's longitudinal wheel-torque integration and JavaScript PhysicsWorld continuous-collision
-hardening are now covered by the focused vehicle and physics suites. The remaining vehicle/world
-scope is documented where it belongs: the chassis collider remains kinematic, and the executable
-WASM backend is still a future solver seam.
+Phase 23.3 adds an opt-in dynamic chassis bridge: the Mars Showcase now couples the existing
+wheel/suspension/tire model to a `RigidBody` in its shared terrain/rock world, with solver contacts
+and supported static-body CCD feeding the chassis pose back into the vehicle. The default helper
+remains kinematic for backward compatibility; dynamic-dynamic and fast rotational CCD are still
+outside the JavaScript PhysicsWorld slice, and the executable WASM backend is still a future solver
+seam. (roadmap: 23.3)
 
 ## Particles (Phase 12)
 

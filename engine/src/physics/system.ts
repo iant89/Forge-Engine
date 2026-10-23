@@ -20,6 +20,7 @@ import { RigidBody } from "./body.js";
 import type { PhysicsWorldSnapshot } from "./world.js";
 import type { PhysicsBackend } from "./backend.js";
 import { VehicleComponent } from "../vehicles/components.js";
+import { applyDynamicChassisStep, syncDynamicChassisVehicle } from "../vehicles/dynamicChassis.js";
 import { DMath } from "../math/detmath.js";
 import { UsageError } from "../core/errors.js";
 
@@ -162,11 +163,9 @@ export class PhysicsSystem extends FixedSystem {
     //
     // When context.fixedSteps > 1, other FixedSystems (e.g. VehicleSystem) have already advanced
     // Transform through all substeps before this system runs. Distribute the full frame delta
-    // across our substeps so velocities are per-fixedDt, not ~fixedSteps too high.
-    //
-    // VehicleComponent.chassisBody uses the same plan path: VehicleSystem must NOT snap the
-    // chassis to the end pose each vehicle fixed step, or hitch frames leave every physics
-    // substep contacting a parked body that still carries end-of-frame ω.
+    // across our substeps so velocities are per-fixedDt, not ~fixedSteps too high. Dynamic vehicle
+    // chassis bodies do not use this pose path: their per-step wheel-model acceleration command is
+    // applied below immediately before the matching world step.
     const frameDt = fixedDt * fixedSteps;
     const invFrameDt = frameDt > 1e-12 ? 1 / frameDt : 0;
 
@@ -181,14 +180,20 @@ export class PhysicsSystem extends FixedSystem {
       }
     }
 
-    // Documented shared-world recipe: chassisBody on VehicleComponent (often no RigidBodyComponent).
-    // Guard store() — unit-test stubs may only mock query.
+    // VehicleComponent.chassisBody is manually owned (often without a RigidBodyComponent). Keep
+    // the legacy kinematic pose-delta recipe, while dynamic chassis bodies consume the exact command
+    // produced by VehicleSystem for this step. The command is an acceleration, so the physics world's
+    // current mass and gravity scale remain authoritative.
     if (typeof context.world.store === "function") {
       const vehicles = context.world.store(VehicleComponent);
       for (let i = 0; i < vehicles.count; i++) {
         const vComp = vehicles.valueAt(i);
         const chassis = vComp.chassisBody;
-        if (!chassis || chassis.type === "dynamic") continue;
+        if (!chassis) continue;
+        if (chassis.type === "dynamic") {
+          applyDynamicChassisStep(vComp, chassis, this.world.gravity, stepIndex, context.frame);
+          continue;
+        }
         if (drivenIds.has(chassis.id)) continue;
         const id = context.world.idForSlot(vehicles.slotAt(i));
         const transform = context.world.getComponent(id, Transform);
@@ -327,6 +332,24 @@ export class PhysicsSystem extends FixedSystem {
       if (rbComp.body && rbComp.bodyType === "dynamic") {
         transform.position.copyFrom(rbComp.body.renderPosition);
         transform.rotation.copyFrom(rbComp.body.renderRotation);
+      }
+    }
+
+    // A dynamic VehicleComponent chassis is the authoritative pose after contacts/CCD. Feed that
+    // pose back to the raycast wheel model for the next frame and publish the body's interpolated
+    // render pose, rather than leaving the Transform at VehicleSystem's pre-solver prediction.
+    if (typeof context.world.store === "function") {
+      const vehicles = context.world.store(VehicleComponent);
+      for (let i = 0; i < vehicles.count; i++) {
+        const component = vehicles.valueAt(i);
+        const chassis = component.chassisBody;
+        if (!chassis || chassis.type !== "dynamic") continue;
+        syncDynamicChassisVehicle(component.vehicle, chassis);
+        const id = context.world.idForSlot(vehicles.slotAt(i));
+        const transform = context.world.getComponent(id, Transform);
+        if (!transform) continue;
+        transform.position.copyFrom(chassis.renderPosition);
+        transform.rotation.copyFrom(chassis.renderRotation);
       }
     }
   }

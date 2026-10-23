@@ -1477,7 +1477,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `Vehicle` | type-and-value | public | `sha256:59e4e3dc4123acc03cea92475fe506ba3da2f3ee92516e997550b01c9da69164` | `sha256:392e45345c90eb5deea152664e2b6a80cb9971fb58577830e4b7a5432e893760` |
 | `VehicleAudio` | type-and-value | public | `sha256:c130f3d33690a778289e24d21849b9b29de36f56a376e0cd5cbd6c68c57f66c0` | `sha256:6563dde24a1dcf9c50749f444d9ddae1e14ce794075106b34d67064dcc55da37` |
 | `VehicleAudioOptions` | type | public | `sha256:663a87fb3acd18fde0185e8df7bced36333018adc93dd0f5cd7c7e28a57f3755` | `sha256:58615d48730e37ea2aed4c0ef006c5294df33544043dad2ef4939d85d9d5949e` |
-| `VehicleChassisOptions` | type | public | `sha256:e80f31b85a69c63dbe0a304538da5121f0fe20c0299ff95c9b66364151dc8cbd` | `sha256:ff5073529fadefbe094b3075d5eca05c1c8ec57c35205127a096376e9a2c30da` |
+| `VehicleChassisOptions` | type | public | `sha256:d0dd0f776b49fc4b46e2c92d33cd908e957f623bcb1aaf5b1d37e32986f40ef9` | `sha256:5a0f98412a24fd89644dae83212c81879b9167b630611e0ac18124f50bfa5ff4` |
 | `VehicleComponent` | type-and-value | public | `sha256:f83c0924049ae40473731206a35d3799d90d7da4446423ae2df0271f2f8a31f5` | `sha256:4cc3e5503e82d3aca0d2195947c0affe3b8e30e6098b9f502fd7f7cdff6a8240` |
 | `VehicleConfig` | type | public | `sha256:339e3c14181021550f627e25ea2ab86a483f36e2d7a5fc03702ddb4214486f30` | `sha256:4b0d59c97d57c2506be85a02815b654b04189feefd11fba0d1651a14ff2c571d` |
 | `VehicleDamageZones` | type | public | `sha256:dc77ba635b917eaf3bb8862b44a036acbee941d20a3fc8a643370c914b0a8fa6` | `sha256:a3d73518bc6ee00f3480457d40e7ca13aea9392303da68003fecc35aca787061` |
@@ -1496,7 +1496,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `VehicleSoundscape` | type-and-value | public | `sha256:e48acd25392925d02526a36ee53576ef780fcd5193c01018fd1bf38230e37226` | `sha256:e910bcf17fe405a3c35f7018352660457999783cd0a9637ebe2c996ec3f822cb` |
 | `VehicleSoundscapeOptions` | type | public | `sha256:f90728cc4833acdf4cd582f1f8b12f2842f5dc05308e81d5b0ff5022af74e43b` | `sha256:d7e9d12658f4da1ac2c948468d5ab54c2152b3f3a94450bd74c32cc89c42527f` |
 | `VehicleSurfaceClassifier` | type | public | `sha256:eabe088326db38ad1793faef6430704b3f0e4caf5f392548fa6bf5cc81f813e7` | `sha256:7d25c9e86f874c5deb528c5dc9a780a8205d2df7bb3862878717e566bf2f7ada` |
-| `VehicleSystem` | type-and-value | public | `sha256:eb61424dfdecdffd46d6a69ffbbedd31e871032f2f351d7f149ef927128c63cd` | `sha256:c2db134f9d9ef08ded8fadb6c4d3c1b774b5daa7259a628f6d54c03b4ef165b1` |
+| `VehicleSystem` | type-and-value | public | `sha256:eda5573eb2d23d918f855ca4381255bb72fd09284ca16187a31be68071cf2623` | `sha256:6b908fa48aa3de92d0e4cc32c8636019f90c122ecce08cf29c6b22f135bff567` |
 | `VehicleTelemetry` | type | public | `sha256:4be190bfa7f5d7a3a694b086cc833111c49446f49fb7e487c4a6a622ecd9d132` | `sha256:406ce5b554f1abffbfdcf78e9a126be5f0d4b0fac2fd2c78e11a0c246db01e1d` |
 | `VehicleWheelConfig` | type | public | `sha256:7b4c63bda23792ca7be64f5809901e516c21a5d4cb001bb2cbe2955baad65253` | `sha256:b759f9ffcbd66cc16e91db4408c5154e31f897818ff3bc1e24d6ef87901223f0` |
 | `VehicleWheelSource` | type-and-value | public | `sha256:f03ee896341b8eab52896a93a4af4f787b9ea907c2f076b87bdb5f77a567f85d` | `sha256:d75120ffae3275cda7159eda34370424a6e9b5d8794e4aa9073310acad2a8297` |
@@ -1768,7 +1768,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `createSurfaceWeather` | value | public | `sha256:85862695c32a532d6b31676210c7f96ca86583acfb78dd3241ed0e47ef84d1b5` | `sha256:424c90eea16c40586c49437396b80bcdaa77963f6e798abd06e62366655652dd` |
 | `createThunderBuffer` | value | public | `sha256:7936f385f5f55c6aed0a23004301dc8348d4929dd6e8525ca854c5765d042cbe` | `sha256:f6fe4aa2c95ce0295ca91e654d6314bf808aeebdaa723cee0d9443327a833a87` |
 | `createTorus` | value | public | `sha256:8d80ad60cd968df4cf289f05bc0414ae9f2500d21e07d0f3e2aae253085e4af0` | `sha256:0f65ed33092557cf8d74c5d95137d66d5cd4f37b726084d37b9ebc8b48b84e64` |
-| `createVehicleChassis` | value | public | `sha256:cc5928f3905fc444a36952e571f9b03698c461cc79cf7cbbc77b28c99713f571` | `sha256:b5cfabd6ea018e39da11213276bf19812e93507fdd5afc4d0fa926f3fc4125cc` |
+| `createVehicleChassis` | value | public | `sha256:cc5928f3905fc444a36952e571f9b03698c461cc79cf7cbbc77b28c99713f571` | `sha256:0074b752839c7b1ca2248ce82062d272850613c5467cb6d8bfc0d8efa5c517a9` |
 | `createVehicleComponent` | value | public | `sha256:3a5d4bb7968086c95146f337e89d8bd5c5b2ba9e27c5484824598233b9c88179` | `sha256:731ae0f83d4cff5a6a8440f68d86919b05d97fbafcc4f28eae2249fcfe384320` |
 | `createVehicleConfig` | value | public | `sha256:07424ea57f8cb01fb3ee94f485ef1e8539b719f1008a8a36099497f66e8dc7df` | `sha256:706dd9e5eaf607074e5b491e0250d3b87538675a1e8097897e5706e6071d695e` |
 | `createVehicleDamageZones` | value | public | `sha256:2234ae893bee7dfba8a6cfc9b686f1e215d6aa697c52de36fce28ab57928ec77` | `sha256:83eb4dbe6583a688815d5fcbd16ea591a6e0fd3e6b0045b9864f8998deb07179` |

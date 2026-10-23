@@ -44,6 +44,7 @@ import {
   DayNightCycle,
   Geometry,
   HeightfieldShape,
+  PhysicsSystem,
   PhysicsWorld,
   SphereShape,
   BoxShape,
@@ -81,6 +82,7 @@ import {
   VehicleSystem,
   chunkCoordKey,
   createAtmosphere,
+  createVehicleChassis,
   createBox,
   createCylinder,
   createTorus,
@@ -184,6 +186,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     };
     wheelCount: number;
     contactWheels: number;
+    /** Chassis ownership mode; the showcase uses the solver-coupled dynamic body path. */
+    chassisMode: "kinematic" | "dynamic";
     /** Cumulative interactive rocks the rover has shattered (rover impacts never count). */
     brokenInteractiveRocks: number;
     /** Proximity prompt for the closest arm-reachable rock; null when no action is available. */
@@ -1050,7 +1054,16 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   const bodyOffsetY = terrain.getHeightAt(SPAWN_X, SPAWN_Z) - vehicle.position.y;
   const chaseLookY = vehicle.position.y + MARS_CHASE_LOOK_OFFSET_Y;
 
+  // Phase 15.5 foundation: promote only nearby rocks to dynamic physics proxies. The population
+  // remains instanced; these bodies are a bounded interaction layer, not one rigid body per rock.
+  // Phase 23.3 uses this same world for the rover's dynamic chassis, so props, terrain contacts,
+  // CCD and the raycast vehicle share one deterministic fixed-step solver.
+  const interactivePhysics = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
+  interactivePhysics.setHeightfield(new HeightfieldShape({
+    sampleHeight: deformedGroundHeight,
+  }));
   scene.world.registerSystem(new VehicleSystem());
+  scene.world.registerSystem(new PhysicsSystem({ world: interactivePhysics }));
   // Phase 16.6: machine joints from channels — the rover's robotic arm is a MechanicalRig here.
   scene.world.registerSystem(new MechanicalSystem());
 
@@ -1069,16 +1082,21 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     wheelIds.push(wheel.id);
   }
 
+  const chassisBody = createVehicleChassis(vehicle, interactivePhysics, {
+    type: "dynamic",
+    mass: vehicle.config.mass,
+    halfExtents: { x: 1.3, y: 0.48, z: 1.45 },
+    friction: 0.92,
+    restitution: 0.02,
+  });
   const component = new VehicleComponent(vehicle, ground);
   component.wheelEntities = wheelIds;
+  component.attachChassis(chassisBody, interactivePhysics);
+  const dynamicChassis = chassisBody.type === "dynamic";
+  // Reused input for the bounded rock-proxy gameplay bridge. Dynamic chassis velocity remains
+  // solver-authoritative; the bridge may only give a promoted proxy its deterministic shove impulse.
+  const dynamicRockBridgeVelocity = new Vec3();
   chassis.add(component);
-
-  // Phase 15.5 foundation: promote only nearby rocks to dynamic physics proxies. The population
-  // remains instanced; these bodies are a bounded interaction layer, not one rigid body per rock.
-  const interactivePhysics = new PhysicsWorld({ gravity: { x: 0, y: -3.72, z: 0 } });
-  interactivePhysics.setHeightfield(new HeightfieldShape({
-    sampleHeight: deformedGroundHeight,
-  }));
   interface InteractiveRockRecord {
     block: NonNullable<ReturnType<typeof population.chunkPopulation>>;
     index: number;
@@ -1834,6 +1852,12 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       // impact branch below already knows from its assessment; a resting contact (no approach
       // speed, so `assessRockContact` reports "none") still has to decide, because the geometric
       // solve runs either way.
+      const contactInput = {
+        roverMass: 1025,
+        relativeSpeed: approach,
+        availableForce: ROVER_TRACTIVE_FORCE,
+        obstacleHeight,
+      };
       let displaced: boolean;
       let breaking = false;
       if (approach > 0.04) {
@@ -1849,12 +1873,15 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         waking.renderPosition.copyFrom(waking.position);
         waking.linearVelocity.set(0, 0, 0);
         waking.angularVelocity.set(0, 0, 0);
+        // A dynamic chassis is already a solver participant, so never use this bridge to alter its
+        // velocity. It still gives the promoted proxy the same bounded gameplay shove as the legacy
+        // kinematic recipe; the rigid-body solver remains authoritative for the chassis response.
+        const bridgeVelocity = dynamicChassis
+          ? dynamicRockBridgeVelocity.copyFrom(vehicle.velocity)
+          : vehicle.velocity;
         const assessment = bridgeRockContact(record.proxy, {
-          roverMass: 1025,
-          relativeSpeed: approach,
-          availableForce: ROVER_TRACTIVE_FORCE,
-          obstacleHeight,
-          vehicleVelocity: vehicle.velocity,
+          ...contactInput,
+          vehicleVelocity: bridgeVelocity,
         }, { x: nx, y: 0, z: nz });
         applyRoverImpactDamage(roverDamage, assessment, {
           roverMass: 1025,
@@ -1882,6 +1909,28 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         }
       } else {
         displaced = canDisplaceRock(record.proxy.spec, ROVER_TRACTIVE_FORCE);
+        if (dynamicChassis && !record.awake) {
+          // The rigid-body solver may already have removed the incoming speed before this variable
+          // scene pass observes it. A dynamic chassis that is geometrically touching still wakes the
+          // dormant proxy; otherwise a slow bumper contact would remain a static rock forever.
+          record.awake = true;
+          const waking = record.proxy.body;
+          waking.type = "dynamic";
+          waking.position.y = deformedGroundHeight(waking.position.x, waking.position.z) + record.restOffsetY;
+          waking.prevPosition.copyFrom(waking.position);
+          waking.renderPosition.copyFrom(waking.position);
+          waking.linearVelocity.set(0, 0, 0);
+          waking.angularVelocity.set(0, 0, 0);
+          // Preserve the slow-contact shove that the old kinematic interaction provided. The
+          // temporary velocity is not the rover state, so the dynamic chassis still comes only
+          // from PhysicsWorld's contact solver on the next fixed step.
+          dynamicRockBridgeVelocity.set(nx * Math.max(approach, 0.12), 0, nz * Math.max(approach, 0.12));
+          bridgeRockContact(record.proxy, {
+            ...contactInput,
+            relativeSpeed: Math.max(approach, 0.12),
+            vehicleVelocity: dynamicRockBridgeVelocity,
+          }, { x: nx, y: 0, z: nz });
+        }
       }
       // A rock fracturing this frame stops being an obstacle; its fragments spawn on their own.
       if (breaking) continue;
@@ -1907,6 +1956,19 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       if (separation.penetration <= 0) continue;
       vehicle.position.x += separation.correctionX;
       vehicle.position.z += separation.correctionZ;
+      if (dynamicChassis) {
+        // The solver body is authoritative for normal motion, but the interaction radius is a
+        // gameplay envelope larger than the chassis box and also handles exact centre overlap,
+        // which the narrowphase cannot turn into a useful horizontal normal. Apply only this
+        // penetration correction to the body before the next fixed step; do not snap its velocity
+        // or pose during ordinary contact, so solver impulses and CCD remain intact.
+        chassisBody.position.x += separation.correctionX;
+        chassisBody.position.z += separation.correctionZ;
+        chassisBody.prevPosition.copyFrom(chassisBody.position);
+        chassisBody.renderPosition.copyFrom(chassisBody.position);
+        chassisBody.updateAABB();
+        continue;
+      }
       if (displaced) continue;
       // Against a wall, also drop the velocity that would drive straight back in on the vehicle
       // step that follows. Only the normal component goes, so a glancing contact still slides past
@@ -1935,8 +1997,8 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       }
     }
 
-    interactivePhysics.step(dt);
-
+    // PhysicsSystem owns the shared world's fixed step. Do not call interactivePhysics.step here:
+    // a second variable-dt step would double-integrate the dynamic chassis and props.
     for (const record of interactiveRocks.values()) {
       const body = record.proxy.body;
       if (!record.awake) {
@@ -3308,6 +3370,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
       return (
         `mars showcase · Perseverance 6/6 · ${model} · mast ${mastLabel} · arm ${armLabel} · HGA ${antennaLabel}\n` +
         `${MARS_SHOWCASE_SITE.name} · Mars seed ${terrain.seed} · analytic only (no erosion cache) · ${terrainGeneration()} · ${terrain.layeredMaterialsEnabled ? "4-layer PBR" : "single material"}\n` +
+        `physics chassis ${dynamicChassis ? "dynamic" : "kinematic"} · shared terrain/rock world · CCD enabled for supported static contacts\n` +
         `sol ${marsSolarCycle.clockText} · sun ${marsSolarCycle.elevationDeg.toFixed(1)}° · ${marsSolarCycle.isDay ? "day" : "night"} · ${marsSolarCycle.timeScale}×\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
@@ -3386,6 +3449,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         visibleTrackMarks,
         wheelCount: vehicle.wheels.length,
         contactWheels: vehicle.wheels.filter((w) => w.inContact).length,
+        chassisMode: dynamicChassis ? "dynamic" : "kinematic",
         ambientDust: ambientDust.simulation.alive,
         kickDust: kickDustAlive(),
         kickDebris: wheelRockChipsAlive(),

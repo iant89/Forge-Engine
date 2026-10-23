@@ -9,11 +9,12 @@
  * wheel spin rolls about the local axle. Airborne wheels use the chassis basis, so they continue to
  * ride with the suspension instead of sticking to a stale terrain contact over a crest.
  *
- * When {@link VehicleComponent.chassisBody} is set, do **not** snap the kinematic collider here.
- * FixedSystems are not interleaved: this system finishes all `fixedSteps` before PhysicsSystem
- * runs. Snapping the chassis to the end pose/ω each vehicle substep leaves hitch frames
- * (`fixedSteps>1`) contacting a parked body. PhysicsSystem drives `chassisBody` through the same
- * Transform pose-delta distribution used for RigidBodyComponent kinematics.
+ * Kinematic {@link VehicleComponent.chassisBody} colliders are not snapped here. FixedSystems are
+ * not interleaved: this system finishes all `fixedSteps` before PhysicsSystem runs, so kinematic
+ * pose deltas are distributed there. A dynamic chassis takes the other path: this system queues one
+ * linear/angular acceleration command per fixed step, and PhysicsSystem consumes the matching command
+ * while it advances the shared rigid-body world. That keeps hitch frames deterministic without
+ * running two independent chassis integrations.
  */
 
 import { Mat4, Quat } from "../math/mat.js";
@@ -21,8 +22,15 @@ import { Vec3 } from "../math/vec.js";
 import { FixedSystem, type SystemContext } from "../scene/systems.js";
 import { Transform } from "../scene/components/index.js";
 import { VehicleComponent } from "./components.js";
+import { syncVehicleChassis } from "./chassis.js";
+import { syncVehicleVelocityFromBody } from "./vehicle.js";
 import { worldSurfaceGrip, worldSurfaceGripField } from "../scene/surfaceGrip.js";
 import { DMath } from "../math/detmath.js";
+import {
+  prepareDynamicChassisFrame,
+  syncDynamicChassisVehicle,
+  writeDynamicChassisStep,
+} from "./dynamicChassis.js";
 
 export class VehicleSystem extends FixedSystem {
   readonly name = "vehicles";
@@ -35,8 +43,12 @@ export class VehicleSystem extends FixedSystem {
   private readonly scratchPos = new Vec3();
   private readonly scratchNormal = new Vec3();
   private readonly scratchForward = new Vec3();
+  private readonly scratchBeforeOmega = new Vec3();
+  private readonly scratchAfterOmega = new Vec3();
+  private readonly scratchLinearAcceleration = new Vec3();
+  private readonly scratchAngularAcceleration = new Vec3();
 
-  override fixedStep(context: SystemContext, _step: number): void {
+  override fixedStep(context: SystemContext, step: number): void {
     const dt = context.fixedDt;
     const world = context.world;
     const vehicles = world.store(VehicleComponent);
@@ -44,15 +56,72 @@ export class VehicleSystem extends FixedSystem {
     const field = worldSurfaceGripField(world);
     for (let i = 0; i < vehicles.count; i++) {
       const comp = vehicles.valueAt(i);
+      const v = comp.vehicle;
+      const chassis = comp.chassisBody;
+      const dynamicChassis = chassis?.type === "dynamic" ? chassis : null;
+
+      // The body has not advanced until PhysicsSystem runs later in the scheduler. Sync once at the
+      // start of the frame, not once per hitch substep, or every VehicleSystem substep would restart
+      // from the same rigid-body pose. A large vehicle→body delta is an explicit gameplay teleport
+      // (spawn/reset/scene test), so preserve that authoring operation instead of snapping it back to
+      // the previous solver pose; ordinary motion is body-authoritative.
+      if (dynamicChassis && step === 0) {
+        prepareDynamicChassisFrame(comp, context.fixedSteps, context.frame);
+        const dx = v.position.x - dynamicChassis.position.x;
+        const dy = v.position.y - dynamicChassis.position.y;
+        const dz = v.position.z - dynamicChassis.position.z;
+        v.writeRotation(this.scratchRot);
+        const rotationAgreement = Math.min(1, Math.abs(dynamicChassis.rotation.dot(this.scratchRot)));
+        const externallyTeleported =
+          dx * dx + dy * dy + dz * dz > 1e-6 || 1 - rotationAgreement > 1e-6;
+        if (externallyTeleported) {
+          syncVehicleChassis(v, dynamicChassis);
+          syncVehicleVelocityFromBody(v, dynamicChassis.linearVelocity);
+        } else {
+          syncDynamicChassisVehicle(v, dynamicChassis);
+        }
+      }
+
       if (field) {
-        const p = comp.vehicle.position;
-        comp.vehicle.surfaceGrip = (grip ?? 1) * field(p.x, p.z);
-      } else if (grip !== undefined) comp.vehicle.surfaceGrip = grip;
-      comp.vehicle.step(dt, comp.ground);
+        const p = v.position;
+        v.surfaceGrip = (grip ?? 1) * field(p.x, p.z);
+      } else if (grip !== undefined) v.surfaceGrip = grip;
+
+      if (dynamicChassis) v.writeAngularVelocity(this.scratchBeforeOmega);
+      const beforeVx = v.velocity.x;
+      const beforeVy = v.velocity.y;
+      const beforeVz = v.velocity.z;
+      const beforeOmegaX = this.scratchBeforeOmega.x;
+      const beforeOmegaY = this.scratchBeforeOmega.y;
+      const beforeOmegaZ = this.scratchBeforeOmega.z;
+
+      v.step(dt, comp.ground);
+
+      if (dynamicChassis) {
+        v.writeAngularVelocity(this.scratchAfterOmega);
+        const invDt = dt > 1e-12 ? 1 / dt : 0;
+        this.scratchLinearAcceleration.set(
+          (v.velocity.x - beforeVx) * invDt,
+          (v.velocity.y - beforeVy) * invDt,
+          (v.velocity.z - beforeVz) * invDt,
+        );
+        this.scratchAngularAcceleration.set(
+          (this.scratchAfterOmega.x - beforeOmegaX) * invDt,
+          (this.scratchAfterOmega.y - beforeOmegaY) * invDt,
+          (this.scratchAfterOmega.z - beforeOmegaZ) * invDt,
+        );
+        writeDynamicChassisStep(
+          comp,
+          step,
+          context.frame,
+          this.scratchLinearAcceleration,
+          this.scratchAngularAcceleration,
+        );
+      }
+
       const id = world.idForSlot(vehicles.slotAt(i));
       const transform = world.getComponent(id, Transform);
       if (!transform) continue;
-      const v = comp.vehicle;
       transform.setPosition(v.position.x, v.position.y, v.position.z);
       v.writeRotation(this.scratchRot);
       transform.setRotation(this.scratchRot);

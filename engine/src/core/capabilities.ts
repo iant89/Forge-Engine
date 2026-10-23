@@ -908,8 +908,9 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "vehicles.physicsIntegration",
     phase: "11.3",
     status: "verified",
-    summary: "Kinematic chassis collider in the physics world; wheels sample physics ground queries; props collide with the car",
-    evidence: ["tests/vehicles/vehiclePhysics.test.ts", "tests/vehicles/vehicles.test.ts"],
+    summary: "Kinematic chassis bridge by default plus an opt-in dynamic chassis that couples wheel-model forces to the fixed-step solver; physics-ground wheels and prop contacts",
+    evidence: ["tests/vehicles/vehiclePhysics.test.ts", "tests/vehicles/vehicles.test.ts", "tests/examples/marsShowcase.test.ts"],
+    notes: "The backward-compatible default remains kinematic. `createVehicleChassis({ type: \"dynamic\" })` queues one raycast-model linear/angular acceleration command per VehicleSystem substep; PhysicsSystem consumes the matching command, applies world-gravity compensation, and feeds the post-contact/CCD body pose back to Vehicle. Mars Showcase uses this dynamic path in its shared terrain/rock PhysicsWorld; dynamic-dynamic and rotational CCD remain the documented PhysicsWorld limits.",
   },
   {
     id: "vehicles.orientation",

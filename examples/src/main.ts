@@ -77,6 +77,8 @@ import { ICONS, mountDebugPanel } from "./diag/debugPanel.js";
 import { mountProfilerPanel, PROFILER_AVOID } from "./diag/profilerPanel.js";
 import { mountInspectorPanel } from "./diag/inspectorPanel.js";
 import { mountConsolePanel } from "./diag/consolePanel.js";
+import { copyText } from "./diag/copyText.js";
+import { buildGpuErrorReport, type GpuErrorReportContext } from "./diag/errorReport.js";
 import { INSPECTOR_TABS, type InspectorSource } from "./diag/inspectorTabs.js";
 import { bounds } from "./diag/panelLayout.js";
 import { attachToolbarMenu } from "./controls/toolbarMenu.js";
@@ -108,6 +110,112 @@ const hud = document.getElementById("hud") as HTMLDivElement;
 }
 const rescueHud = document.getElementById("rescue-hud") as HTMLDivElement | null;
 const errorBox = document.getElementById("error") as HTMLDivElement;
+const errorMessage = document.getElementById("error-message") as HTMLPreElement;
+const errorCopyButton = document.getElementById("error-copy") as HTMLButtonElement;
+const errorCopyStatus = document.getElementById("error-copy-status") as HTMLSpanElement;
+
+let currentErrorText = "";
+let diagnosticEngine: Engine | null = null;
+let diagnosticPlatform: ReturnType<typeof detectPlatform> | null = null;
+let diagnosticScene = "startup";
+let errorCopyStatusTimer = 0;
+
+function buildCurrentErrorReport(): string {
+  let engineDebug: Readonly<Record<string, unknown>> | undefined;
+  if (diagnosticEngine) {
+    try {
+      const stats = diagnosticEngine.stats();
+      engineDebug = {
+        stats: {
+          running: stats.running,
+          frame: stats.frame,
+          fps: stats.fps,
+          frameTimeMs: stats.frameTimeMs,
+          simTimeMs: stats.simTimeMs,
+          renderTimeMs: stats.renderTimeMs,
+          drawCalls: stats.drawCalls,
+          triangles: stats.triangles,
+          instances: stats.instances,
+          entities: stats.entities,
+          components: stats.components,
+          sceneObjects: stats.sceneObjects,
+          resources: stats.resources,
+          streaming: stats.streaming,
+          tasks: stats.tasks,
+          gpuErrors: stats.gpuErrors,
+          deviceLost: stats.deviceLost,
+          deviceFatal: stats.deviceFatal,
+          lastError: stats.lastError,
+          renderPasses: [...stats.renderPasses],
+          render: stats.render,
+          gpuMemory: stats.gpuMemory,
+        },
+        gpu: {
+          format: diagnosticEngine.gpu.format,
+          hdrFormat: diagnosticEngine.gpu.hdrFormat,
+          depthFormat: diagnosticEngine.gpu.depthFormat,
+          isMock: diagnosticEngine.gpu.isMock,
+          lost: diagnosticEngine.gpu.lost,
+          lostReason: diagnosticEngine.gpu.lostReason,
+          fatal: diagnosticEngine.gpu.fatal,
+          fatalReason: diagnosticEngine.gpu.fatalReason,
+          totalErrorCount: diagnosticEngine.gpu.totalErrorCount,
+          caps: diagnosticEngine.gpu.caps,
+          limits: diagnosticEngine.gpu.limits,
+        },
+      };
+    } catch (error) {
+      engineDebug = { unavailable: String(error instanceof Error ? error.message : error) };
+    }
+  }
+  const platform = diagnosticPlatform;
+  const context: GpuErrorReportContext = {
+    error: currentErrorText,
+    build: FORGE_BUILD,
+    capturedAt: new Date().toISOString(),
+    page: {
+      url: window.location.href,
+      referrer: document.referrer,
+      userAgent: platform?.userAgent ?? navigator.userAgent,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio,
+      },
+      scene: diagnosticScene,
+      platform: platform ? `${platform.browser}/${platform.os}` : "unavailable",
+      secureContext: window.isSecureContext,
+      hardwareConcurrency: platform?.hardwareConcurrency ?? navigator.hardwareConcurrency ?? 0,
+    },
+    engine: engineDebug,
+  };
+  return buildGpuErrorReport(context);
+}
+
+function showError(text: string): void {
+  currentErrorText = text;
+  errorBox.style.display = "block";
+  errorMessage.textContent = text;
+  errorCopyStatus.textContent = "";
+}
+
+errorCopyButton.addEventListener("click", () => {
+  // Start copyText before awaiting anything: Safari/iOS only grants clipboard access during the
+  // original click gesture. copyText owns the Async Clipboard and textarea fallback paths.
+  const pending = copyText(buildCurrentErrorReport(), {
+    clipboard: navigator.clipboard ?? null,
+    document,
+  });
+  void pending.then((ok) => {
+    errorCopyStatus.textContent = ok ? "Copied error and debug information" : "Copy failed — select the dialog text manually";
+    window.clearTimeout(errorCopyStatusTimer);
+    errorCopyStatusTimer = window.setTimeout(() => {
+      errorCopyStatus.textContent = "";
+    }, 4000);
+  }).catch(() => {
+    errorCopyStatus.textContent = "Copy failed — select the dialog text manually";
+  });
+});
 
 const sceneSelect = document.getElementById("scene-select") as HTMLSelectElement | null;
 const controlsHint = document.getElementById("controls-hint");
@@ -139,17 +247,14 @@ const loadingActions = document.getElementById("loading-actions") as HTMLDivElem
 const loadingRetry = document.getElementById("loading-retry") as HTMLButtonElement | null;
 const loadingContinue = document.getElementById("loading-continue") as HTMLButtonElement | null;
 
-function showError(text: string): void {
-  errorBox.style.display = "block";
-  errorBox.textContent = text;
-}
-
 async function main(): Promise<void> {
   const platform = detectPlatform();
+  diagnosticPlatform = platform;
   // GPU timestamps are on so the profiler panel shows per-pass device time and the browser gate can
   // report what the new compute passes cost (the render graph degrades to no-op when the adapter
   // does not expose `timestamp-query`).
   const engine = await Engine.create({ canvas, quality: "high", logLevel: "info", config: { workerCount: 2, gpuTimestamps: true } });
+  diagnosticEngine = engine;
   // Floating Profiler panel: draggable, resizable (corner grip), collapsible (bar button → corner
   // icon) and dockable to a viewport edge, with the toolbar button kept in sync with it. Starts
   // closed; `tick` in the frame loop repaints it ~4×/s while it is open. The panel's upper third is
@@ -244,6 +349,7 @@ async function main(): Promise<void> {
     controls = null;
 
     activeSceneName = name;
+    diagnosticScene = name;
     // Scene-specific touch surfaces are driven by the same action callbacks as keyboard input.
     document.body.classList.toggle("scene-vehicle", name === "vehicle" || name === "mars-showcase" || name === "rover-course" || name === "alpine-rescue" || name === "amazon-river" || name === "mars-dust-storm" || name === "offroad");
     document.body.classList.toggle("scene-offroad", name === "offroad");

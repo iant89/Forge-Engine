@@ -2,7 +2,8 @@
  * @suite examples:copyText
  * @group unit
  * @covers examples/src/diag/copyText.ts
- * @desc Pins the ?diag=1 Copy button's clipboard path: Async Clipboard is called synchronously, and a missing or rejecting clipboard falls back to a hidden textarea + execCommand copy that works on iOS Safari
+ * @covers examples/src/diag/errorReport.ts
+ * @desc Pins the diagnostic clipboard path: Async Clipboard is called synchronously, a missing or rejecting clipboard falls back to a hidden textarea + execCommand copy, and the GPU error report includes the displayed error plus build/runtime/engine context
  */
 
 export const suite = {
@@ -10,13 +11,16 @@ export const suite = {
   group: "unit",
   covers: [
     "examples/src/diag/copyText.ts",
+    "examples/src/diag/errorReport.ts",
   ],
-  desc: "Pins the ?diag=1 Copy button's clipboard path: Async Clipboard is called synchronously, and a missing or rejecting clipboard falls back to a hidden textarea + execCommand copy that works on iOS Safari",
+  desc: "Pins the diagnostic clipboard path: Async Clipboard is called synchronously, a missing or rejecting clipboard falls back to a hidden textarea + execCommand copy, and the GPU error report includes the displayed error plus build/runtime/engine context",
 };
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { finish, group, test } from "selrun";
 import { copyText, type CopyEnv } from "../../examples/src/diag/copyText.js";
+import { buildGpuErrorReport } from "../../examples/src/diag/errorReport.js";
 
 function fakeDoc(execResult: boolean | "throw") {
   const log: string[] = [];
@@ -65,6 +69,46 @@ group("diag Copy button clipboard", () => {
     const t = fakeDoc("throw");
     assert.equal(await copyText("x", { clipboard: { writeText: () => { throw new Error("sync"); } }, document: t.document }), false);
     assert.equal(t.attached(), 0);
+  });
+
+  test("the GPU error dialog wires a labeled Copy button to success/failure feedback", () => {
+    const html = readFileSync(new URL("../../examples/index.html", import.meta.url), "utf8");
+    const main = readFileSync(new URL("../../examples/src/main.ts", import.meta.url), "utf8");
+    assert.match(html, /<button type="button" id="error-copy">Copy error \+ debug info<\/button>/);
+    assert.match(html, /id="error-copy-status" aria-live="polite"/);
+    assert.match(main, /errorCopyButton\.addEventListener\("click"/);
+    assert.match(main, /copyText\(buildCurrentErrorReport\(\),/);
+    assert.match(main, /clipboard: navigator\.clipboard \?\? null/);
+    assert.match(main, /Copied error and debug information/);
+    assert.match(main, /Copy failed — select the dialog text manually/);
+  });
+
+  test("GPU error reports keep the displayed error and useful runtime context together", () => {
+    const report = buildGpuErrorReport({
+      error: "GPUValidationError: bind group layout mismatch",
+      build: "test-build",
+      capturedAt: "2026-10-23T12:00:00.000Z",
+      page: {
+        url: "https://example.test/?scene=vehicle",
+        referrer: "https://example.test/",
+        userAgent: "TestBrowser/1.0",
+        viewport: { width: 1280, height: 720, devicePixelRatio: 2 },
+        scene: "vehicle",
+        platform: "chrome/linux",
+        secureContext: true,
+        hardwareConcurrency: 8,
+      },
+      engine: {
+        stats: { frame: 42, gpuErrors: 3, deviceFatal: false },
+        gpu: { format: "bgra8unorm", timestampQuery: true },
+      },
+    });
+    assert.ok(report.includes("GPUValidationError: bind group layout mismatch"));
+    assert.ok(report.includes('"build": "test-build"'));
+    assert.ok(report.includes('"scene": "vehicle"'));
+    assert.ok(report.includes('"frame": 42'));
+    assert.ok(report.includes('"gpuErrors": 3'));
+    assert.ok(report.includes('"format": "bgra8unorm"'));
   });
 });
 

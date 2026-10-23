@@ -1536,6 +1536,20 @@ export class Vehicle {
   }
 }
 
+/**
+ * Internal dynamic-chassis reconciliation: update the model velocity without resetting wheel spin,
+ * while seeding the previous-step sample used for load-transfer acceleration.
+ */
+export function syncVehicleVelocityFromBody(vehicle: Vehicle, velocity: Vec3): void {
+  vehicle.velocity.copyFrom(velocity);
+  // These are intentionally ordinary (not #) private fields so the internal chassis bridge can
+  // seed the integrator's previous sample without exposing another public Vehicle mutator.
+  const state = vehicle as unknown as { prevVx: number; prevVy: number; prevVz: number };
+  state.prevVx = velocity.x;
+  state.prevVy = velocity.y;
+  state.prevVz = velocity.z;
+}
+
 const BASIS_FORWARD = new Vec3(0, 0, 1);
 const BASIS_RIGHT = new Vec3(1, 0, 0);
 const AXIS_X = { x: 1, y: 0, z: 0 };

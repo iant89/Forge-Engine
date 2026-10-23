@@ -17,10 +17,10 @@ export class VehicleComponent extends Component {
   wheelEntities: EntityId[] = [];
   ground: GroundQuery;
   /**
-   * Optional kinematic chassis collider in the physics world (Phase 11.3).
-   * When set (shared-world recipe with PhysicsSystem), the collider is driven by
-   * PhysicsSystem's Transform pose-delta path — not snapped each {@link VehicleSystem} step —
-   * so hitch frames (`fixedSteps>1`) distribute mid-frame contact correctly.
+   * Optional chassis collider in the physics world (Phase 11.3 / 23.3).
+   * Kinematic bodies use PhysicsSystem's Transform pose-delta path. Dynamic bodies are opt-in:
+   * VehicleSystem queues the raycast wheel-model acceleration and PhysicsSystem advances this body,
+   * then feeds its solved pose back to the Vehicle. Neither mode is snapped by VehicleSystem.
    *
    * Pair with {@link chassisWorld} so {@link onDetach} can `removeBody` immediately
    * (same pattern as RigidBodyComponent despawn on a shared world).
@@ -39,9 +39,9 @@ export class VehicleComponent extends Component {
   }
 
   /**
-   * Shared-world recipe helper: assign the kinematic chassis and record its world so
+   * Shared-world recipe helper: assign the kinematic or dynamic chassis and record its world so
    * {@link onDetach} can remove it. If a prior chassis/world pair is set and differs,
-   * removes the prior body from its world first (hot-swap / respawn — no ghost kinematic).
+   * removes the prior body from its world first (hot-swap / respawn — no ghost collider).
    */
   attachChassis(body: RigidBody, world: PhysicsWorld): void {
     const priorBody = this.chassisBody;
@@ -54,7 +54,7 @@ export class VehicleComponent extends Component {
   }
 
   /**
-   * Remove kinematic chassis from its physics world and clear handles.
+   * Remove the chassis from its physics world and clear handles.
    * Invoked on `destroyEntity` / `removeComponent(VehicleComponent)` so shared-world
    * despawn does not leave a ghost collider until PhysicsSystem.dispose().
    */
