@@ -194,7 +194,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Streaming Debugger (Phase 21.8): bounded asset-load/task inventories and scene streaming-owner stats are public, tested and browsable in the Inspector window's Streaming tab under one filter
 - [x] Environment Debugger (Phase 21.9): read-only sun, atmosphere, cloud, weather/wind/precipitation, water and lightning snapshots plus renderer-independent debug lines, browsable in the Inspector window's World tab with its own sun/wind overlay
 - [x] Console (Phase 21.10): safe registered-command API integrates CPU/GPU profiler scopes, engine stats and Phase 21 diagnostic snapshots; the demo's visible terminal adds bounded transcript/input, Up/Down history and Tab completion without evaluating command text
-- [ ] Rendering, terrain, physics and full particle/world-scale benchmark matrices, including 500k and 1M runs (Phase 22.2–22.6)
+- [x] Phase 22.2 rendering matrix: mock-device draw submission, render-graph compile/alias/submit, object and clustered-light culling twins, finite cascade/spot/point shadow fits with adaptive atlas budgeting, and repeated GPU texture/buffer allocation accounting with zero-live-byte teardown
+- [ ] Terrain, physics and full particle/world-scale benchmark matrices, including 500k and 1M runs (Phase 22.3–22.6)
 - [ ] Automatic same-host regression detection against repeated stored history; JSON snapshots and the first human-readable baseline are in place (Phase 22.7)
 
 ## Testing & CI (Phases 0, 2, 9, 28)

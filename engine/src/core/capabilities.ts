@@ -307,13 +307,27 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "npm run bench executes correctness, work-shape and catastrophe guards in CI; npm run bench -- --json PATH writes the measurements and exact host metadata for historical comparison.",
   },
   {
+    id: "diagnostics.renderingBenchmarks",
+    phase: "22.2",
+    status: "verified",
+    summary: "Rendering benchmark matrix for draw submission, render-graph aliasing, object/light culling, shadow fitting and GPU memory accounting",
+    evidence: [
+      "benchmarks/src/rendering.bench.ts",
+      "benchmarks/run.mjs",
+      "tests/benchmarks/rendering.test.ts",
+      "PERFORMANCE.md",
+    ],
+    closesWith: "22.2",
+    notes: "The mock-device matrix measures steady multi-batch draw submission and render-graph compile/submit work, while CPU twins cover culling and clustered-light coverage. Shadow cascades/spot/cube fits are checked for finite transforms and adaptive atlas budget compliance; repeated texture/buffer allocation frames must return to zero live bytes. The browser gate remains the evidence for real shader/GPU timing rather than mock stopwatch values.",
+  },
+  {
     id: "diagnostics.benchmarkRegression",
     phase: "22.7",
     status: "inProgress",
     summary: "Versioned machine-readable benchmark snapshots and an audited performance history for automatic regression detection",
     evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
     closesWith: "22.7",
-    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.2-22.6 workload matrix.",
+    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.3-22.6 workload matrix.",
   },
   {
     id: "diagnostics.marsReferenceTelemetry",
