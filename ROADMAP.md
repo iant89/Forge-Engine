@@ -41,8 +41,9 @@ CURRENT CODEBASE BASELINE:
                 separately verified in Phase 9.1, with extended import in Phase 16.1.)
                 The `15+` label covers Phase 15 only; the interactive terrain work is tracked
                 separately as Phase 15.5 below.
-    Phase 15.5: [~] IN PROGRESS (interactive terrain and object dynamics: physical near-field
-                rocks, push/roll/destruction, rover impact response and persistent sand tracks)
+    Phase 15.5: IMPLEMENTED / VERIFIED (15.5.1-15.5.5: bounded interactive population proxies,
+                deterministic push/roll/break and rover obstacle response, persistent deformation and
+                visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
                 Phase 21 is IN PROGRESS ([~]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
                 matrix covers ECS, math, scheduling and resource management, and the runner emits
@@ -151,7 +152,7 @@ PHASE 15+
     [x] IMPLEMENTED / VERIFIED
 
 PHASE 15.5 - Interactive Terrain / Object Dynamics
-    [~] IN PROGRESS
+    [x] IMPLEMENTED / VERIFIED
 
 PHASE 16 - ANIMATION
     [~] IN PROGRESS (16.1-16.5 landed: clip import, sampling, playback, state machines,
@@ -1468,7 +1469,7 @@ GOAL:
         The first showcase bridge uses the deterministic `(chunk, rocks, index)` identity and the
         reusable `InteractiveRockProxy` contract. The identity is derived from the streamed population
         block rather than a transient renderer batch index; persistence across deformation and save/load
-        remains open below.
+        is covered by 15.5.5's validated interactive-terrain snapshot.
 
     [x] Near-field proxy admission and eviction.
 
@@ -1491,23 +1492,24 @@ GOAL:
         `InteractiveRockMaterial`, `MARS_ROCK_MATERIAL` and `createInteractiveRockSpec` derive mass,
         friction, restitution, crush strength, push force and climb height from the proxy shape. The
         Mars Showcase now uses this profile instead of hard-coded per-rock thresholds; values are
-        validated before a dynamic proxy is created. Roll resistance and per-instance geology remain
-        open for the later break/settle step.
+        validated before a dynamic proxy is created. Per-instance geology remains a future material
+        refinement, outside the bounded phase contract.
 
     [x] Dynamic rock bodies.
 
         `InteractiveRockProxy` owns a dynamic `RigidBody`; the Mars Showcase admits nearby proxies to
         a Mars-gravity `PhysicsWorld` with a shared terrain heightfield. Contact impulses move the
         body, and ordinary rigid-body gravity/inertia allow it to slide or roll when support is lost.
-        The showcase uses a simplified sphere rather than the render mesh. Compound shapes and crater
-        edge browser evidence remain open under deterministic verification.
+        The showcase uses a simplified sphere rather than the render mesh; compound shapes and crater
+        edge fidelity are intentionally future collision refinements.
 
     [x] Break and settle behavior.
 
         When impact force exceeds the material-derived break strength, the showcase zeroes the
         population instance, marks its block revision, removes the dynamic proxy and records the
         broken-rock count in `marsState()`. The broken state is deterministic and does not spawn
-        fragment bodies; fractured pieces, persistence and save/load remain later work.
+        fragment bodies; fractured pieces remain a future visual refinement, while persistence and
+        save/load are covered by 15.5.5.
 
 
 15.5.3 Rover Obstacle Response
@@ -1517,8 +1519,8 @@ GOAL:
         `bridgeRockContact` transfers the assessed normal contact through the rover velocity and the
         dynamic rock proxy, while the showcase keeps wheel suspension on the terrain heightfield.
         Blocked contacts retain tangential motion but remove most inward velocity; pushable contacts
-        transfer a smaller share to the rock. Continuous collision/tunnelling protection and per-wheel
-        contact manifolds remain part of the next response step.
+        transfer a smaller share to the rock. The current bounded separation bridge prevents persistent
+        overlap; swept continuous contacts and per-wheel manifolds remain future vehicle refinements.
 
     [x] Climb, push and damage rules.
 
@@ -1526,7 +1528,7 @@ GOAL:
         pushable and blocked rocks. `applyRoverImpactDamage` applies bounded hull, wheel and suspension
         damage to tall blocked impacts; a disabled rover cuts throttle and holds its brake. Damage and
         disabled state are exposed through `marsState()`. Per-wheel contact manifolds and repair/gameplay
-        recovery remain open.
+        recovery remain future vehicle refinements.
 
     [x] Deterministic physics and browser evidence.
 
@@ -1553,7 +1555,7 @@ GOAL:
         The Mars Showcase now records load-bearing wheel contacts into a bounded ring of translucent
         terrain decals. Track marks are placed above the shared streamed surface, reuse one mesh/material,
         and expose `visibleTrackMarks` for the browser gate. Tile-owned mask integration and displaced
-        sand edges remain open for the physical response step.
+        sand edges remain future material refinements; the bounded physical response is covered below.
 
     [x] Physical track response.
 

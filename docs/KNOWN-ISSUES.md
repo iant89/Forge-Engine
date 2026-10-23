@@ -270,8 +270,8 @@ WASM backend is still a future solver seam.
   uses the resident chunk/type blocks and each type's CPU triangle geometry, so evicted chunks and
   CPU-only population types without a geometry/material submission cannot be picked. The returned
   `RayHit.tag` decodes through `PopulationWorld.raycastInfo()` while the hit is current; this is a
-  deliberate query boundary, not an ECS entity fallback. Broader interactive/query coverage remains
-  tracked with the near-field population proxy work. (roadmap: 15.5)
+  deliberate query boundary, not an ECS entity fallback. Broader world-scale population query coverage
+  remains a separate future concern. (roadmap: 24.3)
 * **Worker generation has a deterministic inline fallback.** With an engine `TaskScheduler`, the
   complete canonical-surface + scatter job runs through `population.chunk` on the worker path. A
   scheduler that is unavailable/disposed, an unsupported custom terrain stage, or a live Mars Stage A
