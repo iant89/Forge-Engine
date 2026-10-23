@@ -196,7 +196,8 @@ Known gaps are listed in [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md).
 - [x] Console (Phase 21.10): safe registered-command API integrates CPU/GPU profiler scopes, engine stats and Phase 21 diagnostic snapshots; the demo's visible terminal adds bounded transcript/input, Up/Down history and Tab completion without evaluating command text
 - [x] Phase 22.2 rendering matrix: mock-device draw submission, render-graph compile/alias/submit, object and clustered-light culling twins, finite cascade/spot/point shadow fits with adaptive atlas budgeting, and repeated GPU texture/buffer allocation accounting with zero-live-byte teardown
 - [x] Phase 22.3 terrain matrix: deterministic multi-resolution generation, thermal/hydraulic erosion, multi-level LOD/geomorph selection, budgeted TerrainWorld streaming/cache return, and skirted mesh-source construction with exact topology guards
-- [ ] Physics, full particle and world-scale benchmark matrices, including 500k and 1M runs (Phase 22.4–22.6)
+- [x] Phase 22.4 physics matrix: deterministic broadphase pruning, supported narrowphase manifold generation, sequential-impulse/stability workloads, raycast and heightfield queries, and vehicle fleets
+- [ ] Full particle and world-scale benchmark matrices, including 500k and 1M runs (Phase 22.5–22.6)
 - [ ] Automatic same-host regression detection against repeated stored history; JSON snapshots and the first human-readable baseline are in place (Phase 22.7)
 
 ## Testing & CI (Phases 0, 2, 9, 28)

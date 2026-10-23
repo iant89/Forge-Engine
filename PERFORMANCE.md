@@ -136,3 +136,45 @@ chunks, and returned to the original view with 12 cache hits; and the 65×65 ski
 This is a CPU baseline, not a real-device GPU timing claim. The browser gate remains the evidence for
 terrain shader compilation and device execution; same-host statistical comparison and automatic
 rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.4 physics baseline
+
+**Source:** `arena/5b6c310c-forge-engine`, Phase 22.4 change based on `5de4adccc231c8c411e59a8ca1865a7fbc2c8309`
+**UTC start:** 2026-10-23 14:49:02.329
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 8,100.24 ms inside the benchmark process; all guards passed
+**GPU:** none used; physics rows are deterministic CPU/API workloads
+
+### Phase 22.4 physics matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Sweep-and-prune pair generation + pruning, 128 bodies | 128 bodies | 0.27 ms | 481,304/s |
+| Sweep-and-prune pair generation + pruning, 512 bodies | 512 bodies | 0.47 ms | 1,094,270/s |
+| Sweep-and-prune pair generation + pruning, 2,048 bodies | 2,048 bodies | 4.65 ms | 440,223/s |
+| Narrowphase sphere-sphere manifolds | 512 pairs | 1.19 ms | 429,731/s |
+| Narrowphase sphere-box manifolds | 512 pairs | 0.97 ms | 526,751/s |
+| Narrowphase box-box manifolds | 512 pairs | 3.29 ms | 155,513/s |
+| Narrowphase sphere-plane manifolds | 512 pairs | 0.61 ms | 844,233/s |
+| Narrowphase box-plane manifolds | 512 pairs | 1.83 ms | 279,749/s |
+| Narrowphase sphere-heightfield manifolds | 512 pairs | 0.91 ms | 561,256/s |
+| Narrowphase box-heightfield manifolds | 512 pairs | 4.54 ms | 112,801/s |
+| Sequential-impulse solver, 64 bodies / 256 contacts | 256 contacts | 4.45 ms | 57,508/s |
+| Fixed-step resting-contact stability, 32 bodies × 90 steps | 2,880 body-steps | 39.57 ms | 72,781/s |
+| Physics-world spatial raycasts, 256 colliders | 512 rays | 13.52 ms | 37,868/s |
+| Registered heightfield queries, 256 colliders | 4,096 samples | 0.85 ms | 4,793,048/s |
+| Vehicle simulation, 8 vehicles × 120 steps | 960 vehicle-steps | 30.41 ms | 31,568/s |
+| Vehicle simulation, 32 vehicles × 120 steps | 3,840 vehicle-steps | 112.83 ms | 34,033/s |
+| Vehicle simulation, 64 vehicles × 120 steps | 7,680 vehicle-steps | 222.79 ms | 34,471/s |
+
+Shape/correctness from the same run: the largest broadphase workload generated 1,984 full AABB
+pairs from 191,005 X-axis candidates out of 2,096,128 possible pairs; all seven supported
+narrowphase shape pairs produced 8,192 deterministic contacts; the solver applied 181.124 total
+normal impulse and the resting-contact pass held maximum penetration to 0.0118 m with maximum speed
+0.050 m/s. All 512 raycasts hit a collider or the heightfield; 4,096 height samples ranged from
+-0.644 to 0.618; and the largest deterministic fleet maintained 256 wheel contacts.
+
+This is a CPU/API baseline, not a real-device physics timing claim. The benchmark guards establish
+shape, finite-state, determinism and catastrophe bounds; stable metric IDs, repeated same-host
+comparison and automatic rejection remain Phase 22.7 work.

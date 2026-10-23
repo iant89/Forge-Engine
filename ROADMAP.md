@@ -46,12 +46,12 @@ CURRENT CODEBASE BASELINE:
                 visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
                 Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core,
-                22.2 rendering and 22.3 terrain matrices cover ECS, math, scheduling, resources, renderer
-                submission, terrain generation/erosion/LOD/streaming/mesh construction, and the runner
-                emits a versioned host-described JSON snapshot; physics, particle/world scale sweeps and
-                automatic historical comparison remain. Phases 23 through 28 remain
-                NOT STARTED ([ ]). Phase 29 is a roll-up (see the status block; `docs:check` verifies
-                the phase keys directly).
+                22.2 rendering, 22.3 terrain and 22.4 physics matrices cover ECS, math, scheduling, resources,
+                renderer submission, terrain generation/erosion/LOD/streaming/mesh construction, deterministic
+                broadphase/narrowphase/solver/query/vehicle workloads, and the runner emits a versioned
+                host-described JSON snapshot; particle/world scale sweeps and automatic historical comparison
+                remain. Phases 23 through 28 remain NOT STARTED ([ ]). Phase 29 is a roll-up (see the status
+                block; `docs:check` verifies the phase keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -190,8 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core, 22.2 rendering and 22.3 terrain matrices are implemented and guarded;
-        22.4–22.6 coverage and automatic historical comparison remain)
+    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain and 22.4 physics matrices are implemented
+        and guarded; 22.5–22.6 coverage and automatic historical comparison remain)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2499,11 +2499,18 @@ GOAL:
 
 22.4 Physics
 
-    [ ] broadphase
-    [ ] narrowphase
-    [ ] solver
-    [ ] queries
-    [ ] vehicles
+    [x] broadphase
+    [x] narrowphase
+    [x] solver
+    [x] queries
+    [x] vehicles
+
+    As built: `npm run bench` runs deterministic sweep-and-prune pair generation/pruning at multiple
+    body counts, every supported narrowphase shape-pair manifold dispatcher, sequential-impulse contact
+    solving plus a fixed-step resting-contact stability workload, physics-world raycasts and registered
+    heightfield samples, and several fixed-step vehicle fleets. Guards cover pair/contact shape,
+    deterministic state digests, finite/stable solver and vehicle state, query hits, and the benchmark
+    catastrophe bound; automatic same-host historical comparison remains Phase 22.7 work.
 
 
 22.5 Particles
@@ -2526,7 +2533,7 @@ GOAL:
 
     [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
         operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
-    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.3
+    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.4
         baselines are recorded; stable metric IDs, repeated samples and an automatic same-host
         comparator/history remain).
     [ ] Fail automatically on a statistically significant regression against comparable history.

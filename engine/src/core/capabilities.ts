@@ -335,13 +335,27 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "The CPU matrix runs worker-equivalent deterministic cell generation at multiple resolutions, explicit thermal and hydraulic erosion stages, multi-level LOD/geomorph selection, a real TerrainWorld cold/resident/moved/cache-return scenario with visible-chunk budgets, and skirted TerrainTile vertex/index construction. Guards validate finite ranges, deterministic digests, cache reuse, resident bounds and exact mesh topology; real browser/GPU terrain timing remains a separate device gate.",
   },
   {
+    id: "diagnostics.physicsBenchmarks",
+    phase: "22.4",
+    status: "verified",
+    summary: "Physics benchmark matrix for broadphase pruning, supported narrowphase manifolds, sequential-impulse stability, spatial queries and deterministic vehicle fleets",
+    evidence: [
+      "benchmarks/src/physics.bench.ts",
+      "benchmarks/run.mjs",
+      "tests/benchmarks/physics.test.ts",
+      "PERFORMANCE.md",
+    ],
+    closesWith: "22.4",
+    notes: "The CPU matrix measures sweep-and-prune pair generation and pruning at multiple body counts, every supported narrowphase dispatcher, direct sequential-impulse contacts plus fixed-step resting stability, world raycasts and registered heightfield queries, and 8/32/64-vehicle fixed-step fleets. Guards validate pair/contact shape, finite state, deterministic digests, query hits and catastrophe bounds; the rows are CPU/API measurements, not a real-device physics claim.",
+  },
+  {
     id: "diagnostics.benchmarkRegression",
     phase: "22.7",
     status: "inProgress",
     summary: "Versioned machine-readable benchmark snapshots and an audited performance history for automatic regression detection",
     evidence: ["benchmarks/run.mjs", "PERFORMANCE.md"],
     closesWith: "22.7",
-    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.4-22.6 workload matrix.",
+    notes: "Snapshot schema v1 records timings, operation counts, guard results and host metadata; the first measured baseline is in PERFORMANCE.md. Stable metric IDs, stored multi-run history and automatic same-host comparisons remain open together with the Phase 22.5-22.6 workload matrix.",
   },
   {
     id: "diagnostics.marsReferenceTelemetry",
