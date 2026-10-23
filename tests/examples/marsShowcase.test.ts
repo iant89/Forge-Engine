@@ -203,6 +203,7 @@ group("Mars Showcase — ported terrain integration", () => {
       terrainGeneration: "inline", // This fixture has no scheduler; fallback remains functional.
       terrainReadyChunks: 0,
       terrainRoverChunkReady: false,
+      chassisMode: "dynamic",
     });
     const reference = handle.marsReferenceState();
     assert.equal(reference.schema, "forge.mars-reference/1");

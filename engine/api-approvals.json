@@ -434,6 +434,19 @@
         "tests/vehicles/vehiclePhysics.test.ts",
         "tests/vehicles/vehicles.test.ts"
       ]
+    },
+    {
+      "id": "vehicles/2",
+      "decision": "approved-1.0-candidate",
+      "summary": "Review the dynamic vehicle chassis contract: the opt-in chassis type/mass/damping options and the fixed-step coupling that preserves the existing kinematic default.",
+      "evidence": [
+        "docs/API-REVIEW.md",
+        "docs/VEHICLES.md",
+        "engine/src/vehicles/chassis.ts",
+        "engine/src/vehicles/system.ts",
+        "tests/vehicles/vehiclePhysics.test.ts",
+        "tests/core/runtimeApi.test.ts"
+      ]
     }
   ],
   "approvals": [
@@ -10401,9 +10414,9 @@
     {
       "name": "VehicleChassisOptions",
       "kind": "type",
-      "declarationHash": "sha256:e80f31b85a69c63dbe0a304538da5121f0fe20c0299ff95c9b66364151dc8cbd",
-      "contractHash": "sha256:ff5073529fadefbe094b3075d5eca05c1c8ec57c35205127a096376e9a2c30da",
-      "review": "vehicles/1"
+      "declarationHash": "sha256:d0dd0f776b49fc4b46e2c92d33cd908e957f623bcb1aaf5b1d37e32986f40ef9",
+      "contractHash": "sha256:5a0f98412a24fd89644dae83212c81879b9167b630611e0ac18124f50bfa5ff4",
+      "review": "vehicles/2"
     },
     {
       "name": "VehicleComponent",
@@ -10534,9 +10547,9 @@
     {
       "name": "VehicleSystem",
       "kind": "type-and-value",
-      "declarationHash": "sha256:eb61424dfdecdffd46d6a69ffbbedd31e871032f2f351d7f149ef927128c63cd",
-      "contractHash": "sha256:c2db134f9d9ef08ded8fadb6c4d3c1b774b5daa7259a628f6d54c03b4ef165b1",
-      "review": "vehicles/1"
+      "declarationHash": "sha256:eda5573eb2d23d918f855ca4381255bb72fd09284ca16187a31be68071cf2623",
+      "contractHash": "sha256:6b908fa48aa3de92d0e4cc32c8636019f90c122ecce08cf29c6b22f135bff567",
+      "review": "vehicles/2"
     },
     {
       "name": "VehicleTelemetry",
@@ -12397,8 +12410,8 @@
       "name": "createVehicleChassis",
       "kind": "value",
       "declarationHash": "sha256:cc5928f3905fc444a36952e571f9b03698c461cc79cf7cbbc77b28c99713f571",
-      "contractHash": "sha256:b5cfabd6ea018e39da11213276bf19812e93507fdd5afc4d0fa926f3fc4125cc",
-      "review": "vehicles/1"
+      "contractHash": "sha256:0074b752839c7b1ca2248ce82062d272850613c5467cb6d8bfc0d8efa5c517a9",
+      "review": "vehicles/2"
     },
     {
       "name": "createVehicleComponent",

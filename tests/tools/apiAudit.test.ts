@@ -362,7 +362,8 @@ group("Phase 27 public API audit", () => {
       "terrain/1": 231,
       "testing/1": 16,
       "ui/1": 355,
-      "vehicles/1": 70,
+      "vehicles/1": 67,
+      "vehicles/2": 3,
     };
     assert.deepEqual(
       ledger.reviews.map((review) => review.id),

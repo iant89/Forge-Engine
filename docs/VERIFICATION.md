@@ -1727,9 +1727,12 @@ and `check:wgsl` + `tests/rendering/wgsl.test.ts` run both. No automated check c
   teardown with zero leaked GPU buffers or textures asserted by `MockGPUDevice.outstanding` in every
   renderer fixture.
 * **A raycast vehicle.** Torque→RPM, shift points, the analytic stop, a 12° climb, load transfer,
-  and TC slip are numeric tests in `tests/vehicles/vehicles.test.ts`. The playground is a scene the browser
-  gate loads; it is not a handling-quality test. See `docs/VEHICLES.md` for what is kinematic rather
-  than simulated.
+  and TC slip are numeric tests in `tests/vehicles/vehicles.test.ts`. `tests/vehicles/vehiclePhysics.test.ts`
+  additionally verifies the Phase 23.3 opt-in dynamic chassis: wheel-model acceleration is consumed
+  one command per PhysicsWorld substep, supported CCD stops a high-speed wall approach, and shared-world
+  teardown removes the body. The playground is a scene the browser gate loads; it is not a
+  handling-quality test. See `docs/VEHICLES.md` for the backward-compatible kinematic recipe and
+  dynamic coupling limits.
 * **A ported planet (Phase 10.9).** The Mars generator's analytic surface is reproduced inside the
   engine and can be evaluated at any tile size, with seamless shared vertices and deterministic tiles
   (`tests/terrain/marsTerrain.test.ts`). What that check does *not* prove — and what `npm run

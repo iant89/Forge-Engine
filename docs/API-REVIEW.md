@@ -15,7 +15,7 @@ released surface adds the 16 public extension-contract exports plus the reviewed
 shader export, for **2,188 approved public exports**. Phase 14 adds a separately reviewed population
 batch of 13 canonical sampling, worker-task, and resident-raycast exports, and Phase 16 adds ten glTF,
 morph-animation, and secondary-UV contracts across three follow-up batches, for **2,211 approved public
-exports** out of 2,220 total across 28 review batches. Each approved row has an exact declaration kind,
+exports** out of 2,220 total across 29 review batches. Each approved row has an exact declaration kind,
 direct declaration hash, transitive contract hash, and subsystem review. The nine exports already marked
 experimental remain experimental and are not approvals. There are no deprecated exports and no pending
 public candidates.
@@ -30,6 +30,12 @@ adaptive shadow policy, material-aware prepass/orthographic SSAO path, contact-d
 public contact-depth shader, and shared per-instance culling extension. The rendering review is backed
 by `tests/rendering/frame.test.ts`, `tests/rendering/pipeline.test.ts`, `tests/rendering/wgsl.test.ts`,
 `docs/RENDERING.md`, and the focused `check:wgsl`/`docs:check` gates.
+
+The vehicles follow-up review (`vehicles/2`) updates the chassis-related declarations for Phase 23.3:
+`VehicleChassisOptions` exposes the opt-in dynamic body settings, while `VehicleSystem` and
+`createVehicleChassis` retain the existing kinematic default and now document the fixed-step bridge.
+The focused vehicle-physics and Mars showcase suites cover the dynamic acceleration command, solver
+contact/CCD, shared-world teardown, external teleports, and showcase contact behavior.
 
 ## Review method
 
@@ -76,7 +82,8 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `terrain/1` | 231 | chunks/cache/LOD, generation/materials/interactions/deformation, tracks, realistic and Mars terrain | nine terrain suites |
 | `testing/1` | 16 | supported mock GPU and mock audio helpers | GPU, audio, and runtime namespace suites |
 | `ui/1` | 355 | core tree/context, layout/style/input/text/rendering, data binding, widgets, manager, world space | ten UI suites |
-| `vehicles/1` | 70 | chassis, drivetrain/electric, tires/ground/loads, damage, rig and vehicle system | four vehicle suites |
+| `vehicles/1` | 67 | chassis, drivetrain/electric, tires/ground/loads, damage, rig and vehicle system | four vehicle suites |
+| `vehicles/2` | 3 | dynamic chassis options and fixed-step vehicle-system coupling, preserving the kinematic default | vehicle-physics and Mars showcase suites |
 | **Total** | **2,211** | **820 type, 1,014 value, 386 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
 
 ## Deliberately accepted compatibility costs
