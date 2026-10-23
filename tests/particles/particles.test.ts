@@ -64,6 +64,7 @@ export const suite = {
   desc: "Pins particles behavior and regression guarantees",
 };
 import assert from "node:assert/strict";
+import { assertParticleBenchmark, DEFAULT_PARTICLE_CAPACITIES, runParticleBenchmark } from "../../benchmarks/src/particles.bench.ts";
 import { arrayContaining, assertCloseTo, assertContains, assertMatchObject, assertMatches, finish, group, test } from "selrun";
 import {
   Clock,
@@ -1196,6 +1197,26 @@ group("particles — Phase 12.4/12.7 GPU ribbon trails", () => {
     } finally {
       await gpu.dispose();
     }
+  });
+});
+
+group("particles — Phase 22.5 benchmark matrix", () => {
+  test("covers the focused CPU and mock-GPU capacity bands with clean teardown", async () => {
+    assert.deepEqual(DEFAULT_PARTICLE_CAPACITIES, [10_000, 100_000, 500_000, 1_000_000]);
+    const report = await runParticleBenchmark({
+      capacities: [10_000, 100_000],
+      cpuSteps: 4,
+      gpuFrames: 2,
+    });
+    const notes = assertParticleBenchmark(report, [10_000, 100_000]);
+    assert.equal(report.cpu.timings.length, 2);
+    assert.equal(report.gpu.timings.length, 2);
+    assert.equal(report.gpu.remainingBytes, report.gpu.baseBytes);
+    assert.equal(report.gpu.errors, 0);
+    assert.ok(report.gpu.timings.every((timing) => timing.simulationSteps === 0 && timing.ready));
+    assert.equal(notes.length, 2);
+    assert.ok(report.results.some((entry) => entry.name.includes("CPU integrate 10,000")));
+    assert.ok(report.results.some((entry) => entry.name.includes("mock GPU allocate 100,000")));
   });
 });
 

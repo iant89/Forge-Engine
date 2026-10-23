@@ -14,8 +14,10 @@ import { assertCoreBenchmark, runCoreBenchmark } from "./src/core.bench.ts";
 import { assertCullingBenchmark, runCullingBenchmark } from "./src/culling.bench.ts";
 import { assertEcsBenchmark, runEcsBenchmark } from "./src/ecs.bench.ts";
 import { assertLightBenchmark, runLightCullingBenchmark } from "./src/lights.bench.ts";
-import { runParticleBenchmark } from "./src/particles.bench.ts";
+import { assertParticleBenchmark, runParticleBenchmark } from "./src/particles.bench.ts";
 import { assertRenderingBenchmark, runRenderingBenchmark } from "./src/rendering.bench.ts";
+import { assertPhysicsBenchmark, runPhysicsBenchmark } from "./src/physics.bench.ts";
+import { assertTerrainBenchmark, runTerrainBenchmark } from "./src/terrain.bench.ts";
 import { assertUIBenchmark, runUIBenchmark } from "./src/ui.bench.ts";
 
 function jsonOutputPath(argv) {
@@ -43,8 +45,8 @@ const results = runEcsBenchmark(100_000);
 checks.ecs = assertEcsBenchmark(results);
 results.push(...core.results);
 
-console.log("Running 100k-particle integrator benchmark...");
-const particles = runParticleBenchmark(100_000, 30);
+console.log("Running Phase 22.5 particle benchmark matrix (CPU and mock GPU)...");
+const particles = await runParticleBenchmark();
 results.push(...particles.results);
 console.log("Running light-count stress benchmark (Phase 13.4)...");
 const lights = runLightCullingBenchmark();
@@ -55,6 +57,12 @@ results.push(...culling.results);
 console.log("Running Phase 22.2 rendering benchmark matrix...");
 const rendering = await runRenderingBenchmark();
 results.push(...rendering.results);
+console.log("Running Phase 22.3 terrain benchmark matrix...");
+const terrain = runTerrainBenchmark();
+results.push(...terrain.results);
+console.log("Running Phase 22.4 physics benchmark matrix...");
+const physics = runPhysicsBenchmark();
+results.push(...physics.results);
 console.log("Running UI framework benchmark...");
 const uiBench = runUIBenchmark(1000);
 results.push(...uiBench.results);
@@ -76,9 +84,9 @@ console.log("Phase 22.1 core:");
 for (const note of checks.core) console.log(`  ${note}`);
 console.log("ECS:");
 for (const note of checks.ecs) console.log(`  ${note}`);
-console.log(
-  `particle analytic error ${particles.analyticError.toExponential(2)}  alive ${particles.alive}`,
-);
+checks.particles = assertParticleBenchmark(particles);
+console.log("Particles (Phase 22.5):");
+for (const note of checks.particles) console.log(`  ${note}`);
 checks.lights = assertLightBenchmark(lights);
 console.log("Light culling (Phase 13.4):");
 for (const note of checks.lights) console.log(`  ${note}`);
@@ -88,6 +96,12 @@ for (const note of checks.culling) console.log(`  ${note}`);
 checks.rendering = assertRenderingBenchmark(rendering);
 console.log("Rendering (Phase 22.2):");
 for (const note of checks.rendering) console.log(`  ${note}`);
+checks.terrain = assertTerrainBenchmark(terrain);
+console.log("Terrain (Phase 22.3):");
+for (const note of checks.terrain) console.log(`  ${note}`);
+checks.physics = assertPhysicsBenchmark(physics);
+console.log("Physics (Phase 22.4):");
+for (const note of checks.physics) console.log(`  ${note}`);
 console.log("UI framework:");
 for (const note of uiBench.notes) console.log(`  ${note}`);
 const uiFails = assertUIBenchmark(uiBench);
@@ -96,21 +110,6 @@ if (uiFails.length > 0) {
   for (const failure of uiFails) console.error(`UI benchmark: ${failure}`);
   process.exitCode = 1;
 }
-const integrate = particles.results[1];
-if (!integrate || integrate.durationMs >= 1000) {
-  console.error(`100k particle integrate exceeded 1s (${integrate?.durationMs.toFixed(1) ?? "missing"} ms)`);
-  process.exitCode = 1;
-}
-if (!(particles.analyticError < 1e-3) || particles.alive !== 100_000) {
-  console.error("100k particle benchmark diverged from the analytic gravity curve");
-  process.exitCode = 1;
-}
-checks.particles = [
-  `analytic error ${particles.analyticError.toExponential(2)}`,
-  `${particles.alive.toLocaleString()} alive`,
-  `integrate ${integrate?.durationMs.toFixed(2) ?? "missing"} ms`,
-];
-
 const elapsedMs = Number(process.hrtime.bigint() - startedNs) / 1e6;
 if (jsonPath) {
   const cpu = cpus();

@@ -45,13 +45,13 @@ CURRENT CODEBASE BASELINE:
                 deterministic push/roll/break and rover obstacle response, persistent deformation and
                 visible wheel tracks, bounded streaming budgets and save/restore diagnostics)
                 Phases 16 and 17 are IN PROGRESS ([~]); Phases 18 through 20 are VERIFIED ([x]),
-                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core
-                and 22.2 rendering matrices cover ECS, math, scheduling, resources, draw/graph submission,
-                culling, lighting, shadow fitting and GPU allocation accounting, and the runner emits a
-                versioned host-described JSON snapshot; terrain, physics, particle/world scale sweeps and
-                automatic historical comparison remain. Phases 23 through 28 remain
-                NOT STARTED ([ ]). Phase 29 is a roll-up (see the status block; `docs:check` verifies
-                the phase keys directly).
+                Phase 21 is IMPLEMENTED / VERIFIED ([x]). Phase 22 is now IN PROGRESS ([~]): its 22.1 core,
+                22.2 rendering, 22.3 terrain and 22.4 physics matrices cover ECS, math, scheduling, resources,
+                renderer submission, terrain generation/erosion/LOD/streaming/mesh construction, deterministic
+                broadphase/narrowphase/solver/query/vehicle workloads, and the runner emits a versioned
+                host-described JSON snapshot; particle/world scale sweeps and automatic historical comparison
+                remain. Phases 23 through 28 remain NOT STARTED ([ ]). Phase 29 is a roll-up (see the status
+                block; `docs:check` verifies the phase keys directly).
 
     Phase status lines are cross-checked against engine/src/core/capabilities.ts and
     docs/KNOWN-ISSUES.md by `npm run docs:check`.
@@ -190,8 +190,8 @@ PHASE 21 - PROFILER / DEBUG TOOLS
         debugger reports their counters/configuration without a readback.)
 
 PHASE 22 - BENCHMARK + REGRESSION SYSTEM
-    [~] IN PROGRESS (22.1 core and 22.2 rendering matrices are implemented and guarded; 22.3–22.6
-        coverage and automatic historical comparison remain)
+    [~] IN PROGRESS (22.1 core, 22.2 rendering, 22.3 terrain, 22.4 physics and 22.5 particles
+        matrices are implemented and guarded; 22.6 coverage and automatic historical comparison remain)
 
 PHASE 23 - MARS REFERENCE VERTICAL SLICE
     [~] IN PROGRESS (the existing showcase is now reconciled against the phase and exposes a
@@ -2483,28 +2483,49 @@ GOAL:
 
 22.3 Terrain
 
-    [ ] generation
-    [ ] erosion
-    [ ] LOD
-    [ ] streaming
-    [ ] mesh generation
+    [x] generation
+    [x] erosion
+    [x] LOD
+    [x] streaming
+    [x] mesh generation
+
+    As built: `npm run bench` runs worker-equivalent deterministic generation at 33²/65²/129²,
+    explicit thermal and hydraulic erosion, multi-level LOD/geomorph selection, a real budgeted
+    `TerrainWorld` cold/resident/moved/cache-return scenario, and skirted `TerrainTile` mesh-source
+    construction at three resolutions. Guards cover deterministic digests, finite height ranges,
+    cache reuse, resident-chunk limits and exact grid-plus-skirt topology; the real browser gate
+    remains the device-side terrain validation.
 
 
 22.4 Physics
 
-    [ ] broadphase
-    [ ] narrowphase
-    [ ] solver
-    [ ] queries
-    [ ] vehicles
+    [x] broadphase
+    [x] narrowphase
+    [x] solver
+    [x] queries
+    [x] vehicles
+
+    As built: `npm run bench` runs deterministic sweep-and-prune pair generation/pruning at multiple
+    body counts, every supported narrowphase shape-pair manifold dispatcher, sequential-impulse contact
+    solving plus a fixed-step resting-contact stability workload, physics-world raycasts and registered
+    heightfield samples, and several fixed-step vehicle fleets. Guards cover pair/contact shape,
+    deterministic state digests, finite/stable solver and vehicle state, query hits, and the benchmark
+    catastrophe bound; automatic same-host historical comparison remains Phase 22.7 work.
 
 
 22.5 Particles
 
-    [ ] 10K
-    [ ] 100K
-    [ ] 500K
-    [ ] 1M
+    [x] 10K
+    [x] 100K
+    [x] 500K
+    [x] 1M
+
+    As built: `npm run bench` measures deterministic CPU setup and fixed-step integration plus strict
+    mock-GPU storage allocation and per-frame command/uniform preparation at all four capacity bands.
+    Guards compare CPU gravity with the analytic reference, require deterministic state digests and
+    zero ECS entities, validate the 64-byte particle storage shape, and require zero live mock buffers
+    after teardown. The mock does not execute WGSL, so its rows are allocation/API validation rather
+    than real-device throughput; the browser/device gate remains authoritative for GPU timing.
 
 
 22.6 World
@@ -2519,8 +2540,8 @@ GOAL:
 
     [x] Emit a versioned machine-readable snapshot (`npm run bench -- --json PATH`) containing
         operation counts, timings, guard results, total run time and exact Node/OS/CPU/memory metadata.
-    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1
-        baseline is recorded; stable metric IDs, repeated samples and an automatic same-host
+    [~] Store historical benchmark results in `PERFORMANCE.md` (the first measured Phase 22.1–22.4
+        baselines are recorded; stable metric IDs, repeated samples and an automatic same-host
         comparator/history remain).
     [ ] Fail automatically on a statistically significant regression against comparable history.
 

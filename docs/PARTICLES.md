@@ -18,6 +18,17 @@ every ready one in scene order (`findGpuParticleWorlds`). The first keeps the ba
 `#1`, `#2`, … (`passSuffix` on `enqueue`), so profiler scopes and pass lists stay unique. Each world
 owns its buffers and is released by `scene.dispose()`.
 
+## Capacity benchmark (Phase 22.5)
+
+`npm run bench` runs the particle matrix at 10K, 100K, 500K and 1M capacity. The CPU rows measure
+state setup and 30 fixed-step integrations and compare particle zero with `analyticGravity`; the
+strict mock-device rows measure `GpuParticleSystem` storage allocation and three `prepare()` calls.
+The guards require deterministic state/emission, the 64-byte storage shape, zero ECS entities and
+zero live bytes after disposal. `prepare()` does not execute WGSL or advance GPU simulation steps on
+the mock, so those rows validate allocation and command/uniform preparation only. Real browser/device
+execution remains the authoritative GPU timing path. The human-readable run is recorded in
+`PERFORMANCE.md`, while `npm run bench -- --json PATH` writes the machine-readable snapshot.
+
 ## Layout
 
 16 floats per particle, matching `Particle` in the particle shaders:
@@ -102,9 +113,10 @@ honest for the Phase 7 reference path only.
 
 `tests/particles/particles.test.ts` covers the CPU reference, the gravity check on the mock device, WGSL
 validation of every Phase 12 shader, the 100k-without-ECS invariant, 10k/50k/100k capacity stress on
-the mock device, `GpuParticleWorld` creating zero entities, and the ribbon contract: the 18-vertex
-record drawn before the billboards, the live toggle's effect on the frame, and the emit/cull/resolve
-pins around the ring and the second indirect record.
+the mock device, `GpuParticleWorld` creating zero entities, the focused Phase 22.5 CPU/mock-GPU
+benchmark contract, and the ribbon contract: the 18-vertex record drawn before the billboards, the
+live toggle's effect on the frame, and the emit/cull/resolve pins around the ring and the second
+indirect record. The full `npm run bench` matrix owns the 10K/100K/500K/1M capacity rows.
 
 ## Limitations
 

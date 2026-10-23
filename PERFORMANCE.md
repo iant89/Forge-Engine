@@ -100,3 +100,126 @@ tracked in Git.
 This is a mock/CPU baseline, not a real-device GPU timing claim. The browser gate remains the
 real-WebGPU evidence for shader compilation and device execution; same-host statistical comparison
 and automatic rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.3 terrain baseline
+
+**Source:** `arena/5b6c310c-forge-engine`, Phase 22.3 change based on `5de4adccc231c8c411e59a8ca1865a7fbc2c8309`
+**UTC start:** 2026-10-23 06:52:23
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 4,517.20 ms inside the benchmark process; all guards passed
+**GPU:** none used; terrain rows are deterministic CPU generation/erosion/LOD/streaming/mesh work
+
+### Phase 22.3 terrain matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Deterministic terrain generation, 33×33 | 1,089 grid samples | 5.67 ms | 192,155/s |
+| Deterministic terrain generation, 65×65 | 4,225 grid samples | 4.28 ms | 987,761/s |
+| Deterministic terrain generation, 129×129 | 16,641 grid samples | 16.40 ms | 1,014,657/s |
+| Thermal erosion, 65×65 × 3 iterations | 12,675 cell-iterations | 6.80 ms | 1,863,786/s |
+| Hydraulic erosion, 65×65 × 5 iterations | 21,125 cell-iterations | 28.28 ms | 747,094/s |
+| LOD selection + resolution/geomorph | 896 visible-cell selections | 0.60 ms | 1,484,560/s |
+| TerrainWorld cold streaming update | 12 generated chunks | 13.58 ms | 884/s |
+| TerrainWorld resident streaming update | 4 steady frames | 0.12 ms | 34,267/s |
+| TerrainWorld camera move + cache return | 24 generated/cache-return chunks | 10.68 ms | 2,248/s |
+| Skirted mesh source, 17×17 | 357 vertices | 0.48 ms | 742,958/s |
+| Skirted mesh source, 33×33 | 1,221 vertices | 1.22 ms | 997,981/s |
+| Skirted mesh source, 65×65 | 4,485 vertices | 8.56 ms | 523,821/s |
+
+Shape/correctness from the same run: all generation grids reproduced identical float digests; the
+LOD selector covered levels 0/1/2/3/4 with 3/5/9/17/33 nested resolutions and 216 geomorph transition
+samples; the streaming scenario stayed within a 12-chunk budget, generated 12 cold and 12 moved
+chunks, and returned to the original view with 12 cache hits; and the 65×65 skirted mesh contained
+4,485 vertices and 26,112 indices, matching the exact grid-plus-four-edge-skirts topology.
+
+This is a CPU baseline, not a real-device GPU timing claim. The browser gate remains the evidence for
+terrain shader compilation and device execution; same-host statistical comparison and automatic
+rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.4 physics baseline
+
+**Source:** `arena/5b6c310c-forge-engine`, Phase 22.4 change based on `5de4adccc231c8c411e59a8ca1865a7fbc2c8309`
+**UTC start:** 2026-10-23 14:49:02.329
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 8,100.24 ms inside the benchmark process; all guards passed
+**GPU:** none used; physics rows are deterministic CPU/API workloads
+
+### Phase 22.4 physics matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Sweep-and-prune pair generation + pruning, 128 bodies | 128 bodies | 0.27 ms | 481,304/s |
+| Sweep-and-prune pair generation + pruning, 512 bodies | 512 bodies | 0.47 ms | 1,094,270/s |
+| Sweep-and-prune pair generation + pruning, 2,048 bodies | 2,048 bodies | 4.65 ms | 440,223/s |
+| Narrowphase sphere-sphere manifolds | 512 pairs | 1.19 ms | 429,731/s |
+| Narrowphase sphere-box manifolds | 512 pairs | 0.97 ms | 526,751/s |
+| Narrowphase box-box manifolds | 512 pairs | 3.29 ms | 155,513/s |
+| Narrowphase sphere-plane manifolds | 512 pairs | 0.61 ms | 844,233/s |
+| Narrowphase box-plane manifolds | 512 pairs | 1.83 ms | 279,749/s |
+| Narrowphase sphere-heightfield manifolds | 512 pairs | 0.91 ms | 561,256/s |
+| Narrowphase box-heightfield manifolds | 512 pairs | 4.54 ms | 112,801/s |
+| Sequential-impulse solver, 64 bodies / 256 contacts | 256 contacts | 4.45 ms | 57,508/s |
+| Fixed-step resting-contact stability, 32 bodies × 90 steps | 2,880 body-steps | 39.57 ms | 72,781/s |
+| Physics-world spatial raycasts, 256 colliders | 512 rays | 13.52 ms | 37,868/s |
+| Registered heightfield queries, 256 colliders | 4,096 samples | 0.85 ms | 4,793,048/s |
+| Vehicle simulation, 8 vehicles × 120 steps | 960 vehicle-steps | 30.41 ms | 31,568/s |
+| Vehicle simulation, 32 vehicles × 120 steps | 3,840 vehicle-steps | 112.83 ms | 34,033/s |
+| Vehicle simulation, 64 vehicles × 120 steps | 7,680 vehicle-steps | 222.79 ms | 34,471/s |
+
+Shape/correctness from the same run: the largest broadphase workload generated 1,984 full AABB
+pairs from 191,005 X-axis candidates out of 2,096,128 possible pairs; all seven supported
+narrowphase shape pairs produced 8,192 deterministic contacts; the solver applied 181.124 total
+normal impulse and the resting-contact pass held maximum penetration to 0.0118 m with maximum speed
+0.050 m/s. All 512 raycasts hit a collider or the heightfield; 4,096 height samples ranged from
+-0.644 to 0.618; and the largest deterministic fleet maintained 256 wheel contacts.
+
+This is a CPU/API baseline, not a real-device physics timing claim. The benchmark guards establish
+shape, finite-state, determinism and catastrophe bounds; stable metric IDs, repeated same-host
+comparison and automatic rejection remain Phase 22.7 work.
+
+## 2026-10-23 — Phase 22.5 particle baseline
+
+**Source:** `arena/5b6c310c-forge-engine`, Phase 22.5 change based on `5de4adccc231c8c411e59a8ca1865a7fbc2c8309`
+**UTC start:** 2026-10-23 15:37:18.449
+**Host:** Linux x64, Node v22.22.3, Intel Xeon Processor @ 2.60 GHz, 2 logical CPUs,
+4,131,278,848 bytes RAM (Arena sandbox)
+**Runner:** snapshot schema 1; 9,387.28 ms inside the benchmark process; all guards passed
+
+### Phase 22.5 CPU matrix
+
+| Workload | Operations | Time | Throughput |
+| --- | ---: | ---: | ---: |
+| Setup, 10K particles | 10,000 particles | 1.03 ms | 9,673,790/s |
+| Fixed-step integration, 10K × 30 | 300,000 particle-steps | 14.99 ms | 20,020,012/s |
+| Setup, 100K particles | 100,000 particles | 2.55 ms | 39,248,563/s |
+| Fixed-step integration, 100K × 30 | 3,000,000 particle-steps | 89.04 ms | 33,691,238/s |
+| Setup, 500K particles | 500,000 particles | 12.56 ms | 39,823,731/s |
+| Fixed-step integration, 500K × 30 | 15,000,000 particle-steps | 482.60 ms | 31,081,725/s |
+| Setup, 1M particles | 1,000,000 particles | 39.86 ms | 25,086,217/s |
+| Fixed-step integration, 1M × 30 | 30,000,000 particle-steps | 906.93 ms | 33,078,770/s |
+
+Every CPU band retained all particles, matched the semi-implicit analytic gravity reference within
+`2.67e-7` at worst, and produced a deterministic state digest. The authoritative state is 64 bytes
+per particle: 0.64 MB, 6.4 MB, 32 MB and 64 MB for the four bands.
+
+### Phase 22.5 mock-GPU allocation and preparation matrix
+
+| Workload | Storage bytes | Peak live bytes | Time |
+| --- | ---: | ---: | ---: |
+| Allocate, 10K particles | 640,000 | 1,320,768 | 4.62 ms |
+| Prepare 3 frames, 10K | 640,000 | 1,320,768 | 0.63 ms |
+| Allocate, 100K particles | 6,400,000 | 13,200,768 | 9.31 ms |
+| Prepare 3 frames, 100K | 6,400,000 | 13,200,768 | 0.13 ms |
+| Allocate, 500K particles | 32,000,000 | 66,000,768 | 69.45 ms |
+| Prepare 3 frames, 500K | 32,000,000 | 66,000,768 | 0.29 ms |
+| Allocate, 1M particles | 64,000,000 | 132,000,768 | 103.68 ms |
+| Prepare 3 frames, 1M | 64,000,000 | 132,000,768 | 0.21 ms |
+
+Each preparation row emitted deterministically with zero GPU simulation steps and zero ECS entities;
+all rows had zero mock validation errors and returned live bytes to the device baseline after disposal.
+These are strict mock-device allocation and
+command/uniform-preparation measurements only: the mock does not execute WGSL, so they are not GPU
+shader-throughput claims. Real browser/device timing remains the authoritative GPU gate. Stable metric
+IDs, repeated same-host comparison and automatic rejection remain Phase 22.7 work.
