@@ -51,8 +51,8 @@ import type { MarsHeightAtlas } from "./heightAtlas.js";
  * Coarse tiles then show the real shapes alone instead of aliased procedural speckle, and a tile never
  * buries a real feature under invented relief. Every tile the demos use (4-32 m spacing) is at 1.
  */
-export const MARS_REAL_DETAIL_FULL_STEP_M = 150;
-export const MARS_REAL_DETAIL_ZERO_STEP_M = 900;
+const MARS_REAL_DETAIL_FULL_STEP_M = 150;
+const MARS_REAL_DETAIL_ZERO_STEP_M = 900;
 
 function realDetailWeight(step: number): number {
   const t = clamp((step - MARS_REAL_DETAIL_FULL_STEP_M) / (MARS_REAL_DETAIL_ZERO_STEP_M - MARS_REAL_DETAIL_FULL_STEP_M), 0, 1);

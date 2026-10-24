@@ -74,6 +74,7 @@ import { GestureRecogniser } from "../controls/gestures.js";
 import { TouchDiagnostics } from "../diag/touchDiagnostics.js";
 import { createMarsSurfaceTextures } from "../textures/procedural.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
+import { createMarsOrbitAtlas, type MarsOrbitAtlasInfo } from "./marsOrbitAtlas.js";
 import { MARS_ORBIT_DESTINATIONS, MARS_ORBIT_EVENTS } from "./marsOrbitEvents.js";
 import {
   ORBIT_VIEW_PITCH,
@@ -102,6 +103,15 @@ export interface MarsOrbitSceneOptions {
   bakeBudgetMs?: number;
   /** Skip the descent animation (tests): `diveTo` lands immediately. */
   instantTransitions?: boolean;
+  /**
+   * Real elevation (MOLA): `?mola=phone|tablet|desktop` forces an atlas size, `off` keeps the procedural
+   * planet; anything else (or omitted) picks the size from the tier and the device.
+   */
+  mola?: string | null;
+  /** Directory URL of the atlas (`manifest.json` + face files); default `<BASE_URL>mars/mola/`. */
+  atlasBaseUrl?: string;
+  /** Fetch used for the atlas (tests). */
+  atlasFetch?: typeof fetch;
 }
 
 export interface MarsOrbitState {
@@ -133,6 +143,8 @@ export interface MarsOrbitState {
   terrainChunks: number;
   frost: number;
   diagnosticsVisible: boolean;
+  /** Real-elevation atlas: status, size chosen and why, what has been fetched. */
+  atlas: MarsOrbitAtlasInfo;
   tier: DeviceTier;
 }
 
@@ -158,6 +170,8 @@ interface TierConfig {
   mesh: [number, number];
   texture: number;
   passes: number[];
+  /** Sampling passes when real elevation is available: the finest is much finer, since sampling is cheap. */
+  realPasses: number[];
   cloudTexture: number;
   cloudMesh: [number, number];
   viewDistance: number;
@@ -170,9 +184,9 @@ interface TierConfig {
 }
 
 const TIERS: Record<DeviceTier, TierConfig> = {
-  low: { mesh: [160, 80], texture: 512, passes: [60, 120, 240], cloudTexture: 256, cloudMesh: [96, 48], viewDistance: 2048, visibleChunks: 120, devils: 2, shadowMap: 1024, cascades: 2, surfaceTexture: 128, bakeBudgetMs: 2 },
-  medium: { mesh: [256, 128], texture: 1024, passes: [90, 180, 360], cloudTexture: 512, cloudMesh: [128, 64], viewDistance: 3072, visibleChunks: 180, devils: 3, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 3 },
-  high: { mesh: [384, 192], texture: 2048, passes: [90, 180, 360], cloudTexture: 1024, cloudMesh: [192, 96], viewDistance: 5120, visibleChunks: 260, devils: 4, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 4 },
+  low: { mesh: [160, 80], texture: 512, passes: [60, 120, 240], realPasses: [60, 120, 240, 480], cloudTexture: 256, cloudMesh: [96, 48], viewDistance: 2048, visibleChunks: 120, devils: 2, shadowMap: 1024, cascades: 2, surfaceTexture: 128, bakeBudgetMs: 2 },
+  medium: { mesh: [256, 128], texture: 1024, passes: [90, 180, 360], realPasses: [90, 180, 360, 720], cloudTexture: 512, cloudMesh: [128, 64], viewDistance: 3072, visibleChunks: 180, devils: 3, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 3 },
+  high: { mesh: [384, 192], texture: 2048, passes: [90, 180, 360], realPasses: [90, 180, 360, 720, 1080], cloudTexture: 1024, cloudMesh: [192, 96], viewDistance: 5120, visibleChunks: 260, devils: 4, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 4 },
 };
 
 /** The same four tints the other Mars scenes use, so one planet looks like one planet. */
@@ -262,18 +276,35 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   };
   planet.setSols(sols);
 
+  // Real elevation: the globe samples the atlas, so it is created once the base level is in (or the load
+  // failed / is off, in which case it is the procedural planet exactly as before). Nothing is drawn of the
+  // planet until then; the status line says why.
+  const atlasCtl = createMarsOrbitAtlas({
+    mola: options.mola ?? null,
+    tier,
+    baseUrl: options.atlasBaseUrl,
+    fetchImpl: options.atlasFetch,
+    cache: gpu ? undefined : null,
+  });
+  const atlasInfo = atlasCtl.info;
+
   let globe: PlanetGlobe | null = null;
   let globeEntity: Entity | null = null;
   let cloudEntity: Entity | null = null;
-  if (gpu) {
+  function createGlobe(): void {
+    if (!gpu || globe) return;
+    const real = sampler.hasRealElevation;
     globe = new PlanetGlobe(gpu, {
       sampler,
       radius: R,
       label: "mars-globe",
       meshSegments: cfg.mesh,
       textureWidth: cfg.texture,
-      gridPasses: cfg.passes,
+      gridPasses: real ? cfg.realPasses : cfg.passes,
       elevationExaggeration: 2.2,
+      // Real relief is subtler at orbit scale than the procedural model's: boost the baked shading.
+      reliefStrength: real ? 36 : undefined,
+      reliefGain: real ? 1.6 : undefined,
       cloudTextureWidth: cfg.cloudTexture,
       cloudSegments: cfg.cloudMesh,
       cloudAltitude: 52e3,
@@ -295,7 +326,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     cr.castShadow = false;
     cr.receiveShadow = false;
     scene.world.addComponent(cloudEntity.id, cr);
+    if (mode === "ground" || (mode === "dive" && phase !== "dive: approach")) setGlobeVisible(false);
   }
+  let disposedScene = false;
   const setGlobeVisible = (visible: boolean): void => {
     for (const e of [globeEntity, cloudEntity]) {
       if (!e) continue;
@@ -341,6 +374,10 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   let solar: DayNightCycle | null = null;
   let weather: WeatherSystem | null = null;
   let groundWeatherTimer = 0;
+  /** Bumped by every dive; a late atlas fetch only builds the ground for the dive that asked. */
+  let groundToken = 0;
+  /** True while a dive waits for the finest atlas faces under the site before building the terrain. */
+  let groundPending = false;
   const sample = createPlanetWeatherSample();
   const weatherState: WeatherState = { windSpeed: 3.5, windDirection: 0.7, gust: 0.1, temperatureC: -50, humidity01: 0.04, precipitation01: 0, storm01: 0, cloudCoverage: 0.04 };
   let frost = 0;
@@ -673,7 +710,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       warmUpChunks: 9,
       skirtDepth: advice.ok ? advice.recommendedSkirtDepth : 32,
       syncGeneration: false,
-      pipeline: createMarsPipeline({ site: { name: "orbit-site", description: "chosen on the globe", latDeg: s.latDeg, lonDeg: s.lonDeg, headingDeg: 0 } }),
+      pipeline: createMarsPipeline({ site: { name: "orbit-site", description: "chosen on the globe", latDeg: s.latDeg, lonDeg: s.lonDeg, headingDeg: 0 }, heightAtlas: atlasCtl.atlas }),
       material: apron,
       layeredMaterial: layered,
     });
@@ -817,8 +854,34 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     site = siteFor(latDeg, ((lonDeg + 180) % 360 + 360) % 360 - 180);
     if (opts.hours !== undefined) setLocalHours(opts.hours);
     spin.touch();
-    buildGround(site);
-    applyGroundSettings();
+    // Real elevation, finest level: the ground's tiles are generated once, so the atlas faces under the
+    // site must be in before the terrain is built. The orbit approach (2.8 s) usually covers the fetch;
+    // otherwise the dive waits at the end of the approach, and gives up waiting after 12 s.
+    const token = ++groundToken;
+    const siteDir = latLonToDirection(site.latDeg, site.lonDeg, new Vec3());
+    const groundRadiusRad = (cfg.viewDistance * 1.6 + 10e3) / R;
+    const buildNow = (): void => {
+      if (!site) return;
+      // Faces may have arrived since `siteFor` read the base level.
+      site.elevation = sampler.sample(siteDir.x, siteDir.y, siteDir.z, { elevation: 0, r: 0, g: 0, b: 0 }).elevation;
+      groundY = site.elevation;
+      buildGround(site);
+      applyGroundSettings();
+      groundPending = false;
+      if (solar) solar.externalSunDirection!.copyFrom(groundSun(scratchB));
+      solar?.apply();
+    };
+    groundPending = false;
+    if (!instant && !atlasCtl.groundReady(siteDir, groundRadiusRad)) {
+      groundPending = true;
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 12000));
+      void Promise.race([atlasCtl.loadGround(siteDir, groundRadiusRad), timeout]).then(() => {
+        if (token === groundToken && mode === "dive" && groundPending) buildNow();
+      });
+    } else {
+      if (instant) void atlasCtl.loadGround(siteDir, groundRadiusRad);
+      buildNow();
+    }
     // The ground world's sun is the planet's, expressed in the site frame; the cycle is only the clock.
     mode = "dive";
     diveDirection = "down";
@@ -832,8 +895,6 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     pitch = -0.08;
     groundHeight = EYE_HEIGHT;
     spin.animateTo(site.quat, instant ? 0.001 : DIVE_ORBIT_SECONDS);
-    if (solar) solar.externalSunDirection!.copyFrom(groundSun(scratchB));
-    solar?.apply();
     if (instant) {
       orbitAlt = SWAP_ALTITUDE;
       spin.update(0.01);
@@ -939,7 +1000,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
         (frost > 0.05 ? " · frost" : "");
     }
     // Status line
-    if (globe && !globe.ready) elStatus.textContent = `baking surface ${Math.round(globe.progress * 100)}%`;
+    if (atlasInfo.status === "loading" && !globe) elStatus.textContent = "loading elevation data…";
+    else if (groundPending) elStatus.textContent = `loading terrain detail (${atlasInfo.size})…`;
+    else if (globe && !globe.ready) elStatus.textContent = `baking surface ${Math.round(globe.progress * 100)}%`;
     else if (inGround && mode !== "ground") elStatus.textContent = phase;
     else elStatus.textContent = mode === "orbit" ? `altitude ${(orbitAlt / 1000).toFixed(0)} km` : "";
     // Events
@@ -1051,7 +1114,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       camera.near = clip.near;
       camera.far = clip.far;
       scene.settings.sky.seaLevel = 0;
-      if (u >= 1 && !spin.isAnimating) swapToGround();
+      if (u >= 1 && !spin.isAnimating && !groundPending) swapToGround();
       return;
     }
     // descent through the ground world's atmosphere
@@ -1180,6 +1243,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       globeReady: globe?.ready ?? false,
       globeProgress: globe?.progress ?? 0,
       globeBakedColumns: globe?.bakedColumns ?? 0,
+      atlas: { ...atlasInfo },
       autoSpin: spin.autoSpinBlend,
       spinPhase: spin.phase,
       inertia: spin.inertiaSpeed,
@@ -1207,6 +1271,16 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   // Open at the framing the first frame will use.
   orbitAlt = orbitFitAltitude(R, ORBIT_FOV, aspect());
 
+  if (atlasInfo.status === "off") {
+    createGlobe();
+  } else {
+    void atlasCtl.ready.then(() => {
+      if (disposedScene) return;
+      if (atlasCtl.atlas && atlasInfo.status === "ready") sampler.setAtlas(atlasCtl.atlas);
+      createGlobe();
+    });
+  }
+
   return {
     scene,
     cameraEntity,
@@ -1219,6 +1293,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
         `mars orbit: ${s.mode}${s.phase !== s.mode ? ` (${s.phase})` : ""} · Ls ${s.ls.toFixed(0)}° · ` +
         `${s.mode === "orbit" ? `alt ${(s.altitude / 1000).toFixed(0)} km` : `h ${s.altitude.toFixed(0)} m`} · ` +
         `globe ${globe ? (s.globeReady ? `${s.globeBakedColumns} cols` : `${Math.round(s.globeProgress * 100)}%`) : "n/a"} · ` +
+        `elev ${s.atlas.status === "off" ? "procedural" : `${s.atlas.size}${s.atlas.resolution ? ` ${s.atlas.resolution}²` : ""} ${s.atlas.status}`} · ` +
         `tier ${tier} · spin ${s.spinPhase}`
       );
     },
@@ -1234,6 +1309,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     zoomOrbit: (factor) => zoomBy(factor),
     pickAt: (x, y) => (mode === "orbit" ? pointerLatLon(x, y) : null),
     dispose: () => {
+      disposedScene = true;
+      atlasCtl.dispose();
       abort.abort();
       destroyGround();
       diagnostics?.dispose();
