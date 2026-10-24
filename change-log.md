@@ -31139,6 +31139,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "CR-001 root cause, fix and pre-existing failing suites",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2502",
+    "date": "2026-10-24T16:45:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/core/pool.ts",
+    "what": "ObjectPool tracks leased objects in a Set (the existing private outstanding field); release rejects double, foreign and already-discarded objects without touching the free list or counters",
+    "why": "CR-002: a duplicate release put one object on the free list twice so two callers shared it"
+  },
+  {
+    "id": "2503",
+    "date": "2026-10-24T16:45:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/core/runtimeApi.test.ts",
+    "what": "Two CR-002 checks: double/foreign/discarded releases rejected, stats and resets unchanged, leases distinct, assertions-disabled path",
+    "why": "Regression coverage; both fail without the fix"
+  },
+  {
+    "id": "2504",
+    "date": "2026-10-24T16:45:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/VERIFICATION.md",
+    "what": "runtimeApi suite: 13 checks, describe the CR-002 pool integrity checks",
+    "why": "Keep the gate description truthful"
+  },
+  {
+    "id": "2505",
+    "date": "2026-10-24T16:45:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "code_review_issues.md",
+    "what": "CR-002 marked fixed with resolution and evidence; Phase 2 checklist ticked",
+    "why": "Record verified fix status"
+  },
+  {
+    "id": "2506",
+    "date": "2026-10-24T16:45:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "CR-002 root cause, private-member API-hash note, tasks.test.ts order dependency",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

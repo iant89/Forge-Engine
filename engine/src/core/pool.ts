@@ -11,7 +11,9 @@
  *  - `FloatBuffer`/`Uint32Buffer` — growable typed-array writers for GPU uploads.
  *
  * Pools never hold on to references they did not create when the caller passes a factory, and
- * every pool reports `outstanding` so leak/abuse shows up in `stats`.
+ * every pool reports `outstanding` so leak/abuse shows up in `stats`. `ObjectPool.release` accepts
+ * only an object this pool has leased and not yet taken back: a second release of the same object,
+ * or one the pool never handed out, is rejected and leaves the free list and counters untouched.
  */
 
 import { assert } from "./errors.js";
@@ -34,7 +36,8 @@ export class ObjectPool<T extends object> {
   private free: T[] = [];
   private created = 0;
   private acquired = 0;
-  private outstanding = 0;
+  /** Objects handed out by `obtain` and not yet released (identity-tracked, see `release`). */
+  private outstanding = new Set<T>();
   private discarded = 0;
 
   constructor(
@@ -54,13 +57,19 @@ export class ObjectPool<T extends object> {
     let obj = this.free.pop();
     if (!obj) obj = this.create();
     this.acquired++;
-    this.outstanding++;
+    this.outstanding.add(obj);
     return obj;
   }
 
+  /**
+   * Return a leased object. Releasing it twice, or releasing an object this pool did not hand out,
+   * is a usage bug: it would put one instance on the free list twice, and two later `obtain` calls
+   * would share it. That fails the assertion and, with assertions disabled, is ignored.
+   */
   release(obj: T): void {
-    assert(this.outstanding > 0, "ObjectPool: release without obtain");
-    this.outstanding--;
+    const leased = this.outstanding.delete(obj);
+    assert(leased, `ObjectPool${this.options.name ? ` "${this.options.name}"` : ""}: release of an object that is not leased from this pool (double release or foreign object)`);
+    if (!leased) return;
     const max = this.options.maxRetained ?? 4096;
     if (this.free.length >= max) {
       this.discarded++;
@@ -72,14 +81,14 @@ export class ObjectPool<T extends object> {
 
   /** Number of objects handed out and not returned (a leak if it grows without bound). */
   get leaked(): number {
-    return this.outstanding;
+    return this.outstanding.size;
   }
 
   get stats(): { created: number; retained: number; outstanding: number; acquired: number; discarded: number } {
     return {
       created: this.created,
       retained: this.free.length,
-      outstanding: this.outstanding,
+      outstanding: this.outstanding.size,
       acquired: this.acquired,
       discarded: this.discarded,
     };

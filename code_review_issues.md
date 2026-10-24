@@ -23,7 +23,7 @@ treated as confirmed defects.
 | ID | Severity | Subsystem | Issue | Status |
 |----|----------|-----------|-------|--------|
 | CR-001 | HIGH | ECS / Entity IDs | Entity generation truncated to 8 bits | FIXED (CPU gates verified; Phase 4 integration pending) |
-| CR-002 | MEDIUM | Core / Object Pool | Duplicate and foreign object releases are not rejected | OPEN |
+| CR-002 | MEDIUM | Core / Object Pool | Duplicate and foreign object releases are not rejected | FIXED (CPU gates verified; Phase 4 integration pending) |
 | CR-003 | MEDIUM | Physics | Invalid timestep configuration is not validated | OPEN |
 
 Severity definitions:
@@ -236,6 +236,52 @@ in particularly performance-sensitive paths.
 - Existing pool consumers continue to work correctly.
 - Performance-sensitive uses remain within acceptable overhead.
 
+### Resolution (2026-10-24, branch `code-review-issues`)
+
+Confirmed: with a second object still leased, releasing the same object
+twice passed the `outstanding > 0` check and pushed it onto the free list
+twice. Two later `obtain()` calls then returned the same instance.
+
+Consumers: none inside the engine, editor, examples or benchmarks.
+`ObjectPool` is exported public API, and its only user is
+`tests/core/runtimeApi.test.ts`. No consumer ownership contract needed
+changing, and no hot path pays for the new bookkeeping, so no benchmark was
+run.
+
+Fix (`engine/src/core/pool.ts`):
+
+- The private `outstanding` counter is now the `Set` of currently leased
+  objects. `obtain()` adds to it, and `release()` deletes from it before
+  resetting or retaining the object.
+- An object that is not in the set (double release, foreign object, or one
+  already discarded over `maxRetained`) fails `assert` with a message that
+  names the pool. A rejected release does not reset the object or change
+  any counter. With assertions disabled, the release is reported and ignored.
+- `stats.outstanding`/`leaked` report the set's size. `reset()`,
+  `maxRetained`, `prewarm` and `drain()` semantics are unchanged.
+- The emitted `pool.d.ts` is byte-identical (private member names are
+  hashed, their types are not), so the approved `ObjectPool` contract is
+  unchanged. `npm run api:check` passes without an update.
+
+Evidence:
+
+- Two new checks in `tests/core/runtimeApi.test.ts`:
+  - "rejects double and foreign releases without corrupting the free list":
+    double and foreign release, reset counts, unchanged stats, distinct
+    later leases, and the assertions-disabled path.
+  - "discarded objects leave the pool for good and stay unreleasable":
+    discard plus a re-release while another object is leased, and the
+    `prewarm` objects.
+
+  Both fail without the fix and pass with it.
+- `npm run typecheck`, `test:check`, `lint:arch`, `api:check`, `docs:check`
+  and `check:wgsl` pass.
+- `npm test`: 167 suites passed and 3 failed, the same failures as in the
+  CR-001 resolution. `tests/core/tasks.test.ts` "inlineFallback" has now
+  failed in both full-suite runs while passing in isolation, which points to
+  an order dependency rather than a random flake. It is unrelated to this
+  change and should be investigated separately.
+
 ## 5. CR-003: Physics World Accepts Invalid Timesteps
 
 Severity: MEDIUM
@@ -341,15 +387,16 @@ Issues:
 
 Tasks:
 
-- [ ] Identify all ObjectPool consumers.
-- [ ] Document object ownership and release semantics.
-- [ ] Implement leased-object tracking.
-- [ ] Reject duplicate releases.
-- [ ] Reject foreign-object releases.
-- [ ] Verify accounting and reset behavior.
-- [ ] Add pool regression tests.
-- [ ] Run relevant rendering, physics, and resource tests.
-- [ ] Benchmark the pool if profiling indicates material overhead.
+- [x] Identify all ObjectPool consumers (none internal; public API only).
+- [x] Document object ownership and release semantics.
+- [x] Implement leased-object tracking.
+- [x] Reject duplicate releases.
+- [x] Reject foreign-object releases.
+- [x] Verify accounting and reset behavior.
+- [x] Add pool regression tests.
+- [x] Run relevant rendering, physics, and resource tests (full suite).
+- [x] Benchmark the pool if profiling indicates material overhead (not
+      needed: no internal consumer or hot path).
 
 Completion requirement:
 
@@ -537,9 +584,10 @@ High-priority findings: 1
 Medium-priority findings: 2
 Low-priority findings: 0
 
-Fixes implemented: 1 (CR-001)
-Regression tests added: 1 (CR-001)
-Issues verified as fixed: 1 (CR-001: CPU gates; browser gate pending)
+Fixes implemented: 2 (CR-001, CR-002)
+Regression tests added: 3 (CR-001: 1, CR-002: 2)
+Issues verified as fixed: 2 (CR-001, CR-002: CPU gates; browser gate
+pending)
 Additional defects found while fixing: 1 (liveEntityIds, folded into
 CR-001)
 

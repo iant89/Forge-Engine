@@ -3180,3 +3180,13 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
 - The id format itself repeats after 2,048 reuses of one slot (12 bits, step 2); `tests/scene/ecs.test.ts` pins that period.
 - Pre-existing on `main` 2ae14b0: `marsShowcaseDamage` (2) and `marsShowcaseCollision` (1) fail; `tasks.test.ts` "inlineFallback" can flake
   under full-suite load. Tracked in `code_review_issues.md`.
+
+## 2026-10-24 — CR-002 ObjectPool double release
+
+- `ObjectPool.release` only checked `outstanding > 0`, so with any other object leased a double release pushed one instance onto the free
+  list twice. The `outstanding` private is now the leased `Set`; bad releases fail `assert` and change nothing.
+- **API-contract trick that is legitimate:** `.d.ts` emits private members as `private name;` (no type), and the API hash covers names and
+  modifiers. Re-typing an existing private (same name, no `readonly` added) keeps the declaration byte-identical; a new private member or
+  modifier changes the approved hash. Diff `engine/dist/**/*.d.ts` before/after to confirm.
+- `ObjectPool` has no engine/editor/example consumers; only `tests/core/runtimeApi.test.ts`.
+- `tasks.test.ts` "inlineFallback" failed in two consecutive full `npm test` runs but passes alone: order dependency, not random flake.

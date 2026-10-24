@@ -267,7 +267,7 @@ record, not an inference made by the CLI.
 
 ### `tests/core/runtimeApi.test.ts` — complete public namespace and core-runtime evidence
 
-Eleven checks load the full checked-in surface and approval ledger through the built package. Every
+Thirteen checks load the full checked-in surface and approval ledger through the built package. Every
 one of the 1,451 value-bearing exports (public and experimental) must exist on the runtime namespace,
 every one of the 857 type-only declarations must stay runtime-free, and all 2,299 public candidates
 must remain approved while `VERSION` is `1.0.0`. The suite also supplies focused runtime evidence
@@ -275,6 +275,13 @@ for configuration normalization/errors/hashing, event ordering and mutation/disp
 logger rings/scopes/sink isolation, object pools, generational handles, typed buffers/arenas, and the
 headless platform/WebGPU probe. This complements, rather than replaces, the subsystem behavior suites
 listed in each approval review.
+
+Object pool integrity (CR-002): a second release of the same object, a release of an object the
+pool never leased, and a release of an object already discarded over `maxRetained` are all rejected
+with `InternalError`, even while other objects are still leased (the old counter-only check missed
+that case and put one instance on the free list twice). A rejected release must not reset the
+object or change `stats`, and with assertions disabled it is reported and ignored. Later leases
+must stay distinct.
 
 ### `tests/core/errors.test.ts` — first approved API review batch
 

@@ -40,6 +40,7 @@ import {
   FloatBuffer,
   FreeList,
   IntStack,
+  InternalError,
   LogBuffer,
   Logger,
   LogLevel,
@@ -58,6 +59,7 @@ import {
   parseLogLevel,
   probeWebGPU,
   resolveConfig,
+  setAssertionsEnabled,
 } from "@forge/engine";
 
 type SurfaceRow = {
@@ -307,6 +309,72 @@ group("pooling and typed storage", () => {
     pool.release(reused);
     pool.drain();
     assert.equal(pool.stats.retained, 0);
+  });
+
+  test("rejects double and foreign releases without corrupting the free list (CR-002)", () => {
+    // release() used to check only the outstanding counter: with another object still out, a second
+    // release of the same object pushed it onto the free list twice and two callers shared it.
+    let resets = 0;
+    const pool = new ObjectPool(() => ({ value: 0, reset() { resets++; this.value = 0; } }), { name: "probe" });
+    const a = pool.obtain();
+    const b = pool.obtain();
+    assert.notEqual(a, b, "two leases are distinct objects");
+    pool.release(a);
+    assert.equal(resets, 1, "reset runs once per successful release");
+    assert.throws(() => pool.release(a), (e: unknown) => e instanceof InternalError && /probe.*not leased/.test(e.message));
+    assert.throws(() => pool.release({ value: 0, reset() { resets++; } }), InternalError);
+    assert.equal(resets, 1, "a rejected release does not reset the object");
+    assert.deepEqual(pool.stats, { created: 2, retained: 1, outstanding: 1, acquired: 2, discarded: 0 });
+    assert.equal(pool.leaked, 1, "b is still out");
+
+    const c = pool.obtain();
+    const d = pool.obtain();
+    assert.equal(c, a, "the released object is reused once");
+    assert.notEqual(d, a, "never handed to a second caller");
+    assert.notEqual(d, b);
+    for (const o of [b, c, d]) pool.release(o);
+    assert.deepEqual(pool.stats, { created: 3, retained: 3, outstanding: 0, acquired: 4, discarded: 0 });
+
+    // With assertions disabled the bad release is ignored rather than corrupting the pool.
+    setAssertionsEnabled(false);
+    const errors: unknown[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args[0]); };
+    try {
+      pool.release(d);
+      pool.release(d);
+    } finally {
+      console.error = originalError;
+      setAssertionsEnabled(true);
+    }
+    assert.equal(errors.length, 2, "each ignored release is reported");
+    assert.deepEqual(pool.stats, { created: 3, retained: 3, outstanding: 0, acquired: 4, discarded: 0 });
+    const leased = [pool.obtain(), pool.obtain(), pool.obtain(), pool.obtain()];
+    assert.equal(new Set(leased).size, 4, "no object is leased twice");
+    for (const o of leased) pool.release(o);
+  });
+
+  test("discarded objects leave the pool for good and stay unreleasable (CR-002)", () => {
+    const pool = new ObjectPool(() => ({ reset() {} }), { maxRetained: 1 });
+    const kept = pool.obtain();
+    const dropped = pool.obtain();
+    const other = pool.obtain(); // stays out, so the old counter check would not catch a bad release
+    pool.release(kept);
+    pool.release(dropped); // over maxRetained: discarded, not retained
+    assert.deepEqual(pool.stats, { created: 3, retained: 1, outstanding: 1, acquired: 3, discarded: 1 });
+    assert.throws(() => pool.release(dropped), InternalError);
+    assert.equal(pool.stats.retained, 1, "the discarded object did not sneak back in");
+    assert.equal(pool.obtain(), kept);
+    assert.notEqual(pool.obtain(), dropped, "a discarded object is never handed out again");
+    pool.release(other);
+    // Prewarmed objects are retained, not leased, until obtain().
+    const warm = new ObjectPool(() => ({ reset() {} }), { prewarm: 2 });
+    assert.equal(warm.leaked, 0);
+    const w = warm.obtain();
+    const held = warm.obtain();
+    warm.release(w);
+    assert.throws(() => warm.release(w), InternalError);
+    assert.notEqual(warm.obtain(), held);
   });
 
   test("invalidates recycled generational handles", () => {
