@@ -1002,28 +1002,15 @@ async function checkMarsOrbitRealtimeReturn() {
   await page.waitForFunction(() => window.__forge?.marsOrbitState?.() != null, null, { polling: 250, timeout: 90000 });
   await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
   await page.evaluate(() => window.__forge.marsOrbitDive(-42, 70, { hours: 13, ls: 225 }));
-  const phases = new Set();
-  const trackPhases = setInterval(() => {}, 1000);
-  try {
-    await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 100, timeout: 180000 });
-    await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
-    await sleep(1000);
-    await page.evaluate(() => window.__forge.marsOrbitReturn());
-    // The transition must pass through the ascend phases, not jump (the instant path never does).
-    const sawAscend = await page.waitForFunction(
-      () => {
-        const s = window.__forge.marsOrbitState();
-        return s.mode === "ascend" || s.mode === "orbit" ? s.mode : false;
-      },
-      null,
-      { polling: 50, timeout: 30000 },
-    );
-    phases.add(await sawAscend.jsonValue());
-    await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 100, timeout: 180000 });
-  } finally {
-    clearInterval(trackPhases);
-  }
-  if (!phases.has("ascend")) throw new Error(`the return did not run in real time (saw ${[...phases].join(",")})`);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 100, timeout: 180000 });
+  await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
+  await sleep(1000);
+  await page.evaluate(() => window.__forge.marsOrbitReturn());
+  // The return must fly through the ascend phases (the instant path never does) and tear the ground world
+  // down between two frames of the running loop.
+  const left = await page.evaluate(() => window.__forge.marsOrbitState().mode);
+  if (left !== "ascend") throw new Error(`the return did not start a real-time ascent (mode ${left})`);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 100, timeout: 180000 });
   // Let several frames render after the ground world is gone: the failure shows on the frames after teardown.
   await waitPresentedFrames(6);
   await sleep(1500);

@@ -3122,3 +3122,19 @@ holds only the event script, HUD props and camera policy. Read `docs/PLANET-ORBI
   Vite reload the page mid-run.
 - **Not verified:** real iOS Safari/GPU performance and the real-time easing; the globe texture is ≈10–21 km/texel.
 - API: 55 new exports → `environment/2` in `engine/api-approvals.json` (author self-review; wants a maintainer pass).
+
+### fe-39 follow-up — return-to-orbit black screen (`Vertex buffer slot 0 ... was not set`)
+
+- **Root cause:** `TerrainWorld.dispose()` released every chunk's `Geometry` and cleared `activeEntities`, but never
+  destroyed the chunk / horizon-skirt *entities*, which live in the scene's entity world rather than in the
+  object. A whole-scene teardown hid it (the world goes too). `scene.removeObject(terrain)` on a live scene, as the
+  Mars Orbit return does, left ~10–120 Renderables with `vertexBuffer === null`; the renderer still batched them
+  and issued `setVertexBuffer(0, null)` + `drawIndirect`, which invalidates the whole frame's command buffer, so
+  every frame after was black. Not specific to `?mola`.
+- **Fix:** dispose destroys its entities first (engine); the renderer also skips renderables whose geometry is
+  `released` (defence in depth, so one stale object can never again blank a frame).
+- **Why the gate missed it:** `?moinstant=1` ran the ground world's teardown but only ever in the same call as the
+  swap; the gate now also does a real-time dive + return (no `moinstant`) and requires 0 GPU errors + a lit frame.
+- Unit tests import `engine/dist`: run `npx tsc -b engine` after editing engine sources before running a single
+  test file with `npx tsx tests/...`.
+- Anything that creates entities in `scene.world` from a `SceneObject` must destroy them in `dispose()`/`onDetach`.
