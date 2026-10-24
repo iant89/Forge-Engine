@@ -468,6 +468,7 @@ async function main(): Promise<void> {
         deviceTier: forced === "low" || forced === "medium" || forced === "high" ? forced : undefined,
         startLs: query.get("ls") !== null && Number.isFinite(lsParam) ? lsParam : undefined,
         diagnostics: query.get("touchdiag") === "1",
+        instantTransitions: query.get("moinstant") === "1",
         bakeBudgetMs: query.get("mobake") !== null && Number(query.get("mobake")) > 0 ? Number(query.get("mobake")) : undefined,
       });
     } else if (name === "ui") {

@@ -18,6 +18,9 @@
  * - **frost** on the cold basins in winter;
  * - **polar-vortex spirals** over the poles in autumn/winter.
  *
+ * Centre drift is in degrees per *sol* and these windows last 100+ sols, so a fraction of a degree per sol
+ * is a storm that wanders 10–20° over its life.
+ *
  * The geography is the port's own fictional Mars (`MARS_SITE_PRESETS`): the volcano and the canyon are
  * wherever the generator config put them, so the clouds that belong to them sit on them.
  */
@@ -114,7 +117,7 @@ export const MARS_ORBIT_EVENTS: readonly PlanetWeatherEventDef[] = Object.freeze
     peak: 0.82,
     attack: 0.22,
     decay: 0.55,
-    driftLonDegPerSol: 0.9,
+    driftLonDegPerSol: 0.12,
     seed: 21,
   },
   {
@@ -129,7 +132,7 @@ export const MARS_ORBIT_EVENTS: readonly PlanetWeatherEventDef[] = Object.freeze
     peak: 0.85,
     attack: 0.3,
     decay: 0.4,
-    driftLonDegPerSol: 0.4,
+    driftLonDegPerSol: 0.06,
     seed: 22,
   },
   {
@@ -144,8 +147,8 @@ export const MARS_ORBIT_EVENTS: readonly PlanetWeatherEventDef[] = Object.freeze
     peak: 0.8,
     attack: 0.3,
     decay: 0.45,
-    driftLonDegPerSol: -0.3,
-    driftLatDegPerSol: -0.12,
+    driftLonDegPerSol: -0.08,
+    driftLatDegPerSol: -0.03,
     seed: 23,
   },
   {
@@ -174,7 +177,7 @@ export const MARS_ORBIT_EVENTS: readonly PlanetWeatherEventDef[] = Object.freeze
     attack: 0.3,
     decay: 0.3,
     swirl: 1,
-    driftLonDegPerSol: 1.2,
+    driftLonDegPerSol: 0.18,
     seed: 25,
   },
   {
@@ -190,7 +193,7 @@ export const MARS_ORBIT_EVENTS: readonly PlanetWeatherEventDef[] = Object.freeze
     attack: 0.3,
     decay: 0.3,
     swirl: -1,
-    driftLonDegPerSol: -1,
+    driftLonDegPerSol: -0.15,
     seed: 26,
   },
 

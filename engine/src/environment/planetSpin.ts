@@ -44,6 +44,16 @@ export type PlanetSpinPhase = "auto" | "idle-wait" | "inertia" | "drag" | "anima
 
 const SMOOTH_TAU = 0.06;
 
+/** `target = q * target` (apply `q` after `target`, in the world frame); `Quat.premultiply` composes the other way. */
+function premultiplyInPlace(target: Quat, q: Quat): Quat {
+  const tx = target.x, ty = target.y, tz = target.z, tw = target.w;
+  target.x = q.w * tx + q.x * tw + q.y * tz - q.z * ty;
+  target.y = q.w * ty - q.x * tz + q.y * tw + q.z * tx;
+  target.z = q.w * tz + q.x * ty - q.y * tx + q.z * tw;
+  target.w = q.w * tw - q.x * tx - q.y * ty - q.z * tz;
+  return target;
+}
+
 export class PlanetSpinController {
   /** Planet-fixed → world rotation. Mutated in place; read it every frame. */
   readonly orientation = new Quat(0, 0, 0, 1);
@@ -156,7 +166,7 @@ export class PlanetSpinController {
     // q has w = cos(θ/2); recover axis/angle for the velocity estimate.
     const sinHalf = Math.hypot(q.x, q.y, q.z);
     const angle = 2 * Math.atan2(sinHalf, q.w);
-    this.orientation.premultiply(q).normalize();
+    premultiplyInPlace(this.orientation, q).normalize();
     if (sinHalf > 1e-9 && dt > 1e-4) {
       const speed = Math.min(this.maxRadPerSecond, angle / dt);
       const k = speed / sinHalf;
@@ -246,6 +256,6 @@ export class PlanetSpinController {
     const h = angle * 0.5;
     const s = Math.sin(h);
     this.q.set(ax * s, ay * s, az * s, Math.cos(h));
-    this.orientation.premultiply(this.q).normalize();
+    premultiplyInPlace(this.orientation, this.q).normalize();
   }
 }
