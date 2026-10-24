@@ -114,7 +114,7 @@ export const MARS_ATMOSPHERE: Readonly<AtmosphereParams> = Object.freeze({
   mieExtinction: [36e-6, 30e-6, 26e-6] as const,
   mieScaleHeight: 11000,
   mieAnisotropy: 0.7,
-  mieAureole: [0, 0.05, 0.18] as const,
+  mieAureole: [0, 0.1, 0.4] as const,
   mieAureoleAnisotropy: 0.95,
   ozoneAbsorption: [0, 0, 0] as const,
   ozoneCenter: 25e3,

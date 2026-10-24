@@ -650,6 +650,6 @@ export function planetGroundWeather(sample: PlanetWeatherSample, localSolarHours
   out.humidity01 = clamp01(0.03 + 0.55 * sample.iceCloud + 0.15 * sample.frost);
   out.precipitation01 = 0;
   out.storm01 = clamp01(sample.dust);
-  out.cloudCoverage = clamp01(0.03 + sample.iceCloud);
+  out.cloudCoverage = clamp01(0.03 + 0.4 * sample.iceCloud);
   return out;
 }

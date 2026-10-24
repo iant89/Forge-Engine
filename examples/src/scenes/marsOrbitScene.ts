@@ -774,7 +774,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene.setFog("exp2", { density: 0.0014 });
     scene.settings.exposure = 0.95;
     // Water-ice cloud deck high over the site: its coverage is the weather's ice-cloud cover.
-    scene.setClouds({ enabled: true, coverage: 0.05, density: 0.55, height: 14000, thickness: 3500, scale: 9000, layers: 2, silverLining: 0.6, surfaceShadows: true, shadowStrength: 0.6 });
+    scene.setClouds({ enabled: true, coverage: 0.05, density: 0.55, height: 9000, thickness: 3500, scale: 0.00016, layers: 2, silverLining: 0.6, surfaceShadows: true, shadowStrength: 0.6 });
     sun.castShadow = true;
   }
 
