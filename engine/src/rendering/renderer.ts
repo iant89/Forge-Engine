@@ -61,7 +61,7 @@ import { fitShadowMapSize } from "./shadowBudget.js";
 import { SSAO_BINDINGS } from "./shaders/ssao.js";
 import { RenderGraph, type GpuPassTime, type GpuTimingFrame, type RenderGraphHandle, type RenderGraphPassContext, type RenderGraphStats } from "./renderGraph.js";
 import { computeCascades, computeSpotShadow, computePointShadow, createPointShadowFaces, shadowLightPriority, type Cascade, type SpotShadowFit, type PointShadowFit } from "./shadows.js";
-import { AtmosphereModel, EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, createAtmosphere, type AtmosphereParams } from "../environment/atmosphere.js";
+import { AtmosphereModel, DEFAULT_AUREOLE_ANISOTROPY, EARTH_ATMOSPHERE, SKY_QUALITY_SAMPLES, createAtmosphere, type AtmosphereParams } from "../environment/atmosphere.js";
 import { MULTI_SCATTERING_GPU, MultiScatteringField } from "../environment/multiScattering.js";
 import { FOG_MODE_ID } from "../environment/fog.js";
 import { MAX_CLOUD_LAYERS, SkyLightingCache, cloudLayerCentre, cloudLayerCount, cloudLayerDrift, cloudLayerWeight } from "../environment/clouds.js";
@@ -2752,6 +2752,10 @@ export class Renderer implements RenderFrameContext {
     a.setF32("mieScaleHeight", atmo.mieScaleHeight);
     a.setVec3("mieExtinction", atmo.mieExtinction[0] * mieScale, atmo.mieExtinction[1] * mieScale, atmo.mieExtinction[2] * mieScale);
     a.setF32("mieAnisotropy", atmo.mieAnisotropy);
+    const aureole = atmo.mieAureole;
+    // The aureole rides the same sky.mie dial as the base lobe, so a dust-free sky has no glow either.
+    a.setVec3("mieAureole", aureole ? aureole[0] : 0, aureole ? aureole[1] : 0, aureole ? aureole[2] : 0);
+    a.setF32("mieAureoleAnisotropy", atmo.mieAureoleAnisotropy ?? DEFAULT_AUREOLE_ANISOTROPY);
     a.setVec3("ozoneAbsorption", atmo.ozoneAbsorption[0], atmo.ozoneAbsorption[1], atmo.ozoneAbsorption[2]);
     a.setF32("ozoneCenter", atmo.ozoneCenter);
     a.setVec3("groundAlbedo", atmo.groundAlbedo[0], atmo.groundAlbedo[1], atmo.groundAlbedo[2]);

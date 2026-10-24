@@ -52,6 +52,15 @@ export interface AtmosphereParams {
   mieScaleHeight: number;
   /** Cornette–Shanks asymmetry `g` in (−1, 1); ~0.76 for haze, higher for dust. */
   mieAnisotropy: number;
+  /**
+   * Optional wavelength-dependent forward lobe added to the aerosol phase function, per channel: the
+   * phase is `miePhase(g) + aureole[c] · miePhase(mieAureoleAnisotropy)`. Particles a little smaller
+   * than the wavelength throw blue light into a tighter cone around the sun than red, which is the
+   * blue glow around the setting Sun on Mars. Absent or all-zero leaves the single-`g` model unchanged.
+   */
+  mieAureole?: RGB;
+  /** Cornette–Shanks `g` of the aureole lobe (a tight forward peak, ~0.9–0.97). Default 0.95. */
+  mieAureoleAnisotropy?: number;
   /** Ozone absorption per channel at the layer's peak density, 1/m. */
   ozoneAbsorption: RGB;
   /** Centre and half-width (metres) of the tent-shaped ozone layer. */
@@ -93,7 +102,8 @@ export const EARTH_ATMOSPHERE: Readonly<AtmosphereParams> = Object.freeze({
  * with an 11 km scale height, and suspended dust that scatters red more than blue and absorbs blue
  * — which is what makes the daytime sky butterscotch. No ozone layer. Values are tuned to the
  * qualitative record (Viking/Pathfinder sky colour), not measured coefficients; the famous blue
- * sunset aureole needs a wavelength-dependent Mie lobe, which this single-`g` model does not have.
+ * sunset aureole is the wavelength-dependent `mieAureole` lobe: blue light scatters into a tight cone
+ * around the Sun that the red-heavy base lobe lacks.
  */
 export const MARS_ATMOSPHERE: Readonly<AtmosphereParams> = Object.freeze({
   planetRadius: 3389.5e3,
@@ -104,6 +114,8 @@ export const MARS_ATMOSPHERE: Readonly<AtmosphereParams> = Object.freeze({
   mieExtinction: [36e-6, 30e-6, 26e-6] as const,
   mieScaleHeight: 11000,
   mieAnisotropy: 0.7,
+  mieAureole: [0, 0.05, 0.18] as const,
+  mieAureoleAnisotropy: 0.95,
   ozoneAbsorption: [0, 0, 0] as const,
   ozoneCenter: 25e3,
   ozoneWidth: 15e3,
@@ -135,6 +147,7 @@ export function createAtmosphere(overrides: Partial<AtmosphereParams> = {}, base
     mieExtinction: copy(merged.mieExtinction),
     ozoneAbsorption: copy(merged.ozoneAbsorption),
     groundAlbedo: copy(merged.groundAlbedo),
+    ...(merged.mieAureole ? { mieAureole: copy(merged.mieAureole) } : {}),
   };
 }
 
@@ -169,6 +182,19 @@ export function miePhase(cosTheta: number, g: number): number {
   const g2 = g * g;
   const denom = 1 + g2 - 2 * g * cosTheta;
   return ((3 * (1 - g2)) / (8 * Math.PI * (2 + g2))) * ((1 + cosTheta * cosTheta) / (denom * Math.sqrt(denom)));
+}
+
+/** Default `g` of the aureole lobe. */
+export const DEFAULT_AUREOLE_ANISOTROPY = 0.95;
+
+/**
+ * The aerosol phase function of one channel: the base Cornette–Shanks lobe plus that channel's share
+ * of the aureole lobe (`AtmosphereParams.mieAureole`). Mirrors the sky shader's vector phase.
+ */
+export function mieChannelPhase(p: Readonly<AtmosphereParams>, channel: number, cosTheta: number, baseG = p.mieAnisotropy): number {
+  const base = miePhase(cosTheta, baseG);
+  const w = p.mieAureole ? p.mieAureole[channel]! : 0;
+  return w > 0 ? base + w * miePhase(cosTheta, p.mieAureoleAnisotropy ?? DEFAULT_AUREOLE_ANISOTROPY) : base;
 }
 
 /** Henyey–Greenstein phase function (kept for callers that want the cheaper lobe). */
@@ -365,7 +391,9 @@ export class AtmosphereModel {
 
     const cosTheta = dx * sunX + dy * sunY + dz * sunZ;
     const phaseR = rayleighPhase(cosTheta);
-    const phaseM = miePhase(cosTheta, p.mieAnisotropy);
+    const phaseM0 = mieChannelPhase(p, 0, cosTheta);
+    const phaseM1 = mieChannelPhase(p, 1, cosTheta);
+    const phaseM2 = mieChannelPhase(p, 2, cosTheta);
     let tPrev = 0;
     for (let i = 0; i < nView; i++) {
       const u1 = (i + 1) / nView;
@@ -414,7 +442,7 @@ export class AtmosphereModel {
       transmittanceOut[c] = DMath.exp(-od[c]!);
       inScatteringOut[c] = p.sunIntensity * (
         p.rayleighScattering[c]! * sums[c]! * phaseR +
-        p.mieScattering[c]! * sums[3 + c]! * phaseM +
+        p.mieScattering[c]! * sums[3 + c]! * (c === 0 ? phaseM0 : c === 1 ? phaseM1 : phaseM2) +
         msSums[c]!
       );
     }
@@ -444,7 +472,9 @@ export class AtmosphereModel {
     const pathLength = Math.max(tMax - tEnter, 0);
     const cosTheta = dx * sunDir.x + dy * sunDir.y + dz * sunDir.z;
     const phaseR = rayleighPhase(cosTheta);
-    const phaseM = miePhase(cosTheta, phaseG);
+    const phaseM0 = mieChannelPhase(p, 0, cosTheta, phaseG);
+    const phaseM1 = mieChannelPhase(p, 1, cosTheta, phaseG);
+    const phaseM2 = mieChannelPhase(p, 2, cosTheta, phaseG);
     // A narrow horizon ray crosses hundreds of kilometres of dense atmosphere. Pin that visually
     // sensitive band to the converged profile even when the rest of the sky uses a low-cost preset.
     if (Math.abs(dy) < 0.035) {
@@ -504,7 +534,7 @@ export class AtmosphereModel {
       }
     }
     for (let c = 0; c < 3; c++) {
-      out[c] = p.sunIntensity * (p.rayleighScattering[c]! * sum[c]! * phaseR + p.mieScattering[c]! * sum[3 + c]! * phaseM + msSum[c]!);
+      out[c] = p.sunIntensity * (p.rayleighScattering[c]! * sum[c]! * phaseR + p.mieScattering[c]! * sum[3 + c]! * (c === 0 ? phaseM0 : c === 1 ? phaseM1 : phaseM2) + msSum[c]!);
     }
     if (hitsGround) {
       // Lambertian ground lit by the attenuated sun, seen through the whole view path.

@@ -91,6 +91,8 @@ export const SkyUniforms = new StructDef("SkyUniforms", [
   { name: "multiScattering", type: i32, comment: "1 = sample the Phase 17.1 table; 0 = skip the lookup" },
   { name: "viewSamples", type: i32 },
   { name: "lightSamples", type: i32 },
+  { name: "mieAureole", type: vec3, comment: "extra per-channel weight of the tight forward aerosol lobe (blue sunset glow); 0 = single-lobe Mie" },
+  { name: "mieAureoleAnisotropy", type: f32 },
 ]);
 
 /** One light. Directional lights sort first; index 0 is the cascade caster. */

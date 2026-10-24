@@ -162,7 +162,7 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     let pathLength = max(tMax - tEnter, 0.0);
     let cosTheta = dot(dir, sunDir);
     let phaseR = rayleighPhase(cosTheta);
-    let phaseM = miePhase(cosTheta, sky.mieAnisotropy);
+    let phaseM = vec3<f32>(miePhase(cosTheta, sky.mieAnisotropy)) + sky.mieAureole * miePhase(cosTheta, sky.mieAureoleAnisotropy);
     let viewSamples = select(sky.viewSamples, max(sky.viewSamples, 64i), horizonBand);
     let invN = 1.0 / f32(viewSamples);
     var odR = 0.0;
