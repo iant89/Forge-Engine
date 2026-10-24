@@ -390,13 +390,7 @@ const POINT_MASK_BASE = MAX_CASCADES + MAX_SPOT_SHADOWS;
 /** Bind group the skinned pipeline layouts carry the joint palette in (see `shaders/standard.ts`). */
 const SKIN_BINDING_GROUP = SKIN_BINDINGS.palette.group;
 
-/**
- * The empty group the skinned shadow/prepass layouts interpose before the palette. Nothing reads it —
- * it exists so the palette stays group 3 in every skinned program — but a draw must still *set* a bind
- * group there: Chromium (through at least 131) invalidates a command buffer whose draw leaves a
- * declared group unbound, empty or not, and the CI runner runs that build.
- */
-const SKIN_GAP_BINDING_GROUP = SKIN_BINDING_GROUP - 1;
+/** Skinned shaders keep their joint palette at group 3 so colour, prepass, and shadow bindings match. */
 
 interface ShadowInstanceRange {
   /** First instance relative to this batch's dynamic storage-buffer offset. */
@@ -943,7 +937,6 @@ export class Renderer implements RenderFrameContext {
   private skinBindGroup: GPUBindGroup | null = null;
   private skinBindGroupBuffer: GPUBuffer | null = null;
   private skinBindGroupWindow = 0;
-  private skinGapBindGroup: GPUBindGroup | null = null;
   /** Scene whose joints the palette lookup reads; set for the duration of `collectBatches`. */
   private skinWorld: import("../scene/world.js").EntityWorld | null = null;
 
@@ -2169,17 +2162,19 @@ export class Renderer implements RenderFrameContext {
       const isLod = b.lodHiTriangles > 0;
       const instanced = b.count > 1 || isLod;
       const skinned = b.skin !== null;
-      const state = (instanced ? 2 : 0) | (isLod ? 1 : 0) | (skinned ? 4 : 0);
+      const state = (instanced ? 2 : 0) | (isLod ? 1 : 0) | (skinned ? 4 : 0) | (b.material.technique === "terrain" ? 8 : 0);
       if (state !== lastState) {
         lastState = state;
-        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced, lod: isLod, skinned })?.pipeline ?? null;
+        currentPipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced, lod: isLod, skinned, terrain: b.material.technique === "terrain" })?.pipeline ?? null;
         if (currentPipeline) pass.setPipeline(currentPipeline);
       }
       if (!currentPipeline) continue;
       // Population batches bind their own chunk buffer through their own group (Phase 14.3).
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
+      pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer);
-      if (skinned) this.bindSkinning(pass, b, true);
+      if (skinned) this.bindSkinning(pass, b);
+      else if (b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
       // Distinct full masks can still contribute to the same map. If their instance ranges are
       // adjacent, one draw is sufficient for this map: it contains exactly the union of the
@@ -2214,10 +2209,12 @@ export class Renderer implements RenderFrameContext {
     const rec = b.population!;
     const culler = this.populationCuller;
     const listed = this.populationViewsRecorded && b.popCullSlot >= 0 && culler?.argsBuffer && rec.shadowGroup;
-    const pipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: true, lod, casterIndices: !!listed })?.pipeline;
+    const pipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: true, lod, casterIndices: !!listed, terrain: b.material.technique === "terrain" })?.pipeline;
     if (!pipeline) return;
     pass.setPipeline(pipeline);
+    pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
     pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+    if (b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
     if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
     if (!listed) {
       pass.setBindGroup(1, rec.group, [b.objectOffset, b.instanceOffset]);
@@ -2240,10 +2237,12 @@ export class Renderer implements RenderFrameContext {
     const rec = b.genericCull!;
     const culler = this.populationCuller!;
     const listed = this.populationViewsRecorded && culler.argsBuffer !== null;
-    const pipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: true, lod: false, casterIndices: listed })?.pipeline;
+    const pipeline = this.pipelines.getReady({ technique: "depth", colorFormat: null, depthFormat: SHADOW_FORMAT, transparent: false, doubleSided: false, instanced: true, lod: false, casterIndices: listed, terrain: b.material.technique === "terrain" })?.pipeline;
     if (!pipeline) return;
     pass.setPipeline(pipeline);
+    pass.setBindGroup(2, this.ensureMaterialGroup(b.material));
     pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
+    if (b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
     if (b.geometry.indexBuffer) pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
     if (!listed) {
       pass.setBindGroup(1, this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
@@ -2308,7 +2307,7 @@ export class Renderer implements RenderFrameContext {
         else pass.setBindGroup(1, b.population!.compactedGroup!, [b.objectOffset, 0]);
         pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
         if (kind === "standard" || kind === "terrain") {
-          if (b.skin !== null) this.bindSkinning(pass, b, false);
+          if (b.skin !== null) this.bindSkinning(pass, b);
           else if (b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
         }
         if (kind === "water") pass.setBindGroup(2, this.ensureWaterBindGroup());
@@ -2327,7 +2326,7 @@ export class Renderer implements RenderFrameContext {
       pass.setBindGroup(1, b.population ? b.population.group : this.drawBindGroup!, [b.objectOffset, b.instanceOffset]);
       pass.setBindGroup(2, kind === "water" ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
-      if (b.skin !== null) this.bindSkinning(pass, b, false);
+      if (b.skin !== null) this.bindSkinning(pass, b);
       else if ((kind === "standard" || kind === "terrain") && b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (b.geometry.indexBuffer) {
         pass.setIndexBuffer(b.geometry.indexBuffer, b.geometry.indexFormat!);
@@ -2448,7 +2447,7 @@ export class Renderer implements RenderFrameContext {
       }
       pass.setBindGroup(2, isWater ? this.ensureWaterBindGroup() : this.ensureMaterialGroup(b.material));
       pass.setVertexBuffer(0, b.geometry.vertexBuffer!);
-      if (batchSkinned) this.bindSkinning(pass, b, false);
+      if (batchSkinned) this.bindSkinning(pass, b);
       else if (!isWater && b.geometry.uv1Buffer) this.bindUv1(pass, b, false);
       if (cullArgs) {
         if (b.geometry.indexBuffer) {
@@ -4689,10 +4688,7 @@ export class Renderer implements RenderFrameContext {
    * Only ever called for a batch whose pipeline was fetched with `skinned: true`, because a
    * non-skinned pipeline layout has no group 3 and no second vertex slot.
    */
-  private bindSkinning(pass: GPURenderPassEncoder, b: Batch, gap: boolean): void {
-    // `gap` is the shadow and prepass passes: their layouts declare the empty group 2 (see
-    // `SKIN_GAP_BINDING_GROUP`), and Chromium refuses the draw unless something is bound there.
-    if (gap) pass.setBindGroup(SKIN_GAP_BINDING_GROUP, this.ensureSkinGapBindGroup());
+  private bindSkinning(pass: GPURenderPassEncoder, b: Batch): void {
     pass.setVertexBuffer(1, b.geometry.skinBuffer!);
     if (b.geometry.uv1Buffer) pass.setVertexBuffer(2, b.geometry.uv1Buffer);
     pass.setBindGroup(SKIN_BINDING_GROUP, this.ensureSkinBindGroup(), [b.skinOffset]);
@@ -4701,12 +4697,6 @@ export class Renderer implements RenderFrameContext {
   /** Bind the secondary UV stream for a standard (unskinned) pipeline. */
   private bindUv1(pass: GPURenderPassEncoder, b: Batch, skinned: boolean): void {
     pass.setVertexBuffer(skinned ? 2 : 1, b.geometry.uv1Buffer!);
-  }
-
-  /** The (empty) bind group for the skinned depth/prepass gap; a group with no entries, created once. */
-  private ensureSkinGapBindGroup(): GPUBindGroup {
-    this.skinGapBindGroup ??= this.device.device.createBindGroup({ label: "skin.gap.bindgroup", layout: this.pipelines.bindGroupLayouts.skinGap, entries: [] });
-    return this.skinGapBindGroup;
   }
 
   /**
@@ -5035,7 +5025,6 @@ export class Renderer implements RenderFrameContext {
     this.skinBindGroup = null;
     this.skinBindGroupBuffer = null;
     this.skinBindGroupWindow = 0;
-    this.skinGapBindGroup = null;
     this.ssaoGroup = null;
     this.ssaoGroupView = null;
     this.ssaoBlurGroups.clear();

@@ -137,8 +137,10 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.PostUniforms.byteSize("uniform"), 80);
     assert.equal(RENDERING_STRUCTS.PostUniforms.offsetOf("flags"), 40);
     assert.equal(RENDERING_STRUCTS.PostUniforms.offsetOf("depthRange"), 48);
-    assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 112);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.byteSize("uniform"), 272);
     assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("snowCover"), 96);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("uvScaleOffset"), 112);
+    assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("uvRotation"), 192);
     assert.equal(RENDERING_STRUCTS.MaterialUniforms.offsetOf("tiling"), 48);
     // fe-31: the population distance fade (start, end) closes the per-draw block.
     assert.equal(RENDERING_STRUCTS.ObjectUniforms.byteSize("uniform"), 192);
@@ -172,6 +174,16 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("radius"), 64);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("depthSize"), 80);
     assert.equal(RENDERING_STRUCTS.SsaoUniforms.offsetOf("sampleCount"), 96);
+  });
+
+  test("pins material UV transforms and MASK coverage in forward and depth shaders", () => {
+    assert.match(STANDARD_VERTEX, /fn materialSampleUv\(/);
+    assert.match(STANDARD_VERTEX, /material\.uvScaleOffset\[bit\]/);
+    assert.match(STANDARD_VERTEX, /material\.uvRotation\[bit\]/);
+    assert.match(DEPTH_VERTEX, /var albedoMap: texture_2d<f32>/);
+    assert.match(DEPTH_VERTEX, /shadowAlpha\(in\.uv, in\.uv1\)/);
+    assert.match(DEPTH_VERTEX, /discard;/);
+    assert.match(DEPTH_VERTEX, /@location\(6\) uv1/);
   });
 
   test("pins the depth-reuse shader bindings and transparent/post consumers", () => {

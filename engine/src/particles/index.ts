@@ -57,6 +57,9 @@ export {
   type GpuParticleEmitterConfig,
   type GpuParticleModulesConfig,
   type GpuParticleFrameInput,
+  type GpuParticleDiagnosticRequest,
+  type GpuParticleDiagnosticSample,
+  type GpuParticleDiagnosticSnapshot,
 } from "./gpuSystem.js";
 export { GpuParticleWorld, findGpuParticleWorld, findGpuParticleWorlds, type GpuParticleWorldOptions } from "./gpuWorld.js";
 export { PrecipitationField, precipitationDirection, type PrecipitationFieldOptions, type PrecipitationDrive } from "./precipitation.js";

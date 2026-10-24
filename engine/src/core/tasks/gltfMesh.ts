@@ -137,6 +137,15 @@ export interface DecodedGltfNode {
   instancing: DecodedGltfInstancing | null;
 }
 
+/** KHR_texture_transform values after glTF defaults have been applied. */
+export interface DecodedGltfTextureTransform {
+  offset: Float32Array;
+  scale: Float32Array;
+  rotation: number;
+  /** Extension texCoord override, or null when the base texture info selects the set. */
+  texCoord: number | null;
+}
+
 export interface DecodedGltfMaterial {
   name: string;
   alphaMode: "OPAQUE" | "MASK" | "BLEND";
@@ -147,19 +156,24 @@ export interface DecodedGltfMaterial {
   roughnessFactor: number;
   baseColorTexture: number | null;
   baseColorTexCoord: number;
+  baseColorTransform: DecodedGltfTextureTransform | null;
   metallicRoughnessTexture: number | null;
   metallicRoughnessTexCoord: number;
+  metallicRoughnessTransform: DecodedGltfTextureTransform | null;
   normalTexture: number | null;
   normalTexCoord: number;
+  normalTransform: DecodedGltfTextureTransform | null;
   /** `normalTexture.scale` (default 1). */
   normalScale: number;
   /** `emissiveFactor` (default 0,0,0) and `emissiveTexture` (sRGB). */
   emissiveFactor: Float32Array;
   emissiveTexture: number | null;
   emissiveTexCoord: number;
+  emissiveTransform: DecodedGltfTextureTransform | null;
   /** `occlusionTexture` (R channel) and its `strength` (default 1). */
   occlusionTexture: number | null;
   occlusionTexCoord: number;
+  occlusionTransform: DecodedGltfTextureTransform | null;
   occlusionStrength: number;
 }
 
@@ -276,13 +290,13 @@ interface GltfDocument {
       baseColorFactor?: number[];
       metallicFactor?: number;
       roughnessFactor?: number;
-      baseColorTexture?: { index: number; texCoord?: number };
-      metallicRoughnessTexture?: { index: number; texCoord?: number };
+      baseColorTexture?: { index: number; texCoord?: number; extensions?: Record<string, unknown> };
+      metallicRoughnessTexture?: { index: number; texCoord?: number; extensions?: Record<string, unknown> };
     };
-    normalTexture?: { index: number; texCoord?: number; scale?: number };
+    normalTexture?: { index: number; texCoord?: number; scale?: number; extensions?: Record<string, unknown> };
     emissiveFactor?: number[];
-    emissiveTexture?: { index: number; texCoord?: number };
-    occlusionTexture?: { index: number; texCoord?: number; strength?: number };
+    emissiveTexture?: { index: number; texCoord?: number; extensions?: Record<string, unknown> };
+    occlusionTexture?: { index: number; texCoord?: number; strength?: number; extensions?: Record<string, unknown> };
   }[];
   images?: { name?: string; uri?: string; mimeType?: string; bufferView?: number }[];
   samplers?: { magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }[];
@@ -753,12 +767,13 @@ function readMaterials(doc: GltfDocument, source: string): DecodedGltfMaterial[]
     const emissive = material.emissiveFactor ?? [0, 0, 0];
     if (emissive.length !== 3 || emissive.some((v) => !Number.isFinite(v) || v < 0)) fail(source, `material ${index} has invalid emissiveFactor`);
     if (![metallicFactor, roughnessFactor, alphaCutoff, normalScale, occlusionStrength].every(Number.isFinite)) fail(source, `material ${index} has non-finite PBR factors`);
-    const ref = (info: { index: number; texCoord?: number } | undefined, slot: string): { texture: number | null; texCoord: number } => {
+    const ref = (info: { index: number; texCoord?: number; extensions?: Record<string, unknown> } | undefined, slot: string): { texture: number | null; texCoord: number; transform: DecodedGltfTextureTransform | null } => {
       const texture = materialIndex(info?.index, doc, source);
-      const texCoord = info?.texCoord ?? 0;
+      const transform = readTextureTransform(info?.extensions, source, index, slot);
+      const texCoord = transform?.texCoord ?? info?.texCoord ?? 0;
       if (!Number.isSafeInteger(texCoord) || texCoord < 0) fail(source, `material ${index} ${slot} has an invalid texCoord ${texCoord}`);
       if (texCoord > 1) fail(source, `material ${index} ${slot} uses TEXCOORD_${texCoord}; only TEXCOORD_0 and TEXCOORD_1 are supported`, "E_ASSET_GLTF_EXTENSION");
-      return { texture, texCoord };
+      return { texture, texCoord, transform };
     };
     const baseColor = ref(pbr.baseColorTexture, "baseColorTexture");
     const metallicRoughness = ref(pbr.metallicRoughnessTexture, "metallicRoughnessTexture");
@@ -775,19 +790,63 @@ function readMaterials(doc: GltfDocument, source: string): DecodedGltfMaterial[]
       roughnessFactor,
       baseColorTexture: baseColor.texture,
       baseColorTexCoord: baseColor.texCoord,
+      baseColorTransform: baseColor.transform,
       metallicRoughnessTexture: metallicRoughness.texture,
       metallicRoughnessTexCoord: metallicRoughness.texCoord,
+      metallicRoughnessTransform: metallicRoughness.transform,
       normalTexture: normal.texture,
       normalTexCoord: normal.texCoord,
+      normalTransform: normal.transform,
       normalScale,
       emissiveFactor: Float32Array.from(emissive),
       emissiveTexture: emissiveMap.texture,
       emissiveTexCoord: emissiveMap.texCoord,
+      emissiveTransform: emissiveMap.transform,
       occlusionTexture: occlusion.texture,
       occlusionTexCoord: occlusion.texCoord,
+      occlusionTransform: occlusion.transform,
       occlusionStrength,
     };
   });
+}
+
+function readTextureTransform(
+  extensions: Record<string, unknown> | undefined,
+  source: string,
+  materialIndexValue: number,
+  slot: string,
+): DecodedGltfTextureTransform | null {
+  const raw = extensions?.KHR_texture_transform;
+  if (raw === undefined) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    fail(source, `material ${materialIndexValue} ${slot} has malformed KHR_texture_transform`, "E_ASSET_GLTF_EXTENSION");
+  }
+  const value = raw as { offset?: unknown; scale?: unknown; rotation?: unknown; texCoord?: unknown };
+  const pair = (input: unknown, fallback: [number, number], name: string): Float32Array => {
+    if (input === undefined) return Float32Array.from(fallback);
+    if (!Array.isArray(input) || input.length !== 2 || input.some((v) => typeof v !== "number" || !Number.isFinite(v))) {
+      fail(source, `material ${materialIndexValue} ${slot} KHR_texture_transform ${name} must be a finite vec2`, "E_ASSET_GLTF_EXTENSION");
+    }
+    return Float32Array.from(input as number[]);
+  };
+  const rotation = value.rotation ?? 0;
+  if (typeof rotation !== "number" || !Number.isFinite(rotation)) {
+    fail(source, `material ${materialIndexValue} ${slot} KHR_texture_transform rotation must be finite`, "E_ASSET_GLTF_EXTENSION");
+  }
+  const texCoordValue = value.texCoord;
+  let texCoord: number | null = null;
+  if (texCoordValue !== undefined) {
+    if (typeof texCoordValue !== "number" || !Number.isSafeInteger(texCoordValue) || texCoordValue < 0) {
+      fail(source, `material ${materialIndexValue} ${slot} KHR_texture_transform texCoord is invalid`, "E_ASSET_GLTF_EXTENSION");
+    }
+    texCoord = texCoordValue;
+  }
+  return {
+    offset: pair(value.offset, [0, 0], "offset"),
+    scale: pair(value.scale, [1, 1], "scale"),
+    rotation,
+    texCoord: texCoord as number | null,
+  };
 }
 
 function materialIndex(index: number | undefined, doc: GltfDocument, source: string): number | null {
@@ -1015,6 +1074,10 @@ function resultTransferables(result: DecodedGltfAsset): Transferable[] {
   for (const material of result.materials) {
     add(material.baseColorFactor);
     add(material.emissiveFactor ?? null);
+    for (const transform of [material.baseColorTransform, material.metallicRoughnessTransform, material.normalTransform, material.emissiveTransform, material.occlusionTransform]) {
+      add(transform?.offset ?? null);
+      add(transform?.scale ?? null);
+    }
   }
   for (const image of result.images ?? []) add(image.bytes);
   return [...buffers];

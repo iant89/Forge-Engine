@@ -18,6 +18,18 @@ every ready one in scene order (`findGpuParticleWorlds`). The first keeps the ba
 `#1`, `#2`, … (`passSuffix` on `enqueue`), so profiler scopes and pass lists stay unique. Each world
 owns its buffers and is released by `scene.dispose()`.
 
+## Explicit GPU diagnostics
+
+GPU particle state remains device-authoritative during ordinary frames: `prepare()` and `enqueue()`
+do not read back particle storage or indirect counters. A diagnostic caller must explicitly request one
+with `GpuParticleWorld.requestDiagnostics()` / `GpuParticleSystem.requestDiagnostics({ sampleCount })`.
+The next graph adds a side-effect `particle.diagnostics` copy; after submission, `mapAsync()` resolves
+a bounded set of live position/velocity/lifetime samples and the compacted visible counter.
+`requestGpuParticleDiagnostics(scene)` and `inspectParticles(scene, { requestGpuReadback: true })`
+expose the completed sample through `ParticleWorldDebugInfo.diagnostic`. A pending request is
+asynchronous and never stalls the simulation or render submission; no request means no staging buffer,
+copy pass, or map.
+
 ## Capacity benchmark (Phase 22.5)
 
 `npm run bench` runs the particle matrix at 10K, 100K, 500K and 1M capacity. The CPU rows measure
@@ -27,7 +39,7 @@ The guards require deterministic state/emission, the 64-byte storage shape, zero
 zero live bytes after disposal. `prepare()` does not execute WGSL or advance GPU simulation steps on
 the mock, so those rows validate allocation and command/uniform preparation only. Real browser/device
 execution remains the authoritative GPU timing path. The human-readable run is recorded in
-`PERFORMANCE.md`, while `npm run bench -- --json PATH` writes the machine-readable snapshot.
+`../PERFORMANCE.md`, while `npm run bench -- --json PATH` writes the machine-readable snapshot.
 
 ## Layout
 

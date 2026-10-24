@@ -1732,9 +1732,8 @@ export class MockGPURenderPassEncoder extends MockPassBase {
     }
     // Every group the pipeline layout declares must be set before a draw — *including an empty one*.
     // Chromium (through at least 131) refuses the command buffer otherwise ("No bind group set at
-    // group index N"), which is how the skinned shadow pass, whose palette sits at group 3 behind an
-    // empty placeholder group 2, produced validation errors on the CI runner while a newer Chromium
-    // accepted the same frame. Enforcing the rule here means the CPU gates cannot miss it again.
+    // group index N"). Enforcing the rule here means CPU gates catch a missing material or palette
+    // group before a real adapter does.
     for (let index = 0; index < (this.pipeline.layout?.layouts.length ?? 0); index++) {
       if (!this.bindGroups.has(index)) {
         this.err(`draw: no bind group at group index ${index}, which the pipeline layout declares (bind one, even for an empty layout)`);
