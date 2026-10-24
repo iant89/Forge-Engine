@@ -409,12 +409,21 @@ export class AtmosphereModel {
       const dR = DMath.exp(-h / p.rayleighScaleHeight) * ds;
       const dM = DMath.exp(-h / p.mieScaleHeight) * ds;
       const dO = this.ozoneDensity(h) * ds;
-      const blocked = raySphereEntry(px, py, pz, sunX, sunY, sunZ, p.planetRadius) > 0;
+      // Sun visibility from the sample lifted to at least the reference sphere (the shader's twin):
+      // a sample under the sphere would otherwise always count as shadowed by it.
+      const pr = Math.sqrt(px * px + py * py + pz * pz);
+      const lr = Math.max(pr, p.planetRadius);
+      const lift = lr / (pr || 1);
+      const lx = px * lift;
+      const ly = py * lift;
+      const lz = pz * lift;
+      const ratio = p.planetRadius / lr;
+      const blocked = lx * sunX + ly * sunY + lz * sunZ < -Math.sqrt(Math.max(0, 1 - ratio * ratio)) * lr;
       let hasSunPath = false;
       if (!blocked) {
-        const tLight = raySphereExit(px, py, pz, sunX, sunY, sunZ, p.planetRadius + p.atmosphereHeight);
+        const tLight = raySphereExit(lx, ly, lz, sunX, sunY, sunZ, p.planetRadius + p.atmosphereHeight);
         if (tLight > 0) {
-          this.opticalDepth(px, py, pz, sunX, sunY, sunZ, tLight, nLight, odLight);
+          this.opticalDepth(lx, ly, lz, sunX, sunY, sunZ, tLight, nLight, odLight);
           hasSunPath = true;
         } else {
           odLight.fill(0);

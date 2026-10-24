@@ -4,7 +4,8 @@
  * You start in orbit with Mars turning under you. **Drag** (mouse or touch) to spin it — it carries
  * inertia, and after ~4 s of rest the planet resumes its own rotation. **Double-click / double-tap** the
  * globe to fly down to that latitude/longitude and stand on the ground there (the same ported Mars
- * generator as the other Mars scenes); the **Return to orbit** button flies back up. The season runs
+ * generator as the other Mars scenes); the **Return to orbit** button, `Esc`, or double-clicking the sky
+ * flies back up. The season runs
  * (Ls 0–360, faster than real time) and the weather follows it: water-ice clouds, dust storms (local,
  * regional, planet-encircling), polar-cap frost, dust-devil fields. On the ground the same weather is
  * what you see overhead — a dust storm is a butterscotch sky and a dim sun, a dust-devil field is
@@ -41,6 +42,8 @@ import {
   PlanetSpinController,
   PlanetWeatherSystem,
   Quat,
+  Ray,
+  RayHit,
   Renderable,
   Scene,
   TerrainWorld,
@@ -85,6 +88,8 @@ import {
   orbitAltitudeRange,
   orbitClipPlanes,
   orbitFitAltitude,
+  groundPointerDirection,
+  isSkyPick,
   pixelRay,
   smoothstep,
 } from "./marsOrbitMath.js";
@@ -423,6 +428,19 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     return pickPlanetDirection(pickOrigin, pickDir, centre, R, out);
   };
 
+  /** Ground view: true when the pointer is over the sky (no loaded terrain along the ray, above the horizon). */
+  const skyRay = new Ray();
+  const skyHit = new RayHit();
+  const pointerOnSky = (clientX: number, clientY: number): boolean => {
+    const rect = canvas.getBoundingClientRect();
+    const { w, h } = viewport();
+    const dir = groundPointerDirection(clientX - rect.left, clientY - rect.top, w, h, camera.fovY, yaw, pitch);
+    skyRay.setFrom(scratchA.set(camX, groundY + groundHeight, camZ), dir, camera.far);
+    skyHit.reset();
+    const hit = terrain !== null && terrain.raycast(skyRay, skyHit);
+    return isSkyPick(dir.y, hit);
+  };
+
   const pointerLatLon = (clientX: number, clientY: number): { latDeg: number; lonDeg: number } | null => {
     if (!pickWorldDirection(clientX, clientY, pickOut)) return null;
     rotateByQuatInverse(spin.orientation, pickOut, scratchA);
@@ -462,6 +480,11 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
         }
       },
       doubleTap: (x, y) => {
+        // On the ground, double-clicking the sky flies back up (the same as Return to orbit / Esc).
+        if (mode === "ground") {
+          if (pointerOnSky(x, y)) returnToOrbit();
+          return;
+        }
         if (mode !== "orbit") return;
         const hit = pointerLatLon(x, y);
         if (hit) diveTo(hit.latDeg, hit.lonDeg);
@@ -1288,7 +1311,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene,
     cameraEntity,
     camera: { pointerInput: false, keyboard: false, minDistance: 1, maxDistance: 1e9 },
-    controlsHint: "Drag: spin the planet · double-click / double-tap: land there · wheel / pinch: zoom · Esc: back to orbit · T: touch diagnostics",
+    controlsHint: "Drag: spin the planet · double-click / double-tap: land there (on the ground: the sky to fly back up) · wheel / pinch: zoom · Esc: back to orbit · T: touch diagnostics",
     cameraOverride,
     overlay: () => {
       const s = handleState();

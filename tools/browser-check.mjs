@@ -997,8 +997,28 @@ async function checkMarsOrbit() {
   await sleep(1500);
   await page.screenshot({ path: "tools/.browser-check-mars-orbit-ground.png", timeout: 60000 });
 
-  await page.evaluate(() => window.__forge.marsOrbitReturn());
-  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 250, timeout: 60000 });
+  // Return with a real double-click on the sky; a double-click on the ground first must not leave.
+  const canvasPoint = (fromY, toY) => page.evaluate(([a, b]) => {
+    const w = innerWidth;
+    const h = innerHeight;
+    for (let y = a * h; y <= b * h; y += 8) {
+      for (const fx of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+        const el = document.elementFromPoint(fx * w, y);
+        if (el && el.tagName === "CANVAS") return { x: fx * w, y };
+      }
+    }
+    return null;
+  }, [fromY, toY]);
+  const groundPoint = await canvasPoint(0.88, 0.97);
+  const skyPoint = await canvasPoint(0.04, 0.3);
+  if (!groundPoint || !skyPoint) throw new Error(`no free canvas point for the sky/ground double-clicks: ${JSON.stringify({ groundPoint, skyPoint })}`);
+  await page.mouse.dblclick(groundPoint.x, groundPoint.y);
+  await sleep(1500);
+  const stillGround = await page.evaluate(() => window.__forge.marsOrbitState().mode);
+  if (stillGround !== "ground") throw new Error(`double-clicking the ground left the ground (mode ${stillGround})`);
+  await page.mouse.dblclick(skyPoint.x, skyPoint.y);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 250, timeout: 60000 })
+    .catch(() => { throw new Error(`double-clicking the sky at ${JSON.stringify(skyPoint)} did not return to orbit`); });
   const end = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
   if (end.stats.gpuErrors !== 0 || end.stats.lastError) throw new Error(`Mars orbit GPU error: ${end.stats.lastError}`);
   const realtime = await checkMarsOrbitRealtimeReturn();

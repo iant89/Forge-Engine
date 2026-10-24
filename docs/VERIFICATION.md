@@ -634,6 +634,9 @@ Drives `Renderer.renderScene` with a camera, a shadow-casting sun, a ground plan
   `perFrame.flags` bit 6 and binds the sized inert MS fallback when no table is available, then the
   frame group follows the real LUT when MS builds. Disabling the feature clears the bit, underwater
   state suppresses it, and teardown releases the fallback and LUT without mock validation errors.
+  The CPU twin's path below the reference sphere is pinned in `environment17.test.ts`: from 2,600 km
+  up, with 8 view samples as the shader takes them, in-scattering must not fall as the surface goes
+  0 → 9 km under the sphere (it used to dip, and dropped ~20 % at 9 km), while the night side stays dark.
 * **Depth prepass (13.1)**: `forge.prepass` has no colour target, clears and stores the scene depth
   and draws the eligible opaque, alpha-cutout/fading and water batches; `forge.main` attaches the
   *same* depth with `depthLoadOp: "load"`, and every prepassed draw it issues uses a `nodepthwrite`

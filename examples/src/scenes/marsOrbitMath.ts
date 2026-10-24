@@ -71,6 +71,38 @@ export function groundViewQuaternion(yaw: number, pitch: number, out: [number, n
   return out;
 }
 
+/**
+ * World direction under a pointer (CSS px) for the ground camera of {@link groundViewQuaternion}:
+ * the camera-space {@link pixelRay} rotated by the view. Unit length.
+ */
+export function groundPointerDirection(
+  px: number, py: number, width: number, height: number, fovYRad: number, yaw: number, pitch: number,
+): { x: number; y: number; z: number } {
+  const v = pixelRay(px, py, width, height, fovYRad);
+  const q = groundViewQuaternion(yaw, pitch, [0, 0, 0, 1]);
+  const [qx, qy, qz, qw] = q;
+  // v' = v + 2w(q × v) + 2 q × (q × v)
+  const tx = 2 * (qy * v.z - qz * v.y);
+  const ty = 2 * (qz * v.x - qx * v.z);
+  const tz = 2 * (qx * v.y - qy * v.x);
+  return {
+    x: v.x + qw * tx + (qy * tz - qz * ty),
+    y: v.y + qw * ty + (qz * tx - qx * tz),
+    z: v.z + qw * tz + (qx * ty - qy * tx),
+  };
+}
+
+/** Lowest elevation (radians) a ground double-tap that hits no loaded terrain still counts as the sky. */
+export const SKY_PICK_MIN_ELEVATION = (0.5 * Math.PI) / 180;
+
+/**
+ * Whether a ground-view double-tap landed on the sky: the view ray hit no loaded terrain and points
+ * above the horizon (so the unloaded distant ground just under it does not count).
+ */
+export function isSkyPick(directionY: number, hitTerrain: boolean): boolean {
+  return !hitTerrain && directionY > Math.sin(SKY_PICK_MIN_ELEVATION);
+}
+
 /** The orbit camera is the ground view with yaw 0 and pitch −90°: straight down, north up the screen. */
 export const ORBIT_VIEW_PITCH = -Math.PI / 2;
 
