@@ -234,9 +234,10 @@ export class PlanetSpinController {
     const blend = this.autoSpinBlend;
     if (blend > 0) {
       const angle = this.autoSpinRadPerSecond * blend * dt;
-      // The pole (+Y planet-fixed) in the world; positive rotation about it is eastward.
+      // The pole (+Y planet-fixed) in the world. Longitude grows toward +Z (east) at lon 0 = +X, which is
+      // a *negative* turn about +Y in the usual right-hand sense, so the eastward spin is -angle.
       this.orientation.rotateVector(this.tmp.set(0, 1, 0), this.pole);
-      this.rotateWorld(this.pole.x, this.pole.y, this.pole.z, angle);
+      this.rotateWorld(this.pole.x, this.pole.y, this.pole.z, -angle);
       this.onSpin?.(angle);
     }
   }

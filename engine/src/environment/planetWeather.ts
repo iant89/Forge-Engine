@@ -31,6 +31,7 @@
  * renderer can spread it across frames.
  */
 
+import type { WeatherState } from "./weather.js";
 import { fbm3 } from "../math/noise.js";
 import {
   MARS_ORBIT,
@@ -627,3 +628,28 @@ export class PlanetWeatherSystem {
 
 const scratchFoot = { arm: 1 };
 const scratchCentre = { latDeg: 0, lonDeg: 0 };
+
+// ---------------------------------------------------------------------------------- ground weather
+
+/**
+ * What a place's {@link PlanetWeatherSample} means for a ground-level {@link WeatherState}: the dust
+ * column becomes storm haze, the ice cloud becomes cloud cover and humidity, the wind passes through,
+ * and the temperature follows the local solar hour (cold nights, a warm afternoon, a polar-cap chill,
+ * a dust-storm blanket that flattens the swing). Dry: precipitation stays 0 (Mars' snow evaporates
+ * before it lands). Writes into `out` and returns it.
+ *
+ * @param localSolarHours Local mean solar time at the viewer, 0..24 (noon = 12).
+ */
+export function planetGroundWeather(sample: PlanetWeatherSample, localSolarHours: number, out: WeatherState): WeatherState {
+  const phase = ((localSolarHours - 14) / 24) * 2 * Math.PI; // warmest about 14:00
+  const swing = (0.5 + 0.5 * Math.cos(phase)) * (1 - 0.6 * sample.dust);
+  out.windSpeed = sample.windSpeed;
+  out.windDirection = 0.7;
+  out.gust = clamp01(0.1 + 0.85 * sample.dust + 0.3 * sample.devilActivity);
+  out.temperatureC = -88 + 62 * swing + 8 * sample.dust - 18 * sample.cap - 6 * sample.frost;
+  out.humidity01 = clamp01(0.03 + 0.55 * sample.iceCloud + 0.15 * sample.frost);
+  out.precipitation01 = 0;
+  out.storm01 = clamp01(sample.dust);
+  out.cloudCoverage = clamp01(0.03 + sample.iceCloud);
+  return out;
+}

@@ -33,6 +33,14 @@ export const VORTEX_WATER_LOOK: VortexColumnColors = {
   variation: 0.7,
 };
 
+/** Dust: Mars-ochre fines with darker rock-tinted motes (the dust-devil / dust-whirl look). */
+export const VORTEX_DUST_LOOK: VortexColumnColors = {
+  color: { r: 0.78, g: 0.48, b: 0.28 },
+  alt: { r: 0.46, g: 0.29, b: 0.22 },
+  alpha: 0.7,
+  variation: 0.85,
+};
+
 export interface VortexColumnOptions {
   name?: string;
   capacity?: number;

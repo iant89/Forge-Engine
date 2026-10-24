@@ -39,6 +39,7 @@ import {
   type Scene,
   type ToneMapping,
   type TerrainWorld,
+  Quat,
   Vec3,
   classifyDeviceTier,
   populationCullingForTier,
@@ -823,6 +824,7 @@ async function main(): Promise<void> {
 
   const overrideEye = new Vec3();
   const overrideTarget = new Vec3();
+  const overrideRotation = new Quat();
   const frameLoop = (): void => {
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -840,7 +842,8 @@ async function main(): Promise<void> {
     if (override && currentHandle) {
       const t = currentHandle.cameraEntity.transform;
       t.position = overrideEye.set(override.eye[0], override.eye[1], override.eye[2]);
-      t.lookAt(overrideTarget.set(override.target[0], override.target[1], override.target[2]));
+      if (override.rotation) t.rotation = overrideRotation.set(override.rotation[0], override.rotation[1], override.rotation[2], override.rotation[3]);
+      else t.lookAt(overrideTarget.set(override.target[0], override.target[1], override.target[2]));
     } else {
       controls?.update();
     }
