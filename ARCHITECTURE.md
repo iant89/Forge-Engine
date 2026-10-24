@@ -251,7 +251,7 @@ cascade blending and distance fade (`engine/src/rendering/shadows.ts`, `docs/REN
 
 ## 6. Scene model (ECS-informed, not purist)
 
-- `EntityId` = 32-bit generational index (16 bits index, 16 bits generation).
+- `EntityId` = 32-bit generational index (20 bits slot, 12 bits generation); `EntityWorld.exists` validates all 12 generation bits.
 - Components: plain classes registered in a `ComponentRegistry` with a dense id; storage is
   per-component-type: `StructStore` (typed-array, for `Transform`, `Renderable`,
   `RigidBody`, `ParticleHeader`) or `ObjectStore` (instances, for `MeshRenderer`,

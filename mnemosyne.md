@@ -3167,3 +3167,16 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
 - Unit tests import `engine/dist`: run `npx tsc -b engine` after editing engine sources before running a single
   test file with `npx tsx tests/...`.
 - Anything that creates entities in `scene.world` from a `SceneObject` must destroy them in `dispose()`/`onDetach`.
+
+## 2026-10-24 — CR-001 stale entity ids (8-bit generation check)
+
+- **Symptom:** a destroyed `EntityId` passed `EntityWorld.exists()` again after its slot was reused **128** times, and from then on
+  `liveEntityIds()` returned ids that did not equal the live entity's id.
+- **Root cause:** `exists()` validated through `makeHandle`/`FreeList.isValid`, which keep only 8 generation bits; the FreeList bumps a
+  slot's generation on allocate *and* release (+2 per cycle), hence 128 not 256. `liveEntityIds()` rebuilt ids from `handleGeneration`.
+- **Fix:** `world.ts` compares `generationOf(slot) & GEN_MASK` with the id's 12-bit generation and builds ids via `idForSlot`. The FreeList
+  8-bit handle contract is exported and pinned (`tests/core/runtimeApi.test.ts`), so it was left alone. Never validate an `EntityId`
+  with `makeHandle`/`entityIdToHandle`.
+- The id format itself repeats after 2,048 reuses of one slot (12 bits, step 2); `tests/scene/ecs.test.ts` pins that period.
+- Pre-existing on `main` 2ae14b0: `marsShowcaseDamage` (2) and `marsShowcaseCollision` (1) fail; `tasks.test.ts` "inlineFallback" can flake
+  under full-suite load. Tracked in `code_review_issues.md`.

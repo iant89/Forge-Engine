@@ -31055,6 +31055,90 @@ JSON array below; agents maintain it by hand until then.
     "file": "code_review_issues.md",
     "what": "Add the initial source-level code review findings (CR-001 entity generation truncation, CR-002 object pool duplicate releases, CR-003 unvalidated physics timesteps) with fix plans, regression tests and acceptance criteria",
     "why": "Record the review as actionable, trackable tasks; saved verbatim at the user's request"
+  },
+  {
+    "id": "2495",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/scene/world.ts",
+    "what": "exists() compares the slot's full generation (12 GEN_BITS) instead of the 8-bit FreeList handle; liveEntityIds() builds ids with idForSlot(); drop the redundant & 0xffff in createEntity",
+    "why": "CR-001: a stale EntityId resolved to a new entity after 128 slot reuses, and liveEntityIds() returned wrong ids from then on"
+  },
+  {
+    "id": "2496",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/scene/entityId.ts",
+    "what": "Header describes the real 20+12 layout and the 2,048-reuse id period; entityIdToHandle marked lossy",
+    "why": "The doc said 16+16 bits and claimed protection the code did not give (CR-001)"
+  },
+  {
+    "id": "2497",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "ARCHITECTURE.md",
+    "what": "Section 6 EntityId layout corrected to 20 slot + 12 generation bits",
+    "why": "Matched the code (CR-001)"
+  },
+  {
+    "id": "2498",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/scene/ecs.test.ts",
+    "what": "Regression test: 2,048 reuses of one slot, every stale id rejected by exists/getComponent/hasComponent/facade/addComponent/destroyEntity, liveEntityIds exact, id period pinned",
+    "why": "CR-001 regression coverage; fails without the fix"
+  },
+  {
+    "id": "2499",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the CR-001 stale-id check in the ecs suite entry",
+    "why": "Keep the gate description truthful"
+  },
+  {
+    "id": "2500",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "code_review_issues.md",
+    "what": "CR-001 marked fixed with resolution, evidence and the extra liveEntityIds defect; Phase 1 checklist ticked",
+    "why": "Record verified fix status"
+  },
+  {
+    "id": "2501",
+    "date": "2026-10-24T16:34:27Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "CR-001 root cause, fix and pre-existing failing suites",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

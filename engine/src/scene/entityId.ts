@@ -1,16 +1,14 @@
 /**
  * Entity identities.
  *
- * An `EntityId` is a packed 32-bit generational index: `slot` in the low 16 bits, `generation`
- * in the high 16 bits. Rationale for 16+16 rather than 24+8 (see ADR-005):
- *  - 65 536 live entities is plenty for the object counts this engine targets (terrain props are
- *    chunk-scattered instanced entities, not per-instance scene entities), and the *index* space
- *    is what matters for iteration cost — a dense 16-bit index means a 64k scene fits in a few
- *    L1 caches;
- *  - 16 bits of generation makes stale-handle reuse essentially impossible in an interactive
- *    session (a slot must be freed and re-taken 65 536 times before ids collide again).
- * If a project needs more than 65k entities it can raise ENTITY_BITS in one place — the layout is
- * parameterized by the masks below, not scattered through the code.
+ * An `EntityId` is a packed 32-bit generational index: `slot` in the low `SLOT_BITS` (20) bits,
+ * `generation` in the high `GEN_BITS` (12) bits. The layout is parameterized by the masks below,
+ * not scattered through the code.
+ *
+ * `EntityWorld.exists` compares all 12 generation bits. A slot's generation advances twice per
+ * create/destroy cycle (once on allocate, once on release), so a stale id can resolve again only
+ * after its slot has been reused 2 048 times. The `FreeList` handle form (`makeHandle`) keeps just
+ * 8 generation bits; it must never be the test for whether an `EntityId` is live.
  */
 
 import { makeHandle } from "../core/pool.js";
@@ -38,7 +36,10 @@ export function entityGeneration(id: EntityId): number {
   return (id >>> SLOT_BITS) & GEN_MASK;
 }
 
-/** Packs (slot, generation) into the 32-bit handle form used by the resource layer. */
+/**
+ * Packs (slot, generation) into the 32-bit handle form used by the resource layer. Lossy: the handle
+ * keeps only the low 8 generation bits, so do not use it to validate an `EntityId`.
+ */
 export function entityIdToHandle(id: EntityId): number {
   return makeHandle(entitySlot(id), entityGeneration(id));
 }

@@ -22,7 +22,7 @@ treated as confirmed defects.
 
 | ID | Severity | Subsystem | Issue | Status |
 |----|----------|-----------|-------|--------|
-| CR-001 | HIGH | ECS / Entity IDs | Entity generation truncated to 8 bits | OPEN |
+| CR-001 | HIGH | ECS / Entity IDs | Entity generation truncated to 8 bits | FIXED (CPU gates verified; Phase 4 integration pending) |
 | CR-002 | MEDIUM | Core / Object Pool | Duplicate and foreign object releases are not rejected | OPEN |
 | CR-003 | MEDIUM | Physics | Invalid timestep configuration is not validated | OPEN |
 
@@ -109,6 +109,59 @@ Potential consequences include:
   their lower eight generation bits match.
 - Existing ECS tests pass.
 - New wraparound regression tests pass.
+
+### Resolution (2026-10-24, branch `code-review-issues`)
+
+Confirmed by reproduction before the fix, through the public API only:
+
+- A stale ID resolved again after **128** reuses of its slot, not 256. A
+  slot's generation advances twice per create/destroy cycle (allocate and
+  release), so the 8-bit comparison wraps every 128 cycles.
+- Additional defect found while inspecting `world.ts`:
+  `EntityWorld.liveEntityIds()` rebuilt each ID from the 8-bit handle
+  generation, so from the 128th reuse onward it returned IDs that differed
+  from the live entity's real ID.
+
+Fix (`engine/src/scene/world.ts`):
+
+- `exists()` now checks that the slot is allocated and live and compares the
+  slot's full generation (masked to the ID's 12 `GEN_BITS`) with the ID's
+  generation. It no longer goes through `makeHandle`/`FreeList.isValid`.
+- `liveEntityIds()` builds IDs with `idForSlot()`, using the full generation.
+- `createEntity()` no longer applies a redundant `& 0xffff` mask.
+- `makeHandle`, `FreeList` and their exported 8-bit handle contract are
+  unchanged (pinned by `tests/core/runtimeApi.test.ts`). No public
+  declarations changed; `npm run api:check` passes without an update.
+
+Documentation: the `entityId.ts` header (it said 16+16 bits) and
+`ARCHITECTURE.md` §6 now describe the real 20+12 layout. The lossy
+`entityIdToHandle` is marked as unsuitable for validation, and
+`docs/VERIFICATION.md` describes the new test.
+
+Inherent limit: the ID has 12 generation bits, so the 2,049th occupant of a
+slot is bit-identical to the first. This is the documented period of the ID
+format, not a validation gap. The regression test pins it.
+
+Evidence:
+
+- New test `tests/scene/ecs.test.ts` "stale IDs stay invalid across every
+  reuse of their slot ... (CR-001)": 2,048 reuses of one slot. Every earlier
+  ID is rejected by `exists`, `getComponent`, `hasComponent`, `facade`,
+  `addComponent` and `destroyEntity`. `liveEntityIds()` is exact, and a
+  neighbouring entity is untouched. The test fails without the fix and
+  passes with it.
+- `npm run typecheck`, `test:check`, `lint:arch`, `api:check`, `docs:check`,
+  `check:wgsl` and `check:replay-engines` pass.
+- `npm test`: 167 suites passed, 3 failed. None of the failures involve
+  this change:
+  - `tests/examples/marsShowcaseDamage.test.ts` (2 checks) and
+    `tests/examples/marsShowcaseCollision.test.ts` (1 check) fail
+    identically on unmodified `main` 2ae14b0.
+  - `tests/core/tasks.test.ts` ("reports an unrunnable handler back with
+    inlineFallback") failed once under full-suite load with an undefined
+    worker response. It passed 3 of 3 isolated runs with the fix and also
+    passed on `main`.
+- Not run: the real-WebGPU browser gate and benchmarks (Phase 4).
 
 ## 4. CR-002: Object Pool Allows Duplicate Releases
 
@@ -266,14 +319,15 @@ Issues:
 
 Tasks:
 
-- [ ] Inspect entityId.ts, pool.ts, and world.ts.
-- [ ] Document the entity ID bit layout.
-- [ ] Document the free-list handle bit layout.
-- [ ] Implement consistent generation encoding and validation.
-- [ ] Add generation wraparound tests.
-- [ ] Run ECS tests.
-- [ ] Run the complete CPU test suite.
-- [ ] Verify that no public handle contracts were unintentionally
+- [x] Inspect entityId.ts, pool.ts, and world.ts.
+- [x] Document the entity ID bit layout.
+- [x] Document the free-list handle bit layout.
+- [x] Implement consistent generation encoding and validation.
+- [x] Add generation wraparound tests.
+- [x] Run ECS tests.
+- [x] Run the complete CPU test suite (3 unrelated failures, see the
+      CR-001 resolution).
+- [x] Verify that no public handle contracts were unintentionally
       changed.
 
 Completion requirement:
@@ -483,9 +537,11 @@ High-priority findings: 1
 Medium-priority findings: 2
 Low-priority findings: 0
 
-Fixes implemented: 0
-Regression tests added: 0
-Issues verified as fixed: 0
+Fixes implemented: 1 (CR-001)
+Regression tests added: 1 (CR-001)
+Issues verified as fixed: 1 (CR-001: CPU gates; browser gate pending)
+Additional defects found while fixing: 1 (liveEntityIds, folded into
+CR-001)
 
 Overall status: INITIAL REVIEW COMPLETE; FULL AUDIT IN PROGRESS
 

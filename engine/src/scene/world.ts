@@ -19,17 +19,20 @@
 
 import { EventTarget2, type Disposable } from "../core/events.js";
 import { ObjectDisposedError, UsageError } from "../core/errors.js";
-import { FreeList, handleGeneration, makeHandle } from "../core/pool.js";
+import { FreeList } from "../core/pool.js";
 import { Mat4 } from "../math/mat.js";
 import { TransformStore, TRS } from "../math/transform.js";
 import { Vec3 } from "../math/vec.js";
 import { Quat } from "../math/mat.js";
 import { AABB } from "../math/geometry.js";
 import { componentInfo, componentTypeById, type Component, type ComponentTypeInfo } from "./components.js";
-import { entityGeneration, entitySlot, makeEntityId, NULL_ENTITY, type EntityId } from "./entityId.js";
+import { entityGeneration, entitySlot, GEN_MASK, makeEntityId, NULL_ENTITY, type EntityId } from "./entityId.js";
 import { ObjectStore, Query, type ComponentStorage } from "./stores.js";
 import { TransformSystem, type ISystem, type SystemContext } from "./systems.js";
 import { profileLabel } from "../debug/frameBreakdown.js";
+
+/** `FreeList.handleOf` for a released slot. */
+const RELEASED_HANDLE = 0xffffffff;
 
 export interface EntityWorldOptions {
   initialCapacity?: number;
@@ -106,7 +109,15 @@ export class EntityWorld {
 
   exists(id: EntityId): boolean {
     if (id === NULL_ENTITY || this.disposed) return false;
-    return this.freeList.isValid(makeHandle(entitySlot(id), entityGeneration(id)));
+    // Compare the id's whole generation. FreeList handles keep only its low 8 bits, which made
+    // a stale id live again after 128 reuses of its slot (CR-001).
+    const slot = entitySlot(id);
+    const fl = this.freeList;
+    return (
+      slot < fl.highWaterMark &&
+      fl.handleOf(slot) !== RELEASED_HANDLE &&
+      (fl.generationOf(slot) & GEN_MASK) === entityGeneration(id)
+    );
   }
 
   /** Slot for a live id, or -1. Hot path for systems: avoids re-validating twice. */
@@ -127,7 +138,7 @@ export class EntityWorld {
     this.ensureSlotCapacity(slot);
     this.transformSlotOf[slot] = -1;
     this.names[slot] = name ?? null;
-    const id = makeEntityId(slot, generation & 0xffff) as EntityId;
+    const id = makeEntityId(slot, generation) as EntityId;
     const facade = new Entity(this, id);
     this.facades[slot] = facade;
     this.liveEntities++;
@@ -185,8 +196,7 @@ export class EntityWorld {
   liveEntityIds(): EntityId[] {
     const out: EntityId[] = [];
     for (let slot = 0; slot < this.freeList.highWaterMark; slot++) {
-      const handle = this.freeList.handleOf(slot);
-      if (handle !== 0xffffffff && this.freeList.isValid(handle)) out.push(makeEntityId(slot, handleGeneration(handle)) as EntityId);
+      if (this.freeList.handleOf(slot) !== RELEASED_HANDLE) out.push(this.idForSlot(slot));
     }
     return out;
   }

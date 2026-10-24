@@ -238,6 +238,13 @@ instance per component *type*, shared by every world, aliased entity slot 0 of o
 of the next, so the second scene built in a session threw `Entity "ground" already has a Transform
 component` (and disposing either scene cleared the other's components).
 
+Stale entity ids (CR-001): one slot is created and destroyed 2,048 times and every earlier id must
+stay rejected by `exists`, `getComponent`, `hasComponent`, `facade`, `addComponent` and
+`destroyEntity`, while `liveEntityIds()` returns exactly the live ids and a neighbouring entity is
+untouched. `exists` used to compare only the 8-bit `FreeList` handle generation, so a stale id came
+back to life after 128 reuses. The 2,049th occupant reproduces the first id bit for bit; that is the
+documented 12-bit generation period, and the test pins it.
+
 ### `tests/tools/apiAudit.test.ts` — Phase 27.1 public API surface
 
 Nine checks parse the deterministic `forge.api-surface/2` snapshot, require sorted unique rows,

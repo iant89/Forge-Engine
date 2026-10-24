@@ -119,6 +119,48 @@ group("Scene/ECS - EntityWorld and Lifecycle", () => {
     world.dispose();
   });
 
+  test("stale IDs stay invalid across every reuse of their slot the 12-bit generation can tell apart (CR-001)", () => {
+    // exists() used to compare only the low 8 bits of the generation (the FreeList handle form),
+    // and each create/destroy advances it by 2: after 128 reuses a stale id was live again and
+    // liveEntityIds() returned ids that did not match the live entity.
+    const world = new EntityWorld();
+    const keeper = world.createEntity("keeper"); // a neighbour slot that must not be disturbed
+    const ids: number[] = [];
+    let slot = -1;
+    for (let i = 0; i < 2048; i++) {
+      const e = world.createEntity(`gen${i}`);
+      e.add(new TagA()).value = i;
+      if (slot < 0) slot = world.slotOf(e.id);
+      assert.equal(world.slotOf(e.id), slot, "the freed slot is reused");
+      assert.equal(world.exists(e.id), true);
+      assert.equal(world.getComponent(e.id, TagA)?.value, i);
+      assert.deepEqual(world.liveEntityIds().sort(), [keeper.id, e.id].sort());
+      for (const stale of ids) {
+        if (world.exists(stale)) assert.fail(`stale id ${stale} resolves after ${i} reuses`);
+      }
+      const stale = ids[ids.length - 1];
+      if (stale !== undefined) {
+        assert.equal(world.getComponent(stale, TagA), undefined);
+        assert.equal(world.hasComponent(stale, TagA), false);
+        assert.equal(world.facade(stale), null);
+        assertThrows(() => world.addComponent(stale, new TagB()), UsageError);
+        assert.equal(world.destroyEntity(stale), false);
+        assert.equal(world.exists(e.id), true, "a rejected stale destroy leaves the live entity alone");
+      }
+      ids.push(e.id);
+      assert.equal(world.destroyEntity(e.id), true);
+      assert.equal(world.exists(e.id), false);
+    }
+    assert.equal(new Set(ids).size, 2048, "2048 distinct ids for one slot");
+    assert.equal(world.exists(keeper.id), true);
+    assert.equal(world.liveEntityCount, 1);
+
+    // The id itself has 12 generation bits: the 2049th occupant is bit-identical to the first.
+    // That period is the documented limit (engine/src/scene/entityId.ts), not a validation gap.
+    assert.equal(world.createEntity("wrapped").id, ids[0]);
+    world.dispose();
+  });
+
   test("enforces maxEntities cap when specified", () => {
     const world = new EntityWorld({ maxEntities: 2 });
     world.createEntity("e1");
