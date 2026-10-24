@@ -9,6 +9,7 @@
  * @covers engine/src/terrain/mars/globeSampler.ts
  * @covers engine/src/particles/dustDevilField.ts
  * @covers engine/src/rendering/planetGlobe.ts
+ * @covers engine/src/rendering/planetDetail.ts
  * @desc fe-39: planet frames and calendar, the globe spin controller, the planet weather system, the sky aureole lobe, the external sun, the Mars globe sampler, the dust-devil field and the progressive globe
  */
 
@@ -24,6 +25,7 @@ export const suite = {
     "engine/src/terrain/mars/globeSampler.ts",
     "engine/src/particles/dustDevilField.ts",
     "engine/src/rendering/planetGlobe.ts",
+    "engine/src/rendering/planetDetail.ts",
   ],
   desc: "fe-39: planet frames and calendar, the globe spin controller, the planet weather system, the sky aureole lobe, the external sun, the Mars globe sampler, the dust-devil field and the progressive globe",
 };
@@ -57,6 +59,10 @@ import {
   pickPlanetDirection,
   planetEventEnvelope,
   planetGroundWeather,
+  planetDetailMesh,
+  planetDetailWindow,
+  planetDetailWindowContains,
+  planetGridCubic,
   planetOrientationForSite,
   planetSiteBasis,
   planetSunDirection,
@@ -75,6 +81,8 @@ afterEach(async () => {
 });
 
 const close = (a: number, b: number, eps = 1e-6, msg = ""): void => assertCloseTo(a, b, eps, msg);
+/** Absolute tolerance (`assertCloseTo` takes decimal digits, not an epsilon). */
+const near = (a: number, b: number, eps: number): void => assert.ok(Math.abs(a - b) <= eps, `${a} vs ${b} (±${eps})`);
 
 group("planetFrame: directions, site frames, picking", () => {
   test("latitude/longitude round-trip and the documented axes", () => {
@@ -350,6 +358,154 @@ group("Mars globe sampler, globe and devils", () => {
     assert.equal(globe.ready, true);
     close(globe.progress, 1);
     assert.ok(Math.abs(globe.elevationAt(0, 0)) < 40000);
+    globe.dispose();
+    await gpu.dispose();
+    assert.deepEqual(gpu.mock.outstanding.buffers, []);
+    assert.deepEqual(gpu.mock.outstanding.textures, []);
+    assert.deepEqual(gpu.mock.errors, []);
+  });
+
+  test("the globe's relief interpolation is smooth across grid cells (bicubic)", () => {
+    // A plane in longitude: bicubic reproduces it exactly, and between nodes it is linear, not stepped.
+    const cols = 36;
+    const rows = 18;
+    const grid = new Float32Array(cols * rows);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) grid[j * cols + i] = 1000 * Math.sin(((i + 0.5) / cols) * 2 * Math.PI);
+    // Node centres reproduce the node values.
+    near(planetGridCubic(grid, cols, rows, 90 - 2.5 * 10, 5), grid[2 * cols]!, 1e-3);
+    // Slope sampled at many points inside one cell varies continuously (no cell-wide constant).
+    const slopes: number[] = [];
+    for (let k = 0; k <= 10; k++) {
+      const lon = 50 + k;
+      slopes.push(planetGridCubic(grid, cols, rows, 0, lon + 0.5) - planetGridCubic(grid, cols, rows, 0, lon - 0.5));
+    }
+    for (let k = 1; k < slopes.length; k++) assert.ok(Math.abs(slopes[k]! - slopes[k - 1]!) < 20, `slope jumps ${slopes[k - 1]} → ${slopes[k]}`);
+    assert.ok(new Set(slopes.map((v) => v.toFixed(3))).size > 6, "the slope changes inside a cell");
+    // Longitude wraps.
+    near(planetGridCubic(grid, cols, rows, 0, 359.9), planetGridCubic(grid, cols, rows, 0, -0.1), 1e-6);
+  });
+
+  test("a detail window is snapped to globe cells, wraps longitude and widens to the pole", () => {
+    const meshW = 64;
+    const meshH = 32;
+    const d = latLonToDirection(10, 3, new Vec3());
+    const w = planetDetailWindow(d.x, d.y, d.z, 8 * (Math.PI / 180), meshW, meshH);
+    // The focus cell is inside, the window spans at least the cap, and it straddles 0° longitude.
+    const fi = Math.floor((3 / 360) * meshW);
+    const fj = Math.floor(((90 - 10) / 180) * meshH);
+    assert.ok(planetDetailWindowContains(w, fi, fj, meshW));
+    assert.ok(w.latSpan >= 16 && w.lonSpan >= 16, JSON.stringify(w));
+    assert.ok(w.lon0 > 180, `the window starts west of 0° (${w.lon0})`);
+    assert.ok(planetDetailWindowContains(w, meshW - 1, fj, meshW), "and wraps to the last column");
+    assert.equal(planetDetailWindowContains(w, fi, 0, meshW), false, "not the polar row");
+    // Near the pole it takes the whole circle and runs to the pole.
+    const p = latLonToDirection(84, 120, new Vec3());
+    const polar = planetDetailWindow(p.x, p.y, p.z, 10 * (Math.PI / 180), meshW, meshH);
+    assert.equal(polar.cellsX, meshW);
+    assert.equal(polar.j0, 0);
+  });
+
+  test("the detail patch meets the globe on its cell edges, without cracks", () => {
+    const meshW = 32;
+    const meshH = 16;
+    const R = 1000;
+    // A globe vertex grid with some relief, built like PlanetGlobe's (north row first, a seam column).
+    const globe = new Float32Array((meshW + 1) * (meshH + 1) * 3);
+    for (let j = 0; j <= meshH; j++) {
+      for (let i = 0; i <= meshW; i++) {
+        const lat = 90 - (j / meshH) * 180;
+        const lon = (i / meshW) * 360;
+        const v = latLonToDirection(lat, lon, new Vec3());
+        const r = R + 20 * Math.sin(i * 1.7) * Math.cos(j * 0.9);
+        const o = (j * (meshW + 1) + i) * 3;
+        globe[o] = v.x * r; globe[o + 1] = v.y * r; globe[o + 2] = v.z * r;
+      }
+    }
+    const d = latLonToDirection(-20, 350, new Vec3());
+    const w = planetDetailWindow(d.x, d.y, d.z, 30 * (Math.PI / 180), meshW, meshH);
+    const sx = 4;
+    const sy = 3;
+    // A wildly different fine surface: only the border fade can make the seam match.
+    const mesh = planetDetailMesh(w, globe, meshW, meshH, sx, sy, R, 2, (along, lat) => 80 * Math.sin(along * 0.7) + 40 * Math.cos(lat));
+    assert.equal(mesh.positions.length, (mesh.nx + 1) * (mesh.ny + 1) * 3);
+    const at = (a: number, b: number): [number, number, number] => {
+      const o = (b * (mesh.nx + 1) + a) * 3;
+      return [mesh.positions[o]!, mesh.positions[o + 1]!, mesh.positions[o + 2]!];
+    };
+    const globeAt = (i: number, j: number): [number, number, number] => {
+      const o = (j * (meshW + 1) + (i % meshW)) * 3;
+      return [globe[o]!, globe[o + 1]!, globe[o + 2]!];
+    };
+    const onSegment = (p: [number, number, number], a: [number, number, number], b: [number, number, number]): number => {
+      // Distance from p to the segment ab.
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+      const t = Math.max(0, Math.min(1, (ap[0]! * ab[0]! + ap[1]! * ab[1]! + ap[2]! * ab[2]!) / (ab[0]! ** 2 + ab[1]! ** 2 + ab[2]! ** 2)));
+      return Math.hypot(ap[0]! - t * ab[0]!, ap[1]! - t * ab[1]!, ap[2]! - t * ab[2]!);
+    };
+    let worst = 0;
+    for (let a = 0; a <= mesh.nx; a++) {
+      const k = Math.min(w.cellsX - 1, Math.floor(a / sx));
+      for (const [b, j] of [[0, w.j0], [mesh.ny, w.j1]] as const) {
+        worst = Math.max(worst, onSegment(at(a, b), globeAt(w.i0 + k, j), globeAt(w.i0 + k + 1, j)));
+      }
+    }
+    for (let b = 0; b <= mesh.ny; b++) {
+      const l = Math.min(w.j1 - w.j0 - 1, Math.floor(b / sy));
+      for (const [a, i] of [[0, w.i0], [mesh.nx, w.i0 + w.cellsX]] as const) {
+        worst = Math.max(worst, onSegment(at(a, b), globeAt(i, w.j0 + l), globeAt(i, w.j0 + l + 1)));
+      }
+    }
+    assert.ok(worst < 1e-3, `a border vertex is ${worst} off the globe's edge`);
+    // Inside the fade the fine surface shows: an interior vertex sits at radius R + 2·elevation.
+    const mid = at(mesh.nx >> 1, mesh.ny >> 1);
+    const midAlong = ((mesh.nx >> 1) / mesh.nx) * w.lonSpan;
+    const midLat = w.lat0 - ((mesh.ny >> 1) / mesh.ny) * w.latSpan;
+    near(Math.hypot(...mid), R + 2 * (80 * Math.sin(midAlong * 0.7) + 40 * Math.cos(midLat)), 1e-2);
+  });
+
+  test("the globe bakes a detail patch on the mock device, punches its hole and restores it", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true });
+    const sampler = createMarsGlobeSampler();
+    let elevationCalls = 0;
+    const counted = {
+      radius: sampler.radius,
+      sample: sampler.sample.bind(sampler),
+      detail: sampler.detail.bind(sampler),
+      elevation: (x: number, y: number, z: number, f?: number) => { elevationCalls++; return sampler.elevation(x, y, z, f); },
+    };
+    const globe = new PlanetGlobe(gpu, { sampler: counted, radius: 3389.5e3, meshSegments: [32, 16], textureWidth: 64, gridPasses: [16], cloudTextureWidth: 32, cloudSegments: [16, 8], detailTextureSize: 64, detailMeshQuads: 24 });
+    assert.ok(globe.detailGeometry && globe.detailMaterial);
+    let steps = 0;
+    while (globe.update(50) && steps++ < 2000);
+    const fullIndices = globe.surfaceGeometry.indexCount;
+    assert.equal(fullIndices, 32 * 16 * 6);
+    assert.equal(globe.detailVisible, false);
+    const d = latLonToDirection(-15, 80, new Vec3());
+    globe.setDetailFocus(d.x, d.y, d.z, 0.2);
+    steps = 0;
+    while (globe.update(50) && steps++ < 4000);
+    assert.equal(globe.detailVisible, true);
+    assert.equal(globe.detailBusy, false);
+    assert.ok(elevationCalls > 0, "fine relief comes from the cheap elevation path");
+    assert.ok(globe.detailRadiusDeg > 0.2 / (Math.PI / 180), "baked with margin");
+    assert.ok(globe.surfaceGeometry.indexCount < fullIndices, "the globe leaves the window's cells out");
+    assert.ok(globe.detailGeometry!.vertexCount > 25, "the patch mesh replaced the placeholder");
+    // A small move inside the patch does not start another bake.
+    const near = latLonToDirection(-14.5, 80.5, new Vec3());
+    globe.setDetailFocus(near.x, near.y, near.z, 0.18);
+    globe.update(0);
+    assert.equal(globe.detailBusy, false);
+    // Moving away does; the old patch stays up until the new one swaps in.
+    const far = latLonToDirection(30, 200, new Vec3());
+    globe.setDetailFocus(far.x, far.y, far.z, 0.2);
+    globe.update(0);
+    assert.equal(globe.detailBusy, true);
+    assert.equal(globe.detailVisible, true);
+    globe.clearDetailFocus();
+    assert.equal(globe.detailVisible, false);
+    assert.equal(globe.detailBusy, false);
+    assert.equal(globe.surfaceGeometry.indexCount, fullIndices, "the hole is closed again");
     globe.dispose();
     await gpu.dispose();
     assert.deepEqual(gpu.mock.outstanding.buffers, []);
