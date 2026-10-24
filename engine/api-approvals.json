@@ -8245,14 +8245,14 @@
       "name": "SnowMeltSystem",
       "kind": "type-and-value",
       "declarationHash": "sha256:adf521478895d35563799d606c34bc8eee22052d5f04698388920757b3287fbb",
-      "contractHash": "sha256:aafcd3ca75d69fbb02dddeee4fcdb8ee6b7735bde95d300c3bf0ad29689d6eb6",
+      "contractHash": "sha256:d7ad3a667f47d4fc76734345b15ad4ec90f5aab6223ff559889c77ebaf4e9431",
       "review": "environment/1"
     },
     {
       "name": "SnowMeltSystemOptions",
       "kind": "type",
       "declarationHash": "sha256:a5d62ca61d23bcfde9fe5bb43d4e33b79296f8fbad93d54a0d8671b5da702d27",
-      "contractHash": "sha256:b6919ac44dbec2178a4950b9dc37a1e3a1d740e061c33b0dca904330666b1844",
+      "contractHash": "sha256:9e32e91ece9a616b3b350867e3c29a4c1c5206411fd244e0772d28ccab1a7cd8",
       "review": "environment/1"
     },
     {
@@ -10862,8 +10862,8 @@
     {
       "name": "WeatherOptions",
       "kind": "type",
-      "declarationHash": "sha256:667c162f8db9122edcf8c1cbe384e94ff04a8063fa06c56d36baac5c89c52feb",
-      "contractHash": "sha256:1f888d78e47c65e6243e80ab89bbeea65ed72723a879cef3f18684bf176cb9e9",
+      "declarationHash": "sha256:0cb2488860cc5d042d7b2f6bd88d517a52192ca79fda06a5f1af51d3430c9b9f",
+      "contractHash": "sha256:ec95a9726788ecd78110b58487f262a0f48cfbbd5954c1b9f1d78d296b0928ac",
       "review": "environment/1"
     },
     {
@@ -10883,8 +10883,8 @@
     {
       "name": "WeatherSystem",
       "kind": "type-and-value",
-      "declarationHash": "sha256:06ef70ba330267f4e571dfefc826cf1f44bd3c1127a4bde85a11222ac9bf4df7",
-      "contractHash": "sha256:4e0b8e9055c5c1df013242889717727081af1a442dc745ac163d6aa2f6812a67",
+      "declarationHash": "sha256:ff47a0e181feff641da0ef83117e5f22e403a74e6c9cb76f8f51c3f95e94ecab",
+      "contractHash": "sha256:0f81a1a1a391f5033fa2239e60b4ac65c53c9f57b81b038ca15ccbf398f99b28",
       "review": "environment/1"
     },
     {
@@ -14797,7 +14797,7 @@
       "name": "sampleMeltEnvironment",
       "kind": "value",
       "declarationHash": "sha256:2933fe98631c6a879903b3a2746042c1855e6d098b751db168a4e5bb06b843c6",
-      "contractHash": "sha256:b85b1fa91bf09c27448580bdc4c680ec54b59bf9dcb32e44caf1f7e744e9c544",
+      "contractHash": "sha256:26f7afcd62c11d43e6b4baaacf0ee81f8a0cda50536730ddae3c1b81199f2003",
       "review": "environment/1"
     },
     {

@@ -7,9 +7,10 @@
  *   tiles with 32 m skirts, dust/rock/sand/crust splat materials and exp² dust haze. Analytic-only: no external Stage A
  *   erosion cache is fetched. Cell generation uses the engine's worker pool, with nine warm-up
  *   requests then one per frame; mesh uploads and missing-cell ground queries remain on main;
- * - sky: `MARS_ATMOSPHERE` through `forge.sky` with a fixed-step `DayNightCycle` driving the
- *   solar direction, light, ambient and horizon-coloured haze (quality raised to medium — this
- *   scene spends its budget on the rover up close);
+ * - sky/environment: `MARS_ATMOSPHERE` through `forge.sky` with a fixed-step `DayNightCycle` driving
+ *   the solar direction, light, ambient and horizon-coloured haze, plus the dry Mars `WeatherSystem`
+ *   profiles that advect a thin high cloud/dust veil, add storm haze and attenuate sunlight (quality
+ *   raised to medium — this scene spends its budget on the rover up close);
  * - rover: `Vehicle` on an electric drivetrain (`ElectricMotor` ≈1.5 kW + `ReductionDrive` 60:1 —
  *   the real rovers are battery-electric; the no-load motor speed caps the rover near 9.5 km/h,
  *   and braking regenerates), with the model's six hub positions (front + rear steer, all six
@@ -43,6 +44,7 @@ import {
   Color,
   DayNightCycle,
   Geometry,
+  WeatherSystem,
   HeightfieldShape,
   PhysicsSystem,
   PhysicsWorld,
@@ -138,6 +140,7 @@ import {
   type MarsReferenceState,
 } from "./marsReferenceTelemetry.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
+import { marsWeatherProfile, type MarsWeatherMode } from "./marsWeather.js";
 import {
   MARS_BASE_SUSPENSION_REST,
   MARS_CHASE_LOOK_OFFSET_Y,
@@ -182,6 +185,18 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
       isDay: boolean;
       sunIntensity: number;
       timeScale: number;
+      simulatedSeconds: number;
+    };
+    /** Dry Mars weather: storm is suspended dust, never terrestrial precipitation. */
+    weather: {
+      mode: MarsWeatherMode;
+      windSpeed: number;
+      windDirectionDeg: number;
+      gust: number;
+      dust01: number;
+      cloudCoverage: number;
+      fogDensity: number;
+      skyTurbidity: number;
       simulatedSeconds: number;
     };
     wheelCount: number;
@@ -267,6 +282,8 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   marsReferenceState(): MarsReferenceState;
   /** Scrub the deterministic Mars solar clock; useful for browser gates and screenshots. */
   setMarsSolarTime(hours: number): void;
+  /** Snap to a dry, deterministic Mars weather profile (clear, regional dust or global dust). */
+  setMarsWeather(mode: MarsWeatherMode): void;
   /** Reset traversal counters at the rover's current position (for a fresh soak/run). */
   resetMarsReferenceTraversal(): void;
   /** Re-run the GLB fetch after a failure (the loading screen's Retry button). */
@@ -831,7 +848,10 @@ class WheelRockChips extends ParticleWorld {
   }
 }
 
-export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?: typeof loadGlb } = {}): MarsShowcaseSceneHandle {
+export function buildMarsShowcaseScene(
+  engine: Engine,
+  dependencies: { loadGlb?: typeof loadGlb; marsWeather?: MarsWeatherMode } = {},
+): MarsShowcaseSceneHandle {
   const loadModel = dependencies.loadGlb ?? loadGlb;
   const scene = new Scene({ name: "mars-showcase" });
 
@@ -852,6 +872,24 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
   scene.setFog("exp2", {
     density: 0.0008,
     color: new Color(horizon[0]!, horizon[1]!, horizon[2]!),
+  });
+  // Mars' high ice/dust veil is deliberately thinner and warmer than the terrestrial cloud preset.
+  // WeatherSystem owns coverage and advection below; these are the stable art/quality limits.
+  scene.setClouds({
+    enabled: true,
+    density: 0.42,
+    height: 2400,
+    thickness: 850,
+    scale: 0.00045,
+    seed: 1337,
+    silverLining: 0.25,
+    layers: 2,
+    layerScale: 0.93,
+    layerDrift: 0.4,
+    shadowSteps: 2,
+    surfaceShadows: true,
+    shadowStrength: 0.35,
+    albedo: new Color(0.78, 0.5, 0.36),
   });
 
   scene.settings.shadow.enabled = true;
@@ -1009,6 +1047,34 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     }],
   });
   scene.add(marsSolarCycle);
+
+  // Mars weather is dry: storm01 is suspended dust, precipitation stays zero, and the shared
+  // WeatherSystem's surface/vehicle/water drives are disabled so a dust front cannot turn regolith
+  // into terrestrial mud. Its stormFogDensity is the extra dry haze term for the Mars atmosphere.
+  const marsWeather = new WeatherSystem({
+    name: "marsWeather",
+    seed: 1337,
+    initial: marsWeatherProfile("clear"),
+    target: marsWeatherProfile("clear"),
+    stormFogDensity: 0.0026,
+    humidityTurbidity: 1,
+    stormTurbidity: 4.5,
+    minimumSunLight: 0.25,
+    minimumAmbientLight: 0.55,
+    driveSurface: false,
+    driveVehicles: false,
+    driveWater: false,
+  });
+  scene.add(marsWeather);
+  let marsWeatherMode: MarsWeatherMode = dependencies.marsWeather ?? "clear";
+  const setMarsWeather = (mode: MarsWeatherMode): void => {
+    const profile = marsWeatherProfile(mode);
+    marsWeather.setTarget(profile).snapTo(profile);
+    marsWeatherMode = mode;
+  };
+  // Apply a query-selected mode after attach-safe construction; the default remains the clear Mars
+  // reference frame, while the two dust profiles are deterministic browser/diagnostic A/Bs.
+  if (marsWeatherMode !== "clear") setMarsWeather(marsWeatherMode);
 
   // Camera: chase framing; `followTarget` tracks the chassis and the surface clamp glides over
   // the terrain (keyboard pan off — the scene binds WASD to the rover).
@@ -3372,6 +3438,7 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
         `${MARS_SHOWCASE_SITE.name} · Mars seed ${terrain.seed} · analytic only (no erosion cache) · ${terrainGeneration()} · ${terrain.layeredMaterialsEnabled ? "4-layer PBR" : "single material"}\n` +
         `physics chassis ${dynamicChassis ? "dynamic" : "kinematic"} · shared terrain/rock world · CCD enabled for supported static contacts\n` +
         `sol ${marsSolarCycle.clockText} · sun ${marsSolarCycle.elevationDeg.toFixed(1)}° · ${marsSolarCycle.isDay ? "day" : "night"} · ${marsSolarCycle.timeScale}×\n` +
+        `weather ${marsWeatherMode} · dust ${Math.round(marsWeather.state.storm01 * 100)}% · wind ${marsWeather.state.windSpeed.toFixed(1)} m/s · clouds ${Math.round(marsWeather.state.cloudCoverage * 100)}%\n` +
         `speed ${(vehicle.speed * 3.6).toFixed(1)} km/h  motor ${vehicle.rpm.toFixed(0)} rpm  ${powerLabel}  wheels ${contact}/6\n` +
         `pos ${vehicle.position.x.toFixed(1)}, ${vehicle.position.y.toFixed(1)}, ${vehicle.position.z.toFixed(1)}  ` +
         `dust ${ambientDust.simulation.alive}+${kickDustAlive()} · chips ${wheelRockChipsAlive()}  NASA/JPL-Caltech (public domain)` +
@@ -3414,6 +3481,17 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
           sunIntensity: marsSolarCycle.sunLightIntensity,
           timeScale: marsSolarCycle.timeScale,
           simulatedSeconds: marsSolarCycle.simulatedSeconds,
+        },
+        weather: {
+          mode: marsWeatherMode,
+          windSpeed: marsWeather.state.windSpeed,
+          windDirectionDeg: (marsWeather.state.windDirection * 180) / Math.PI,
+          gust: marsWeather.state.gust,
+          dust01: marsWeather.state.storm01,
+          cloudCoverage: marsWeather.state.cloudCoverage,
+          fogDensity: scene.settings.fog.density,
+          skyTurbidity: scene.settings.sky.turbidity,
+          simulatedSeconds: marsWeather.simulatedSeconds,
         },
         populationChunks: Number(populationStats.chunks ?? 0),
         populationInstances: Number(populationStats.instances ?? 0),
@@ -3483,7 +3561,15 @@ export function buildMarsShowcaseScene(engine: Engine, dependencies: { loadGlb?:
     },
     marsReferenceState: referenceState,
     setMarsSolarTime(hours: number): void {
-      if (Number.isFinite(hours)) marsSolarCycle.setTime(hours).apply();
+      if (Number.isFinite(hours)) {
+        marsSolarCycle.setTime(hours).apply();
+        // DayNightCycle rewrites sun/ambient/fog immediately when a diagnostic scrubs the clock;
+        // re-apply the dry weather layer so the dust attenuation remains in the same call.
+        marsWeather.apply();
+      }
+    },
+    setMarsWeather(mode: MarsWeatherMode): void {
+      setMarsWeather(mode);
     },
     resetMarsReferenceTraversal(): void {
       referenceTraversal.reset(vehicle.position.x, vehicle.position.z);
