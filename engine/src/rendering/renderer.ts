@@ -3288,7 +3288,8 @@ export class Renderer implements RenderFrameContext {
     const maxInstances = this.maxInstancesPerBatch;
     for (let i = 0; i < store.count; i++) {
       const r = store.valueAt(i) as Renderable;
-      if (!r.visible || !r.geometry || !r.material) continue;
+      // A released geometry has no buffers left to bind (setVertexBuffer(0, null) fails the whole frame).
+      if (!r.visible || !r.geometry || r.geometry.released || !r.material) continue;
       const transformSlot = scene.world.transformSlot(r.entity, true);
       const matrix = scene.world.transforms.worldView(transformSlot);
       // Frustum cull against the world-space AABB (local bounds transformed once, allocation-free).
