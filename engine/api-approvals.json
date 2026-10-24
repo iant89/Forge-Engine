@@ -408,6 +408,7 @@
       "decision": "approved-1.0-candidate",
       "summary": "Review the real-elevation additions (fe-40): the MOLA height atlas (MarsHeightAtlas, MarsHeightAtlasStreamer, manifest/codec/size-policy helpers, IndexedDB cache), marsDirectionToFaceUVExact, and the optional heightAtlas inputs to MarsTerrainStage/createMarsPipeline and createMarsGlobeSampler. All additions are new exports or optional/defaulted members (PlanetGlobeOptions.reliefGain, the optional footprintRad argument of PlanetSurfaceSampler.sample, MarsCraterScanner.deltaAt's firstBand, MarsTerrainStageOptions.heightAtlas); without an atlas every path is unchanged. MarsGlobeSampler gains hasRealElevation/setAtlas members, which only matters to code implementing that interface itself (the engine returns it from createMarsGlobeSampler). Self-review by the author: needs a maintainer pass.",
       "evidence": [
+        "docs/API-REVIEW.md",
         "docs/MARS-TERRAIN.md",
         "docs/PLANET-ORBIT.md",
         "engine/src/terrain/mars/heightAtlas.ts",
