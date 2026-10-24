@@ -74,7 +74,7 @@ attach a debugger to, and it proves nothing until someone reads the output.
 | `npm run test:check` | The selrun catalog is complete: all 167 suites have matching headers/exported manifests, unique names, repository-backed areas and 1,124 valid coverage claims; `tests/full.test.ts` links every discovered suite exactly once in the declared order. | passing |
 | `npm run check:wgsl` | structural WGSL validation of every shipped shader (the UI overlay's `UI_SHADER` and its generated `UiFrame` uniform included; standard, instanced, GPU-LOD instanced, population LOD compute, depth-only, debug, post, sky, water, particle compute/render) + 16-byte layout sizing + the strict uniform address-space layout rules (array strides and struct/array member offsets that are multiples of 16) applied to all 17 generated structs (including `PopulationLodUniforms`, `ShadowUniforms`, `SkyUniforms`, `CloudUniforms`, `WaterUniforms`) and every `var<uniform>` in the shader text + `smoothstep` literal edge order (`low >= high`, which strict compilers reject at shader-module creation) | passing |
 | `npm run lint:arch` | Import boundaries from `ARCHITECTURE.md` §2 (`core/**` -> core+math, `gpu/**` -> core/gpu/math/testing, `math/**` -> core+math, `scene/**` -> no runtime rendering/environment, `environment/**` -> core/math/scene/environment, `ui/**` -> core+math/ui with only `ui/gpu/**` also seeing gpu/rendering), AST import parsing across TS/TSX and static, type-query, dynamic and CommonJS forms, `editor/**` using only the public `@forge/engine` API with runtime never importing editor, no WebGL fallback anywhere in `engine/src`, and no `engine/src` deep imports from `examples/` or `tests/` | passing |
-| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,220 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,211 public candidates across 28 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
+| `npm run api:check` | TypeScript resolves the sole `@forge/engine` package entry point and compares all 2,275 names, type/value kinds, stability classifications, direct declarations and transitive engine-local contracts with `engine/api-surface.json`; the approval ledger binds all 2,266 public candidates across 28 review batches, with nine experimental exports separate and zero pending. It also rejects package/version, deep-export, default, `@internal`, hash, canonical-format, and evidence drift. | passing |
 | `npm run api:reference:check` | Regenerates the complete consumer-facing root export inventory from the reviewed API snapshot and rejects stale `docs/API-REFERENCE.md`. | passing |
 | `npm run version:check` | Checks root, engine, editor, exported `VERSION`, API snapshot, editor dependency and lockfile metadata are all `1.0.0`. | passing |
 | `npm run docs:check` | The capability registry agrees with the roadmap and known issues, and the 1.0 reference/policy files are covered by focused tests. | passing |
@@ -243,7 +243,7 @@ component` (and disposing either scene cleared the other's components).
 Nine checks parse the deterministic `forge.api-surface/2` snapshot, require sorted unique rows,
 known type/value/stability classifications and canonical direct/transitive SHA-256 fingerprints, pin
 the nine experimental WASM-physics names, and verify the package remains root-only. They separately
-parse `forge.api-approvals/1`, require all 2,211 public names and only those names to match the current
+parse `forge.api-approvals/1`, require all 2,266 public names and only those names to match the current
 kind and both hashes, pin the 27 review batches and their exact counts/evidence, and run an isolated
 source copy where `ForgeError` gains a member to prove a stale approval fails with an explicit
 re-review diagnostic. A second negative ledger proves policy v2 rejects even one newly pending public
@@ -261,8 +261,8 @@ record, not an inference made by the CLI.
 ### `tests/core/runtimeApi.test.ts` — complete public namespace and core-runtime evidence
 
 Eleven checks load the full checked-in surface and approval ledger through the built package. Every
-one of the 1,400 value-bearing exports (public and experimental) must exist on the runtime namespace,
-every one of the 820 type-only declarations must stay runtime-free, and all 2,211 public candidates
+one of the 1,434 value-bearing exports (public and experimental) must exist on the runtime namespace,
+every one of the 841 type-only declarations must stay runtime-free, and all 2,266 public candidates
 must remain approved while `VERSION` is `1.0.0`. The suite also supplies focused runtime evidence
 for configuration normalization/errors/hashing, event ordering and mutation/disposal/error isolation,
 logger rings/scopes/sink isolation, object pools, generational handles, typed buffers/arenas, and the
