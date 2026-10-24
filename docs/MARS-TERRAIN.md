@@ -505,7 +505,7 @@ With real data the sampler is cheap (no crater scanner), so the demo adds a fine
 
 ### Verification
 
-`tests/terrain/marsHeightAtlas.test.ts` (43 checks) reads the **shipped files** back through the runtime code: manifest
+`tests/terrain/marsHeightAtlas.test.ts` (44 checks) reads the **shipped files** back through the runtime code: manifest
 hashes and the size budget; Olympus/Ascraeus/Elysium summits, Hellas/Valles/Argyre/Utopia floors, the hemispheric dichotomy
 and east-positive longitude (no mirroring) on `phone` and `tablet`; one `desktop` face; shared-edge nodes equal across every
 cube edge and no step across a walk over every edge; atlas round trip on a synthetic field; fallback; lazy loading, caching,

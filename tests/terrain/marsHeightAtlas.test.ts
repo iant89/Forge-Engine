@@ -484,6 +484,25 @@ group("MarsHeightAtlasStreamer", () => {
     assert.equal(second.streamStats.bytesDownloaded, 0);
   });
 
+  test("a corrupt cache entry of the right size is refetched once instead of failing every visit", async () => {
+    const cache = memoryCache();
+    const probe = await MarsHeightAtlasStreamer.open("/mars/mola/", { fetchImpl: diskFetch, cache: null });
+    const entry = probe.manifest.sizes.phone!.faces[3]!;
+    cache.store.set(entry.sha256, new Uint8Array(entry.bytes).fill(0x5a).buffer);
+    let fetches = 0;
+    const counting = ((input: RequestInfo | URL) => {
+      if (String(input).includes("phone/face3")) fetches++;
+      return diskFetch(input);
+    }) as typeof fetch;
+    const s = await MarsHeightAtlasStreamer.open("/mars/mola/", { fetchImpl: counting, cache });
+    await s.loadFace("phone", 3);
+    assert.deepEqual(s.facesReady("phone"), [3]);
+    assert.equal(fetches, 1, "the network was used after the cached bytes failed to decode");
+    assert.equal(s.streamStats.cacheHits, 0);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.notEqual(new Uint8Array(cache.store.get(entry.sha256)!)[0], 0x5a, "the bad entry was replaced");
+  });
+
   test("concurrent requests for one face share one download; a failure is reported and retryable", async () => {
     let fetches = 0;
     const counting = ((input: RequestInfo | URL) => {

@@ -911,6 +911,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "terrain.marsRealElevation",
     phase: "10.9",
     status: "partial",
+    closesWith: "10.9",
     summary: "Real USGS MOLA elevation: offline-baked cube-sphere height atlas in three sizes (phone/tablet/desktop), bicubic loader, stage and globe sampler over real heights with procedural fallback",
     evidence: ["tests/terrain/marsHeightAtlas.test.ts", "tools/bake-mola-atlas.mjs", "examples/public/mars/mola/manifest.json", "docs/MARS-TERRAIN.md", "tools/browser-check.mjs"],
     notes:

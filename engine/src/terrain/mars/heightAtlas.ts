@@ -566,6 +566,15 @@ export class MarsHeightAtlasStreamer {
     if (!entry) return Promise.reject(new UsageError(`Mars height atlas: size "${size}" is not in the manifest`));
     const file = entry.faces[face];
     if (!file) return Promise.reject(new UsageError(`Mars height atlas: size "${size}" has no face ${face}`));
+    const download = async (): Promise<ArrayBuffer> => {
+      const response = await this.fetchImpl(`${this.baseUrl}${file.file}`, { signal: this.signal });
+      if (!response.ok) throw new UsageError(`Mars height atlas: GET ${file.file} failed with ${response.status}`);
+      const body = await response.arrayBuffer();
+      if (body.byteLength !== file.bytes) {
+        throw new UsageError(`Mars height atlas: ${file.file} is ${body.byteLength} bytes, the manifest says ${file.bytes}`);
+      }
+      return body;
+    };
     const task = (async () => {
       let bytes: ArrayBuffer | undefined;
       let fromCache = false;
@@ -574,21 +583,18 @@ export class MarsHeightAtlasStreamer {
         if (bytes && bytes.byteLength === file.bytes) fromCache = true;
         else bytes = undefined;
       }
-      if (!bytes) {
-        const response = await this.fetchImpl(`${this.baseUrl}${file.file}`, { signal: this.signal });
-        if (!response.ok) throw new UsageError(`Mars height atlas: GET ${file.file} failed with ${response.status}`);
-        bytes = await response.arrayBuffer();
-        if (bytes.byteLength !== file.bytes) {
-          throw new UsageError(`Mars height atlas: ${file.file} is ${bytes.byteLength} bytes, the manifest says ${file.bytes}`);
+      let texels: Uint16Array | undefined;
+      if (bytes && fromCache) {
+        // A cache entry of the right size can still be corrupt: fall back to the network once instead of
+        // failing on every visit.
+        texels = await decodeMarsAtlasFace(bytes, entry.stored).catch(() => undefined);
+        if (!texels) {
+          fromCache = false;
+          bytes = undefined;
         }
       }
-      let texels: Uint16Array;
-      try {
-        texels = await decodeMarsAtlasFace(bytes, entry.stored);
-      } catch (error) {
-        // A corrupt cache entry must not poison later runs: only cache after a successful decode.
-        throw error instanceof Error ? error : new UsageError(String(error));
-      }
+      if (!bytes) bytes = await download();
+      texels ??= await decodeMarsAtlasFace(bytes, entry.stored);
       if (!fromCache && this.cache) void this.cache.put(file.sha256, bytes).catch(() => undefined);
       this.atlas.addFace(entry.res, face, texels);
       this.done.add(key);
