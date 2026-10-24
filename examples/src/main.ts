@@ -359,6 +359,7 @@ async function main(): Promise<void> {
     document.body.classList.toggle("scene-offroad", name === "offroad");
     document.body.classList.toggle("scene-amazon", name === "amazon-river");
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
+    document.body.classList.toggle("scene-mars-generator", name === "mars-generator");
     document.body.classList.toggle("scene-storm", name === "mars-dust-storm");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
@@ -495,6 +496,23 @@ async function main(): Promise<void> {
     // Scene modules own their camera policy (starting framing, zoom range, surface constraint).
     // Pass the setup into the constructor so the first pose is the scene's, not the defaults.
     controls = new OrbitControls(currentHandle.cameraEntity, canvas, currentHandle.camera ?? {});
+  }
+
+  const marsGenTime = document.getElementById("mg-time") as HTMLInputElement | null;
+  const setMarsGeneratorTime = (hours: number): void => {
+    const handle = currentHandle as MarsGeneratorSceneHandle | null;
+    if (!handle || activeSceneName !== "mars-generator") return;
+    const time = (hours + 24) % 24;
+    handle.setSolarTime(time);
+    if (marsGenTime) marsGenTime.value = String(time);
+  };
+  document.getElementById("mg-time-back")?.addEventListener("click", () => setMarsGeneratorTime(Number(marsGenTime?.value ?? 14) - 1));
+  document.getElementById("mg-time-forward")?.addEventListener("click", () => setMarsGeneratorTime(Number(marsGenTime?.value ?? 14) + 1));
+  marsGenTime?.addEventListener("input", () => setMarsGeneratorTime(Number(marsGenTime.value)));
+  for (const [id, mode] of [["mg-clear", "clear"], ["mg-dust", "dust"], ["mg-global-dust", "global-dust"]] as const) {
+    document.getElementById(id)?.addEventListener("click", () => {
+      if (activeSceneName === "mars-generator") (currentHandle as MarsGeneratorSceneHandle | null)?.setWeather(mode);
+    });
   }
 
   loadScene(activeSceneName);

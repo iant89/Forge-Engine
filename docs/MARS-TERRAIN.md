@@ -245,9 +245,9 @@ camera clamped to the ported surface, and the site taken from the URL:
 
 | URL | site |
 |---|---|
-| `?scene=mars-generator` | `MARS_SITE_PRESETS.olympusMons` (the 21 km volcano summit the generator's own CLI defaults to) |
+| `?scene=mars-generator` | `MARS_SITE_PRESETS.vallesRift` (the Valles-Marineris-like canyon; `?marssite=olympusMons` selects the volcano summit) |
 | `?scene=mars-generator&marssite=vallesRift` | a `MARS_SITE_PRESETS` key |
-| `?scene=mars-generator&marssite=0,0` | any `lat,lon` pair in degrees (range-checked; an unknown key falls back to the volcano) |
+| `?scene=mars-generator&marssite=0,0` | any `lat,lon` pair in degrees (range-checked; an unknown key falls back to Valles Rift) |
 
 The material path is the showcase's: four scene-tinted `marsSurfaceLayers()` over the shared
 `createMarsSurfaceTextures` arrays, one `SplatMaterial` per resident tile with a mask built from that

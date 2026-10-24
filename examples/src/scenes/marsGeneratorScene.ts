@@ -6,8 +6,8 @@
  * planted. This scene is the complement: the same `MarsTerrainStage`, no rover, and the site comes
  * from the URL, so the port's planet can be inspected anywhere.
  *
- * - `?scene=mars-generator` — `MARS_SITE_PRESETS.olympusMons` (the 21 km shield volcano the ported
- *   generator's own CLI defaults to), the advised demo sizing from `adviseMarsTile` (128 m tiles at
+ * - `?scene=mars-generator` — `MARS_SITE_PRESETS.vallesRift` (the ported planet's Valles-Marineris-like
+ *   canyon), the advised demo sizing from `adviseMarsTile` (128 m tiles at
  *   33², the `micro` band, 32 m skirts), and worker-backed cell generation like the showcase.
  * - `?marssite=vallesRift` — a preset key from `MARS_SITE_PRESETS`.
  * - `?marssite=0,0` — any `lat,lon` pair in degrees. The geology still supplies one dominant
@@ -27,6 +27,7 @@ import {
   AtmosphereModel,
   Camera,
   Color,
+  DayNightCycle,
   type Engine,
   LayeredTerrainMaterial,
   Light,
@@ -36,6 +37,7 @@ import {
   Scene,
   TerrainWorld,
   Vec3,
+  WeatherSystem,
   adviseMarsTile,
   createAtmosphere,
   createMarsPipeline,
@@ -43,6 +45,7 @@ import {
 } from "@forge/engine";
 import { createMarsSurfaceTextures } from "../textures/procedural.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
+import { marsWeatherProfile, type MarsWeatherMode } from "./marsWeather.js";
 
 /** Static facts about the ported stage this scene streams, for the HUD, `__forge` and the gate. */
 export interface MarsGeneratorState {
@@ -64,12 +67,14 @@ export interface MarsGeneratorState {
 
 export interface MarsGeneratorSceneHandle extends DemoSceneHandle {
   marsGeneratorState: () => MarsGeneratorState;
+  setSolarTime(hours: number): void;
+  setWeather(mode: MarsWeatherMode): void;
 }
 
 export interface MarsGeneratorSceneOptions {
   /**
    * Key into `MARS_SITE_PRESETS` (`olympusMons`, `vallesRift`) or a `"lat,lon"` pair in degrees
-   * (e.g. `"0,0"`); the volcano is the default.
+   * (e.g. `"0,0"`); Valles Rift is the default.
    */
   site?: string;
 }
@@ -133,7 +138,7 @@ export function buildMarsGeneratorScene(
   if (!advice.ok) {
     throw new Error(`Mars generator demo tiles are outside the advised band: ${advice.notes.join(" ")}`);
   }
-  const requested = options.site ?? "olympusMons";
+  const requested = options.site ?? "vallesRift";
   const coordinates = parseMarsSiteParam(requested);
   const site: MarsSitePreset = coordinates
     ? {
@@ -142,7 +147,7 @@ export function buildMarsGeneratorScene(
         ...coordinates,
         headingDeg: 0,
       }
-    : (MARS_SITE_PRESETS[requested] ?? MARS_SITE_PRESETS.olympusMons!);
+    : (MARS_SITE_PRESETS[requested] ?? MARS_SITE_PRESETS.vallesRift!);
 
   // One set of four-slice PBR arrays for the whole scene (borrowed by every tile material); a null
   // engine (unit tests) lets the helper generate its shared 1×1 fallback arrays instead.
@@ -180,25 +185,62 @@ export function buildMarsGeneratorScene(
   const generation = (): "workers" | "inline" =>
     !terrain.syncGeneration && engine?.tasks && !engine.tasks.isInline ? "workers" : "inline";
 
-  // Martian sun and dust fill, the same rig the Martian terrain demo and the showcase use.
+  // Field observatory environment: the same deterministic solar/weather systems as the rover
+  // showcase, but bound to the inspected site's latitude/longitude.
   const sunEntity = scene.createTransformedEntity("sun", new Vec3(200, 300, 200));
   const sun = new Light();
   sun.kind = "directional";
-  sun.intensity = 3.6;
   sun.castShadow = true;
-  sun.setColor(1.0, 0.92, 0.8);
   sun.shadowBias = 0.001;
   scene.world.addComponent(sunEntity.id, sun);
-  sunEntity.transform.lookAt(new Vec3(0, 0, 0));
-
   const ambientEntity = scene.createTransformedEntity("ambient-fill", new Vec3(-200, -300, -200));
   const ambient = new Light();
   ambient.kind = "directional";
-  ambient.intensity = 0.55;
   ambient.castShadow = false;
   ambient.setColor(0.36, 0.2, 0.16);
   scene.world.addComponent(ambientEntity.id, ambient);
-  ambientEntity.transform.lookAt(new Vec3(0, 0, 0));
+  const solar = new DayNightCycle({
+    name: "marsGeneratorSolarCycle",
+    latitude: site.latDeg,
+    longitude: site.lonDeg,
+    year: 2000,
+    dayOfYear: 80,
+    timeOfDay: 14,
+    timeScale: 0,
+    atmosphere: marsAtmosphere,
+    sun,
+    sunIntensity: 4.2,
+    ambientScale: 0.72,
+    nightAmbient: new Color(0.012, 0.009, 0.018),
+    driveAmbient: true,
+    driveFog: true,
+    driveSky: true,
+    schedules: [({ daylight }) => { ambient.intensity = 0.16 + daylight * 0.64; }],
+  });
+  scene.add(solar);
+  const weather = new WeatherSystem({
+    name: "marsGeneratorWeather",
+    seed: 1337,
+    initial: marsWeatherProfile("clear"),
+    target: marsWeatherProfile("clear"),
+    stormFogDensity: 0.0026,
+    humidityTurbidity: 1,
+    stormTurbidity: 4.5,
+    minimumSunLight: 0.25,
+    minimumAmbientLight: 0.55,
+    driveSurface: false,
+    driveVehicles: false,
+    driveWater: false,
+  });
+  scene.add(weather);
+  let weatherMode: MarsWeatherMode = "clear";
+  const setWeather = (mode: MarsWeatherMode): void => {
+    const profile = marsWeatherProfile(mode);
+    weather.setTarget(profile).snapTo(profile);
+    weatherMode = mode;
+    weather.apply();
+  };
+  solar.apply();
 
   // The zero/zero crater-field deep link shows both the local material veneers and a real geology
   // boundary. At the site's origin the analytic classifier is inside the crater floor; a known
@@ -260,11 +302,19 @@ export function buildMarsGeneratorScene(
         `mars generator: ${s.site} (${s.latDeg}°, ${s.lonDeg}°) · seed ${s.stageSeed} · ` +
         `${s.chunkSize} m @ ${tile.resolution}^2 (${s.detailLevel} band, ${s.vertexSpacing.toFixed(1)} m spacing) · ` +
         `skirts ${s.skirtDepth} m · ${s.generation} · ${s.materialMode} (${s.splatTiles} splat tiles) · ` +
-        `${s.hasErosionCorrection ? "erosion cache" : "analytic only (no erosion cache)"}`
+        `${s.hasErosionCorrection ? "erosion cache" : "analytic only (no erosion cache)"} · ` +
+        `weather ${weatherMode} · wind ${weather.state.windSpeed.toFixed(1)} m/s`
       );
     },
     /** Inspector state (`?marssite=…`), exposed to the HUD, `window.__forge` and the browser gate. */
     marsGeneratorState: state,
+    setSolarTime(hours: number): void {
+      if (Number.isFinite(hours)) {
+        solar.setTime(hours).apply();
+        weather.apply();
+      }
+    },
+    setWeather,
     update: (_dt: number) => {
       scene.settings.sky.seaLevel = terrain.getHeightAt(orbitTarget.x, orbitTarget.z);
     },
