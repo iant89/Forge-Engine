@@ -2118,6 +2118,21 @@ EXIT CRITERIA:
         fixed two engine bugs (a Transform posed before a deferred add lost its pose; fixed steps
         did not see the previous step's structural changes within one frame).
 
+    [x] Beacon Defense, playable (`?scene=beacon`, examples/src/scripting/beaconDefenseGame.ts,
+        examples/src/scenes/beaconDefenseScene.ts, examples/src/ui/beaconHud.ts,
+        examples/src/audio/beaconSounds.ts): the criterion above grown into a game you play — twelve
+        waves, four drone types, six upgrades, three cooldown abilities, a win and a loss, an
+        engine-UI HUD with a generated minimap, CPU particle bursts, tracers and fifteen synthesised
+        sound effects. The rules stay scripts against the public API on the fixed-step clock; the
+        arena, HUD, sound and input are the stage and exchange only typed events with them.
+        tests/examples/beaconDefenseGame.test.ts (23 checks) plays an unattended run to a loss and
+        restart, plays a bot run to a wave-12 win, proves the run identical under three frame
+        splits, pins every upgrade's arithmetic and refusal reason, draws the arena through a real
+        Renderer on the mock device with no validation errors, and releases every GPU resource on
+        dispose. Building it found one more determinism rule: a spawn a rule depends on must happen
+        inside the step that causes it, because posted events flush at the start of every phase, so
+        their delivery point moves with the frame's step count (docs/BEACON-DEFENSE.md).
+
 
 ================================================================================
                   PHASE 19 - SAVE / SERIALIZATION / REPLAY

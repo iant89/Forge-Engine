@@ -29,6 +29,7 @@ export const DEMO_SCENE_NAMES = [
   "thaw",
   "offroad",
   "scripting",
+  "beacon",
   "ui",
 ] as const;
 
@@ -64,13 +65,19 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "offroad":
     case "thaw":
     case "scripting":
+    case "beacon":
     case "ui":
       return requestedScene;
     case "ui-gallery":
     case "widgets":
       return "ui";
+    // `beacon-defense` now means the playable game; the Phase 18 scripting criterion keeps `scripts`.
     case "beacon-defense":
+    case "beacon-game":
+    case "tower-defense":
+      return "beacon";
     case "scripts":
+    case "scripting-demo":
       return "scripting";
     case "offroad-hill":
     case "hillside":
