@@ -953,6 +953,12 @@ async function checkMarsOrbit() {
   await waitPresentedFrames(2);
   const first = await page.evaluate(() => window.__forge.marsOrbitState());
   if (first.mode !== "orbit") throw new Error(`mars-orbit did not start in orbit: ${JSON.stringify(first)}`);
+  // fe-40: `?tier=low` with no `?mola=` must pick the phone atlas and have it loaded (the globe is not built before).
+  await page.waitForFunction(() => window.__forge.marsOrbitState().atlas.status !== "loading", null, { polling: 250, timeout: 120000 });
+  const atlas0 = await page.evaluate(() => window.__forge.marsOrbitState().atlas);
+  if (atlas0.status !== "ready" || atlas0.size !== "phone" || atlas0.resolution !== 512) {
+    throw new Error(`mars-orbit low tier did not load the phone MOLA atlas: ${JSON.stringify(atlas0)}`);
+  }
   await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
   const cover = await sampleLitFrame();
   if (!(cover.distinct >= 8)) throw new Error(`only ${cover.distinct} distinct colours; the globe is not rendering`);
@@ -999,10 +1005,54 @@ async function checkMarsOrbit() {
   console.log(
     `mars orbit: globe ${(first.globeProgress * 100).toFixed(0)}%→, drag turned ${turned.toFixed(1)}°, ` +
       `ground dust=${ground.state.weather.dust.toFixed(2)} (${ground.state.weather.dominantId}), terrain ${ground.state.terrainReadyChunks}/${ground.state.terrainChunks} chunks, ` +
-      `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}; ` +
+      `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}, atlas ${atlas0.size} ${(atlas0.bytesDownloaded / 1e6).toFixed(1)} MB; ` +
       `real-time return: frame mean=${realtime.mean.toFixed(1)}, distinct=${realtime.distinct}, GPU errors=${realtime.gpuErrors}`,
   );
+  await checkMarsOrbitAtlasSize("tablet");
+  await checkMarsOrbitAtlasSize("desktop");
   return end.state;
+}
+
+/**
+ * fe-40: one MOLA atlas size end to end. The page asks for `?mola=<size>`, only that size is downloaded
+ * (`desktop` = the tablet base plus 2048² faces on demand), the globe renders from it, and a dive onto Olympus
+ * Mons lands on terrain built over the real heights. The tablet/desktop runs reuse the browser context, so the
+ * IndexedDB cache is exercised as well (a second visit downloads nothing).
+ */
+async function checkMarsOrbitAtlasSize(size) {
+  const base = { phone: 512, tablet: 1024, desktop: 1024 }[size];
+  await page.goto(`${URL}?scene=mars-orbit&tier=low&mola=${size}&moinstant=1&mobake=60`, { waitUntil: "load", timeout: 60000 });
+  await page.waitForFunction(() => window.__forge?.marsOrbitState?.() != null, null, { polling: 250, timeout: 90000 });
+  await page.waitForFunction(() => window.__forge.marsOrbitState().atlas.status !== "loading", null, { polling: 250, timeout: 120000 });
+  const loaded = await page.evaluate(() => window.__forge.marsOrbitState().atlas);
+  if (loaded.status !== "ready" || loaded.size !== size || loaded.resolution !== base) {
+    throw new Error(`mars-orbit ?mola=${size} did not load: ${JSON.stringify(loaded)}`);
+  }
+  if (loaded.facesBase !== 6 || loaded.facesDetail !== 0) throw new Error(`?mola=${size}: expected 6 base faces and no detail faces yet: ${JSON.stringify(loaded)}`);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
+  const cover = await samplePixels();
+  if (!(cover.distinct >= 8 && cover.mean >= 6)) throw new Error(`?mola=${size}: the globe is not rendering (${JSON.stringify(cover)})`);
+  await page.screenshot({ path: `tools/.browser-check-mars-orbit-${size}.png`, timeout: 60000 });
+
+  await page.evaluate(() => window.__forge.marsOrbitDive(18, 226.5, { hours: 12, ls: 90 }));
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 250, timeout: 90000 });
+  await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
+  if (size === "desktop") {
+    // `?moinstant=1` does not wait for the fine faces; they arrive a moment after the landing.
+    await page.waitForFunction(() => window.__forge.marsOrbitState().atlas.facesDetail >= 1, null, { polling: 500, timeout: 120000 });
+  }
+  const ground = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
+  if (size === "desktop" && !(ground.state.atlas.facesDetail >= 1)) {
+    throw new Error(`?mola=desktop landed without fetching a 2048² face: ${JSON.stringify(ground.state.atlas)}`);
+  }
+  if (size !== "desktop" && ground.state.atlas.facesDetail !== 0) throw new Error(`?mola=${size} fetched detail faces: ${JSON.stringify(ground.state.atlas)}`);
+  if (ground.stats.gpuErrors !== 0 || ground.stats.lastError) throw new Error(`?mola=${size} GPU error: ${ground.stats.lastError}`);
+  await sleep(1000);
+  await page.screenshot({ path: `tools/.browser-check-mars-orbit-${size}-ground.png`, timeout: 60000 });
+  console.log(
+    `mars orbit atlas ${size}: ${loaded.resolution}² base, ${ground.state.atlas.facesDetail} detail face(s), ` +
+      `${(ground.state.atlas.bytesDownloaded / 1e6).toFixed(1)} MB fetched (${ground.state.atlas.cacheHits} cache hits), terrain ${ground.state.terrainReadyChunks} chunks, GPU errors=${ground.stats.gpuErrors}`,
+  );
 }
 
 /**

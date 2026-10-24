@@ -24,6 +24,7 @@ export {
   marsDepthForChunkEdge,
   marsDepthForChunkEdgeAtMost,
   marsDirectionToFaceUV,
+  marsDirectionToFaceUVExact,
   marsFaceCentreChunkEdgeMeters,
   marsFaceUVToDirection,
   marsLatLonOfDirection,
@@ -72,6 +73,33 @@ export {
   type MarsFaceFields,
   type MarsGlobalSample,
 } from "./globalFields.js";
+
+export {
+  MARS_ATLAS_FORMAT,
+  MARS_ATLAS_SIZES,
+  MarsHeightAtlas,
+  MarsHeightAtlasStreamer,
+  chooseMarsAtlasSize,
+  createMarsAtlasIndexedDbCache,
+  decodeMarsAtlasFace,
+  isMarsAtlasSize,
+  marsAtlasFilter,
+  marsAtlasGunzip,
+  marsAtlasPlan,
+  marsAtlasQuantize,
+  marsAtlasTexelDirection,
+  marsAtlasUnfilter,
+  parseMarsAtlasManifest,
+  type MarsAtlasCache,
+  type MarsAtlasFaceEntry,
+  type MarsAtlasFilter,
+  type MarsAtlasManifest,
+  type MarsAtlasSize,
+  type MarsAtlasSizeEntry,
+  type MarsAtlasSizeInputs,
+  type MarsAtlasStreamStats,
+  type MarsAtlasStreamerOptions,
+} from "./heightAtlas.js";
 
 export {
   MARS_SITE_PRESETS,

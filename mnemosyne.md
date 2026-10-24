@@ -3123,6 +3123,35 @@ holds only the event script, HUD props and camera policy. Read `docs/PLANET-ORBI
 - **Not verified:** real iOS Safari/GPU performance and the real-time easing; the globe texture is ≈10–21 km/texel.
 - API: 55 new exports → `environment/2` in `engine/api-approvals.json` (author self-review; wants a maintainer pass).
 
+## 2026-10-24 — fe-40 real MOLA elevation (height atlas)
+
+The Mars Orbit Explorer (and any `MarsTerrainStage`) can run on **real USGS MOLA heights**: `engine/src/terrain/mars/heightAtlas.ts`
+loads a baked cube-sphere atlas (`examples/public/mars/mola/`, three sizes phone/tablet/desktop = 2.0/7.6/27.9 MB, 37.5 MB total,
+made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not run in CI). Read `docs/MARS-TERRAIN.md` §8 first.
+
+- **`marsDirectionToFaceUV` is NOT the inverse of the spherified warp** (gnomonic approximation, >0.05 face units off near edges).
+  `marsDirectionToFaceUVExact` is the exact closed form (the warp outputs unit vectors, so it inverts algebraically: with
+  `A=p²,B=q²,D=P²−Q²`, `B = 12Q²/((3−2D)+√((3−2D)²−24Q²))`). The baker, runtime and tests all use it; do not "simplify" it.
+- **Node-registered grid, shared edge nodes, 1-texel apron.** Adjacent faces own the same edge nodes (averaged at bake time), and the apron
+  is baked from the extended chart, so bicubic reaches the edge without a cross-face lookup and seams are exactly continuous.
+- **Longitude is `atan2(z, x)` east-positive** (matches `marsLatLonToDirection` and the GeoTIFF). Tests pin Olympus ≈ 226° E, 17–18° N, so a
+  mirrored bake fails loudly. The GeoTIFF's geokey radius is inconsistent; the baker trusts 360/W, 180/H after a symmetry check.
+- **Check "known features" against the data, not memory.** Several "expected" coordinates I first wrote (Olympus, Hellas, Valles) were wrong
+  by 5–10°; the checks use window extremes (Olympus window max, Hellas < −7500 m, Valles < −4500 m …).
+- **Desktop = tablet base + lazy 2048² faces.** The orbit globe needs the whole planet (tablet is plenty); `MarsHeightAtlasStreamer.loadNear` fetches
+  the 2048² faces under the dive site. Face files are cached in IndexedDB keyed by SHA-256. `DecompressionStream("gzip")` is required
+  (Safari ≥ 16.4); otherwise the demo says why and runs procedural.
+- **Real heights replace the procedural dichotomy/canyon/volcano and the Stage A erosion delta,** with only the small crater band (2) and
+  `marsFineDetail` on top, weighted by tile fineness (full ≤150 m vertex spacing, off ≥900 m). The identity gains `heightAtlas` only when attached;
+  an atlas-backed stage is inline-only (`InlineOnlyError` from `createPipelineFromSpec`).
+- **The globe sampler must be band-limited** (`footprintRad`): a 5 km-node atlas sampled at one point per 15–60 km globe cell aliases badly.
+  `PlanetGlobe` passes its grid cell; real-data passes add a finer final grid pass and a stronger relief (`reliefGain`).
+- **Do not edit `examples/`/`engine/src` while a screenshot/browser run is live:** Vite reloads the page and the run dies with
+  "Execution context was destroyed" (same as fe-39; it cost a rerun again).
+- **Not verified:** real iPhone/iPad GPU and memory, Safari decode performance, a finer-than-2.6-km atlas. Heights are metres above the areoid used
+  as metres above the port's 3,389,500 m sphere (no 6.7 km datum shift — documented).
+- API: new atlas exports + `marsDirectionToFaceUVExact`, optional members on `PlanetGlobe`/`MarsTerrainStage`/`MarsGlobeSampler` → `terrain/2`.
+
 ### fe-39 follow-up — return-to-orbit black screen (`Vertex buffer slot 0 ... was not set`)
 
 - **Root cause:** `TerrainWorld.dispose()` released every chunk's `Geometry` and cleared `activeEntities`, but never

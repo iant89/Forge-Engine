@@ -30928,6 +30928,52 @@ JSON array below; agents maintain it by hand until then.
   },
   {
     "id": "2487",
+    "date": "2026-10-24T08:50:00Z",
+    "type": "pr-merge",
+    "pr": null,
+    "branch": "fe-40-mola-heights",
+    "base": "mars-orbit-explorer",
+    "title": "Real USGS MOLA elevation for the Mars Orbit Explorer: three-size cube-sphere height atlas, loader, stage and globe sampler",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "summary": "Adds an offline baker (tools/bake-mola-atlas.mjs) and committed MOLA height atlases (phone 2.0 MB, tablet 7.6 MB, desktop 27.9 MB) on the engine's exact cube sphere, an atlas loader/streamer with bilinear/bicubic sampling, lazy per-face loading and IndexedDB caching, an exact inverse of the spherified-cube warp, and real-height paths in MarsTerrainStage and the Mars globe sampler (procedural detail fades in on fine tiles; no atlas means the procedural planet unchanged). The orbit demo picks the size from ?tier= and device detection with a ?mola= override.",
+    "files": [
+      "ARCHITECTURE.md",
+      "docs/API-REFERENCE.md",
+      "docs/API-REVIEW.md",
+      "docs/API.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/MARS-TERRAIN.md",
+      "docs/PLANET-ORBIT.md",
+      "docs/VERIFICATION.md",
+      "engine/api-approvals.json",
+      "engine/api-surface.json",
+      "engine/src/core/capabilities.ts",
+      "engine/src/rendering/planetGlobe.ts",
+      "engine/src/terrain/mars/cubeSphere.ts",
+      "engine/src/terrain/mars/geology.ts",
+      "engine/src/terrain/mars/globeSampler.ts",
+      "engine/src/terrain/mars/heightAtlas.ts",
+      "engine/src/terrain/mars/index.ts",
+      "engine/src/terrain/mars/stage.ts",
+      "engine/src/terrain/pipelineSpec.ts",
+      "examples/public/mars/mola/ (manifest.json + 18 face files)",
+      "examples/src/main.ts",
+      "examples/src/scenes/marsOrbitAtlas.ts",
+      "examples/src/scenes/marsOrbitScene.ts",
+      "mnemosyne.md",
+      "tests/core/runtimeApi.test.ts",
+      "tests/full.test.ts",
+      "tests/terrain/marsHeightAtlas.test.ts",
+      "tests/tools/apiAudit.test.ts",
+      "tests/tools/selrun.test.ts",
+      "tools/bake-mola-atlas.mjs",
+      "tools/browser-check.mjs",
+      "change-log.md"
+    ]
+  },
+  {
+    "id": "2488",
     "date": "2026-10-24T10:27:01Z",
     "type": "change",
     "pr": 160,
@@ -30939,7 +30985,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Removing a TerrainWorld from a live scene (Mars Orbit return-to-orbit) left Renderables pointing at released geometry; the renderer drew them with vertex slot 0 unset, which invalidated every frame (black screen)"
   },
   {
-    "id": "2488",
+    "id": "2489",
     "date": "2026-10-24T10:27:01Z",
     "type": "change",
     "pr": 160,
@@ -30951,7 +30997,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Defence in depth: a released geometry has no buffers, and drawing it fails the whole command buffer instead of dropping one batch"
   },
   {
-    "id": "2489",
+    "id": "2490",
     "date": "2026-10-24T10:27:01Z",
     "type": "change",
     "pr": 160,
@@ -30963,7 +31009,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins the return-to-orbit black-screen root cause"
   },
   {
-    "id": "2490",
+    "id": "2491",
     "date": "2026-10-24T10:27:01Z",
     "type": "change",
     "pr": 160,
@@ -30975,7 +31021,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "Pins the renderer guard; fails with the exact 'vertex buffer slot 0' error without it"
   },
   {
-    "id": "2491",
+    "id": "2492",
     "date": "2026-10-24T10:27:01Z",
     "type": "change",
     "pr": 160,
@@ -30987,7 +31033,7 @@ JSON array below; agents maintain it by hand until then.
     "why": "?moinstant=1 swaps worlds in one call and cannot catch bugs that need a frame between teardown and the next draw"
   },
   {
-    "id": "2492",
+    "id": "2493",
     "date": "2026-10-24T10:27:01Z",
     "type": "change",
     "pr": 160,

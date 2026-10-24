@@ -5,7 +5,7 @@
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "policy": "forge.api-approval-policy/2",
   "counts": {
-    "approved": 2274,
+    "approved": 2299,
     "pendingPublic": 0,
     "experimental": 9,
     "deprecated": 0
@@ -401,6 +401,20 @@
         "tests/terrain/tireTracks.test.ts",
         "tests/terrain/trackGrading.test.ts",
         "tests/terrain/trackTerrain.test.ts"
+      ]
+    },
+    {
+      "id": "terrain/2",
+      "decision": "approved-1.0-candidate",
+      "summary": "Review the real-elevation additions (fe-40): the MOLA height atlas (MarsHeightAtlas, MarsHeightAtlasStreamer, manifest/codec/size-policy helpers, IndexedDB cache), marsDirectionToFaceUVExact, and the optional heightAtlas inputs to MarsTerrainStage/createMarsPipeline and createMarsGlobeSampler. All additions are new exports or optional/defaulted members (PlanetGlobeOptions.reliefGain, the optional footprintRad argument of PlanetSurfaceSampler.sample, MarsCraterScanner.deltaAt's firstBand, MarsTerrainStageOptions.heightAtlas); without an atlas every path is unchanged. MarsGlobeSampler gains hasRealElevation/setAtlas members, which only matters to code implementing that interface itself (the engine returns it from createMarsGlobeSampler). Self-review by the author: needs a maintainer pass.",
+      "evidence": [
+        "docs/API-REVIEW.md",
+        "docs/MARS-TERRAIN.md",
+        "docs/PLANET-ORBIT.md",
+        "engine/src/terrain/mars/heightAtlas.ts",
+        "engine/src/terrain/mars/cubeSphere.ts",
+        "tests/terrain/marsHeightAtlas.test.ts",
+        "tests/core/runtimeApi.test.ts"
       ]
     },
     {
@@ -4583,6 +4597,20 @@
       "review": "core-runtime/1"
     },
     {
+      "name": "MARS_ATLAS_FORMAT",
+      "kind": "value",
+      "declarationHash": "sha256:195142b5904d3c10a4ebbc2542046fc356e2b70751946e90a18c2346aa906fce",
+      "contractHash": "sha256:a1389a20558b2717c2b0163d836a5c1bdeaf6c2505c175c67ccc7ea6664a2ada",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MARS_ATLAS_SIZES",
+      "kind": "value",
+      "declarationHash": "sha256:0ff1143ad7e0461817cba5811c3c4e1675bef7e2fb1930f01bd00167ad16c478",
+      "contractHash": "sha256:4a4f82a039567d24bb107fcae12b8a4108d6d99ecb9df672371e760e9eca06a0",
+      "review": "terrain/2"
+    },
+    {
       "name": "MARS_ATMOSPHERE",
       "kind": "value",
       "declarationHash": "sha256:256ac7bfd42afa81ab6a5b0d2580f2dc850c6c60675939b7bd6af0637936389b",
@@ -4905,6 +4933,69 @@
       "review": "terrain/1"
     },
     {
+      "name": "MarsAtlasCache",
+      "kind": "type",
+      "declarationHash": "sha256:3f0300781a9b153a65ce107ee4684860cb60704c4d67027cb85d044b8bc21db7",
+      "contractHash": "sha256:7b2046cea771b6a35a2da2f13fb63b099330d205495143f67252670dbb981aba",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasFaceEntry",
+      "kind": "type",
+      "declarationHash": "sha256:e0684dd5bd411db0d3d1fac23235beae7200062bcf1284ecc68705cded0dcdec",
+      "contractHash": "sha256:4914f03f631d2463a1f87fb5a838061728254ece805b66d4ff6b442bfeca8076",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasFilter",
+      "kind": "type",
+      "declarationHash": "sha256:672a9a07ae4a30823ee3619cc74e9740193c65ebf4e20ca2dd20a528885288c3",
+      "contractHash": "sha256:6482c0041fa2ac40b2fecc0d3d218ad4a7b78b55c6863eef12310bfc29552b67",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasManifest",
+      "kind": "type",
+      "declarationHash": "sha256:7bcc1f217cae3cf0c1523fa3f9bc9d780cdf3474b08d005f95fc06f2f114349d",
+      "contractHash": "sha256:04625a65194ee8958cdbe20059cf958c56eced8bf0536da16734041b3ebd8a9e",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasSize",
+      "kind": "type",
+      "declarationHash": "sha256:53600734aa6dd4c70f786befbee9242685ce924dd6cf99fc3361529a5358e809",
+      "contractHash": "sha256:b69e06f2cbb6889215e52445805773cc73256fc0a16984808e586e13b3de8e4b",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasSizeEntry",
+      "kind": "type",
+      "declarationHash": "sha256:3c86c82d085df450164c59c4aececf21a85683f0ae746e88ee462c95e0359d71",
+      "contractHash": "sha256:855bacb249036eb93369c90706133e39c1861a92c6a8ec3a7869652f6eb06525",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasSizeInputs",
+      "kind": "type",
+      "declarationHash": "sha256:df593cfcb64fcb13e9460e60706e7f5d88f38de1700ae5da97c35ad3fe13057b",
+      "contractHash": "sha256:7a38f2a7196be2ef8213570fc33f88d9033804b39482b73421c2d56832c7bac9",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasStreamStats",
+      "kind": "type",
+      "declarationHash": "sha256:8cdcd236f7f57e6dc47af11860e7cf440cc6d35ef42843db14092f7b5f8fa7f2",
+      "contractHash": "sha256:632f90a71b4b1eba6752a5ed3b07e8b18541990d1ffbd70f3963e3eda0d37ee3",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsAtlasStreamerOptions",
+      "kind": "type",
+      "declarationHash": "sha256:7f692724da4b670ddde3ab954b35ecfc201c29b4d5fe8e9e51d536921de71266",
+      "contractHash": "sha256:cf5cb0f03c1687d7d9d14cd3da219cfa5cbb128c24dac0500d9e65345f8be776",
+      "review": "terrain/2"
+    },
+    {
       "name": "MarsCanyonSegment",
       "kind": "type",
       "declarationHash": "sha256:fad737de23b1f1f79c98e63e4e0135371a4bd197e4e909be981d5c1540e30550",
@@ -4921,8 +5012,8 @@
     {
       "name": "MarsCraterScanner",
       "kind": "type-and-value",
-      "declarationHash": "sha256:b01c5472c3acd96c38f49fd533fa7dddac2e2ccaf70c90849c90b940adf198c2",
-      "contractHash": "sha256:9481ece42fb0787d252fb0b1b84e4429f5261c02781fcc5fcaeac920c581653f",
+      "declarationHash": "sha256:23877c13316bc96736528a2b04b8cbd199f174d8741850c2a55922225ffe3600",
+      "contractHash": "sha256:d2b112842a0363dc10a496e4c0f43b41a9382ea6ac7393bd4b16bd0943c812b0",
       "review": "terrain/1"
     },
     {
@@ -4998,9 +5089,23 @@
     {
       "name": "MarsGlobeSampler",
       "kind": "type",
-      "declarationHash": "sha256:57375ea48c02a7fef0aec3ddf606de8517589f60f3a40c714aed5a5084dea5c6",
-      "contractHash": "sha256:c5ae5f5a202c28e911b5a14ec3650004127a5216674679442fa2daca9d09cd2b",
+      "declarationHash": "sha256:ad6b1860c66bad2cca3c5eb2a3fcf70fbea06751232747c135123ccd4f94b634",
+      "contractHash": "sha256:1eb110792104034ab24efc23e1dab644e24f899e371bc490e43a470c88f371bc",
       "review": "environment/2"
+    },
+    {
+      "name": "MarsHeightAtlas",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:d7c8fdf69d7b35182721bf7525b94103902347ef741c4905dbd294a476a4ef17",
+      "contractHash": "sha256:f08ad69743ad254fea94cd27e2a8092f38c63d05dc4b1666948d1e1c379fd7e0",
+      "review": "terrain/2"
+    },
+    {
+      "name": "MarsHeightAtlasStreamer",
+      "kind": "type-and-value",
+      "declarationHash": "sha256:fb0e373348a83dc6dbf9cb5f8ca42b48fdcb7a085dfb334f22e35d2a61882324",
+      "contractHash": "sha256:ca38d472a97c808a1ad0c717ee0523b06426b0fc52d6c52062212450242d2ca7",
+      "review": "terrain/2"
     },
     {
       "name": "MarsMaterial",
@@ -5033,15 +5138,15 @@
     {
       "name": "MarsTerrainStage",
       "kind": "type-and-value",
-      "declarationHash": "sha256:4cbc7ae3532fdfc4807d01ab20d312293c0f5ffbdc79113b736a396adcbaca07",
-      "contractHash": "sha256:4cb01eff14d40522b0c038d55ec642cd6006a3e1ae8cdb56198c8e7e371a7739",
+      "declarationHash": "sha256:bfa4e91ec54270069576280599367c8118719169f962b1df64d2df578fb18f73",
+      "contractHash": "sha256:14b2b857d5acfbf252791399c8cfc465606dff5b100141a2b918191bff8a9363",
       "review": "terrain/1"
     },
     {
       "name": "MarsTerrainStageOptions",
       "kind": "type",
-      "declarationHash": "sha256:ca6ca9f2899ddb4e59a75c6c5a63e7af413c7b101d7707077566e0307ebe67dd",
-      "contractHash": "sha256:dc9da5269d655e89894991085fe2a72b82df414ff6bbaba9d09951048a94fb79",
+      "declarationHash": "sha256:99b74ac43e352635de41afe21559ab3872edd1754566322eded803950bfd55dc",
+      "contractHash": "sha256:30a71af84b7f232a4e36cecdb86a5d93a01797cfcd8536568d59571a3107503b",
       "review": "terrain/1"
     },
     {
@@ -6503,15 +6608,15 @@
     {
       "name": "PlanetGlobe",
       "kind": "type-and-value",
-      "declarationHash": "sha256:d3ed7ad677a81ef0b5e311ac3c8b998003905a12860bd96d153c4f39db0ec643",
-      "contractHash": "sha256:29efcd7462ee8218ce3af2f9fb3d95af2a4f967130106c23dce4ad1bb48b5f70",
+      "declarationHash": "sha256:f4443ec21770361c396b441af82ef5ea658684c1b156c74676bfd1ac1058b950",
+      "contractHash": "sha256:12a989631ef98c074a38bcf1b13fc5f858dc1f3594cb1ecb574916a157b9f27f",
       "review": "environment/2"
     },
     {
       "name": "PlanetGlobeOptions",
       "kind": "type",
-      "declarationHash": "sha256:ee41345b3f37c9a0b6a3f09f1940d3e428e2a647b956f5efdf16e15d8aade857",
-      "contractHash": "sha256:3a540de16d1bbbaea60a61baf1a0820c211cb71da0943685061a935f66899318",
+      "declarationHash": "sha256:be4f489d519fd23a30d7b33cbf31f671487f73c45173ea6519be3035cadfcab8",
+      "contractHash": "sha256:eccb8e68a7b850dfccf949327170d950ea49a5f362c7dfbb6c8f0f6b47a9b0c3",
       "review": "environment/2"
     },
     {
@@ -6594,8 +6699,8 @@
     {
       "name": "PlanetSurfaceSampler",
       "kind": "type",
-      "declarationHash": "sha256:39c5970ae94be351804c1f88e4bfb6b8c88a94bc9f04b79ebe507a556de2003c",
-      "contractHash": "sha256:09bf6f7a343066b68119752901440a44a99f12a351c34930275f85793f38fafb",
+      "declarationHash": "sha256:bf218c675df79d13ef2047fecf3422ab37a00b4986c33655ec0994c5a8f8acd7",
+      "contractHash": "sha256:6acb70be657d42935f71237c45e4ad2a74a0a3cdecbd8ea297bfbb31e8574782",
       "review": "environment/2"
     },
     {
@@ -11877,6 +11982,13 @@
       "review": "resources/1"
     },
     {
+      "name": "chooseMarsAtlasSize",
+      "kind": "value",
+      "declarationHash": "sha256:eb98b6963e63b5c92efdbeb5ae50c90164a79cbd84b60744b6da33d2502a1c3f",
+      "contractHash": "sha256:de30b18d8f0796505a6906083c7b2c78280a639bed82bec496e69874f97e93f2",
+      "review": "terrain/2"
+    },
+    {
       "name": "chunkCoordKey",
       "kind": "value",
       "declarationHash": "sha256:60437e0e62e3fef000e18a43412bf9d4d3cf54b78ccf76032644fae9605b9546",
@@ -12521,6 +12633,13 @@
       "review": "core-runtime/1"
     },
     {
+      "name": "createMarsAtlasIndexedDbCache",
+      "kind": "value",
+      "declarationHash": "sha256:7e95c9f1835e5c251697933af80ddbcd6a2c23827c40a4904aadeac6aaaf0891",
+      "contractHash": "sha256:2177527a1984946ace17b61335c758120b8d25c5a0cb3873d4092b5d2cee456e",
+      "review": "terrain/2"
+    },
+    {
       "name": "createMarsGenParams",
       "kind": "value",
       "declarationHash": "sha256:5208e030d5c182ea1e1ac102002ec24b963d3e890383e6c3901c8273ba8f35df",
@@ -12530,15 +12649,15 @@
     {
       "name": "createMarsGlobeSampler",
       "kind": "value",
-      "declarationHash": "sha256:4572750d8c40eb0604bfad03bea35a221f12e63ebd2bd4b2698feb02a6012f08",
-      "contractHash": "sha256:ac3f09200349b28278b0f765da933b083331c5efa6185cb7488be9d7edd2ca64",
+      "declarationHash": "sha256:98d3ab00814525b11a0e93ead1b3856149a7050a415044275bf6ba3c91f0739a",
+      "contractHash": "sha256:d97b1542773090504d71cde6e20bacf956951a244f49a60cadf3f74d9cb6c135",
       "review": "environment/2"
     },
     {
       "name": "createMarsPipeline",
       "kind": "value",
       "declarationHash": "sha256:7bef354b4a504f3376f42988417db040efdd71493a8c70751bc5ef45555079d6",
-      "contractHash": "sha256:a0500ddcabc3dc7e8471514d1f473c369246a312f2123aee89e3170fd97c260b",
+      "contractHash": "sha256:b902ac2f7de0b58e5414a3c6b2ccffe5344617814cb071ddb99ca057d2421527",
       "review": "terrain/1"
     },
     {
@@ -12918,6 +13037,13 @@
       "declarationHash": "sha256:6a5260a410bd71864affbf8e57b5f70c96796e90a60e274e57ac2cc73c7c5ec2",
       "contractHash": "sha256:90e950e1896d9bc5d93b5bdcd071348b744fff1ce31b7affa74e2df8266182a4",
       "review": "resources/1"
+    },
+    {
+      "name": "decodeMarsAtlasFace",
+      "kind": "value",
+      "declarationHash": "sha256:c8d02dde74fdcb2809b48f025198f77f386d54d2029241f98ca2c6520f4955dc",
+      "contractHash": "sha256:ca66511cde2cf08ce22da0e197ea89ad7648e2246cf8c624b6a6c48a418d839e",
+      "review": "terrain/2"
     },
     {
       "name": "decodeNumber",
@@ -13970,6 +14096,13 @@
       "review": "environment/1"
     },
     {
+      "name": "isMarsAtlasSize",
+      "kind": "value",
+      "declarationHash": "sha256:1ee1ba6cbc5cf90348cbec95b76e3ba549732f379a8129e58fd4738b584e7f51",
+      "contractHash": "sha256:dde7a1e9f11bdc9b10779deb6bc70e37bfc5994487f360278a8b88b7cf33007c",
+      "review": "terrain/2"
+    },
+    {
       "name": "isMobileUserAgent",
       "kind": "value",
       "declarationHash": "sha256:bc6b19185aed6666835117ef4fb4bdfb3dc803a01c33edc134c72909d129eb1d",
@@ -14201,6 +14334,48 @@
       "review": "terrain/1"
     },
     {
+      "name": "marsAtlasFilter",
+      "kind": "value",
+      "declarationHash": "sha256:21750d43ca7efc8bdd3dea4182dbdde7cb21be15a85acbdd8b1ba817421c4298",
+      "contractHash": "sha256:6e18d6c26f21d9727c8f385faf276d95b3615835ffc21720d7d31c413e85d152",
+      "review": "terrain/2"
+    },
+    {
+      "name": "marsAtlasGunzip",
+      "kind": "value",
+      "declarationHash": "sha256:ffc0d8abf028860090ba33ad5973f4078e3b7b96860605cf9c0fba65b9c59bf1",
+      "contractHash": "sha256:72552bee9ed8e8fc07d342ac85e4fed0b51d98f610b1a698c3a639144906ac16",
+      "review": "terrain/2"
+    },
+    {
+      "name": "marsAtlasPlan",
+      "kind": "value",
+      "declarationHash": "sha256:86de26065b47423523c670838a805a67e60a78d264fde04538a5936c6743fe44",
+      "contractHash": "sha256:954551d12bcf399e6b3483ccc0a8ba5a0007f9a0ba5c1c72a5dd14b240db46a3",
+      "review": "terrain/2"
+    },
+    {
+      "name": "marsAtlasQuantize",
+      "kind": "value",
+      "declarationHash": "sha256:a7c1563ee8d13a4d1284ea08b025a02f6a8887fc253de97f82763246abf5cdce",
+      "contractHash": "sha256:30a05cc7bc7d8bc0d3e2a95a4ea7ea0e5cfac7edcd3de4e219f51e29f8c5fc53",
+      "review": "terrain/2"
+    },
+    {
+      "name": "marsAtlasTexelDirection",
+      "kind": "value",
+      "declarationHash": "sha256:f6beaea9dcab9a6e6a6bb01f97d1f4087174e630ce79d160b174b59701e2b00b",
+      "contractHash": "sha256:9b372b03bb68dbc3d62c8eac61260ce3d9e1fe3f40f44cf5c329372061f4308d",
+      "review": "terrain/2"
+    },
+    {
+      "name": "marsAtlasUnfilter",
+      "kind": "value",
+      "declarationHash": "sha256:82cc4b63b5d4a7396cf704830bca1939464465613d0d816faf02109f5cbc4d18",
+      "contractHash": "sha256:32b39eb1e17d11cf70a2541819a0f6106140ae24abf53a1ebbde8a03496e4c5a",
+      "review": "terrain/2"
+    },
+    {
       "name": "marsDepthForChunkEdge",
       "kind": "value",
       "declarationHash": "sha256:a126e8a20f9bab299ae1feed7b7b6e1f8cfd54789b7778f91f7a7e1651b40d5c",
@@ -14220,6 +14395,13 @@
       "declarationHash": "sha256:b9d9c391b72a22a62cb9ce864559fc2b49094d7b0de3bfad49b67862222a24a1",
       "contractHash": "sha256:c63beb2fdeb104b71664eed75b533d676227ac97348b61630ed8c299911daf48",
       "review": "terrain/1"
+    },
+    {
+      "name": "marsDirectionToFaceUVExact",
+      "kind": "value",
+      "declarationHash": "sha256:43e61cd8d240623f5208415e442a09dc53b5773a14f576d25c4395aa1960155d",
+      "contractHash": "sha256:f2fbb59d0ef10db019d6c7c96cc3246ed6914918b3d9d0f96820b9258b49759c",
+      "review": "terrain/2"
     },
     {
       "name": "marsFaceCentreChunkEdgeMeters",
@@ -14274,7 +14456,7 @@
       "name": "marsSampleAnalytic",
       "kind": "value",
       "declarationHash": "sha256:c87aacecd6933dff0bad5b602b4a287904ca3c01beed0d1af1f4b141bc683509",
-      "contractHash": "sha256:9a8d744d025823431b53cb40101cf5d46639a270c01eef1c91be42cfd3b8d245",
+      "contractHash": "sha256:b703e6b785daa8e1806bf4073494f9add12b9a0d3a7cece1f0a43cc4558c31c8",
       "review": "terrain/1"
     },
     {
@@ -14598,6 +14780,13 @@
       "declarationHash": "sha256:e5aca8f4e766aee0e320000b118204781fe8767f151f67e5223079f4f921996f",
       "contractHash": "sha256:851f08ebc23518f7bb2feb3a3caeb53e54aa7b42e5c82402ba5f6731432b7cdf",
       "review": "core-runtime/1"
+    },
+    {
+      "name": "parseMarsAtlasManifest",
+      "kind": "value",
+      "declarationHash": "sha256:90e5487efd9991d51ed8f7ee7bc34604793c1be5750685de39110092a4190096",
+      "contractHash": "sha256:861927722c74a1269c7172c2d6107aaf8dfb94e672ca494ab84a3256a788941f",
+      "review": "terrain/2"
     },
     {
       "name": "parseTrack",

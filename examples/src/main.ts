@@ -460,6 +460,7 @@ async function main(): Promise<void> {
       currentHandle = buildOffroadHillScene(engine, { deviceTier: tier, weather });
     } else if (name === "mars-orbit") {
       // fe-39: `?tier=` forces the device tier; `?ls=` the starting season; `?touchdiag=1` opens the diagnostics.
+      // fe-40: `?mola=phone|tablet|desktop|off` selects the real MOLA elevation atlas (default: by tier and device).
       const query = new URLSearchParams(window.location.search);
       const forced = query.get("tier");
       const lsParam = Number(query.get("ls"));
@@ -469,6 +470,8 @@ async function main(): Promise<void> {
         startLs: query.get("ls") !== null && Number.isFinite(lsParam) ? lsParam : undefined,
         diagnostics: query.get("touchdiag") === "1",
         instantTransitions: query.get("moinstant") === "1",
+        // fe-40: `?mola=phone|tablet|desktop` picks the real-elevation atlas size, `?mola=off` the procedural planet.
+        mola: query.get("mola"),
         bakeBudgetMs: query.get("mobake") !== null && Number(query.get("mobake")) > 0 ? Number(query.get("mobake")) : undefined,
       });
     } else if (name === "ui") {

@@ -908,6 +908,18 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "geology is regional, so most sites bake a single dominant channel.",
   },
   {
+    id: "terrain.marsRealElevation",
+    phase: "10.9",
+    status: "partial",
+    closesWith: "10.9",
+    summary: "Real USGS MOLA elevation: offline-baked cube-sphere height atlas in three sizes (phone/tablet/desktop), bicubic loader, stage and globe sampler over real heights with procedural fallback",
+    evidence: ["tests/terrain/marsHeightAtlas.test.ts", "tools/bake-mola-atlas.mjs", "examples/public/mars/mola/manifest.json", "docs/MARS-TERRAIN.md", "tools/browser-check.mjs"],
+    notes:
+      "The atlas shares cubeSphere.ts exactly (face order, spherified warp, an exact closed-form inverse, node-registered grid with shared-edge nodes averaged so faces join without a seam) and is read back through the runtime sampler at bake time. " +
+      "Node spacing is 10.4/5.2/2.6 km, so finer relief is procedural detail faded in below ~900 m vertex spacing; no atlas means the procedural stage unchanged. " +
+      "Verified in Node and headless SwiftShader; real-device/GPU behaviour and a finer-than-2.6-km atlas are not.",
+  },
+  {
     id: "terrain.materialLayering",
     phase: "10.8",
     status: "verified",
@@ -1444,7 +1456,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,274-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,299-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1458,7 +1470,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,283 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,274 public candidates have exact approvals across 27 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
+    notes: "The audit resolves all 2,308 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,299 public candidates have exact approvals across 27 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",

@@ -164,6 +164,12 @@ function createMarsStage(options: MarsStageSpecFields): MarsTerrainStage {
   if (!(identity.radius > 0 && identity.site.radiusM > 0)) {
     throw new UsageError("mars terrain spec: planet and site radii must be positive");
   }
+  if ((data as { heightAtlas?: unknown }).heightAtlas !== undefined && (data as { heightAtlas?: unknown }).heightAtlas !== null) {
+    throw new InlineOnlyError(
+      "the mars terrain stage reads a real-elevation height atlas held on the main thread; " +
+        "run this atlas-backed pipeline inline (TerrainWorld { syncGeneration: true })",
+    );
+  }
   if (identity.globalFields !== null) {
     throw new InlineOnlyError(
       "the mars terrain stage samples a Stage A field cache held on the main thread; " +
