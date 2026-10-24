@@ -380,7 +380,7 @@ data: a row binds a named human 1.0-candidate decision to those exact hashes, so
 grant approval and later contract drift makes the decision stale. `npm run api:check` rejects surface
 or approved-contract drift, malformed approval references/counts, a default export, an `@internal`
 leak, unexplained/conflicting stability tags, package/version drift and any package subpath export.
-Forge 1.0.0 now ships with the Phase 27.1 audit plus the completed consumer contract: 2,266 public
+Forge 1.0.0 now ships with the Phase 27.1 audit plus the completed consumer contract: 2,291 public
 candidates are approved across 27 subsystem reviews, including the Phase 14 population additions; the
 nine experimental exports remain separate, and approval policy v2 rejects a newly pending public name. `ForgeExtensionRegistry` is the supported
 contract for systems, components, importers, terrain generators, materials, physics shapes, debug

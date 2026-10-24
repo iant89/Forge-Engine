@@ -11,7 +11,7 @@
 import { Engine, Scene, VERSION } from "@forge/engine";
 ```
 
-Only `@forge/engine` is supported. The current reviewed surface contains 2,275 exports: 2,266 public, 9 experimental, and 0 deprecated. The snapshot is for package version `1.0.0` and uses declaration-contract fingerprints; a hash is not a substitute for reading the signature and behavior documentation.
+Only `@forge/engine` is supported. The current reviewed surface contains 2,300 exports: 2,291 public, 9 experimental, and 0 deprecated. The snapshot is for package version `1.0.0` and uses declaration-contract fingerprints; a hash is not a substitute for reading the signature and behavior documentation.
 
 ## Start here
 
@@ -637,6 +637,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `LogRecord` | type | public | `sha256:bd3a0cfb8a359d55ab040d8e95a11d192b3f031c8ebd225ba7d1e198ff8cf254` | `sha256:7a88b1535d2faff0effb65f230a1ea33493829c57112e49effaca124ff4ec831` |
 | `LogSink` | type | public | `sha256:12ade8b600e73f5adccabcf5b97c6e55f317f212f455dd299e0e78d71c3fcce7` | `sha256:0df13ef43683157df1592c8d729705ae95cb2be4f2762dee1978cebdfaf25929` |
 | `Logger` | type-and-value | public | `sha256:8f04fff27da8bc560f036e472c6c5dd19a22452e4d15382348a73ef594e4b071` | `sha256:ff3671237dfa82bbfef1f1c50ab5d4892aa1e9df1bf2253b0d264dc86cf1b57f` |
+| `MARS_ATLAS_FORMAT` | value | public | `sha256:195142b5904d3c10a4ebbc2542046fc356e2b70751946e90a18c2346aa906fce` | `sha256:a1389a20558b2717c2b0163d836a5c1bdeaf6c2505c175c67ccc7ea6664a2ada` |
+| `MARS_ATLAS_SIZES` | value | public | `sha256:0ff1143ad7e0461817cba5811c3c4e1675bef7e2fb1930f01bd00167ad16c478` | `sha256:4a4f82a039567d24bb107fcae12b8a4108d6d99ecb9df672371e760e9eca06a0` |
 | `MARS_ATMOSPHERE` | value | public | `sha256:256ac7bfd42afa81ab6a5b0d2580f2dc850c6c60675939b7bd6af0637936389b` | `sha256:1677a73de24ad15c7a34177a82e99c74a4c3f52750f15cc5fc1851f9600d725d` |
 | `MARS_CRATER_SCALES` | value | public | `sha256:6acfb18be03313bc33015993a805735641784c16d118024dbbe23338bf887a09` | `sha256:f148d17fd1f94d787e5772743cd0c8c5811d511267172b1be459d5be3cd24db7` |
 | `MARS_FACE_COUNT` | value | public | `sha256:8115d27f9b8917d268a936cdff4a5ef6ca704e81ded49270b54f6d398d3074f7` | `sha256:3eae1a561908c4d6eab040213a8a9b7a1fe05147fbfe7e3d18148714e9e2fcc8` |
@@ -683,9 +685,18 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `ManualClock` | type-and-value | public | `sha256:1bb17097e488ebdb4829e8dd1695e4e096bec6d0ad4f2e2a4917c59fd5e0f7f3` | `sha256:ea595f35647f862d402df8a1920a0c95f1c49e464fe7bd4bb9609ca12c484bf0` |
 | `MapMarker` | type | public | `sha256:0ace8a0ecc9861e2d56339a73bb63560c48de4ab9348940386d066551423562e` | `sha256:a3c8cc375710c5d638af229a59ef5ff02a090af6dc330f590dcfe859bfed320f` |
 | `MarsAnalyticSample` | type | public | `sha256:d76c3b51c65b4760c94fafd3c7eb85fdc1da82a0511d246ad11b36f2b2d17e68` | `sha256:1d4a5c64e264d2608fb981fd173ac3f528475801a8731d9a8bbe9eb1f603d480` |
+| `MarsAtlasCache` | type | public | `sha256:3f0300781a9b153a65ce107ee4684860cb60704c4d67027cb85d044b8bc21db7` | `sha256:7b2046cea771b6a35a2da2f13fb63b099330d205495143f67252670dbb981aba` |
+| `MarsAtlasFaceEntry` | type | public | `sha256:e0684dd5bd411db0d3d1fac23235beae7200062bcf1284ecc68705cded0dcdec` | `sha256:4914f03f631d2463a1f87fb5a838061728254ece805b66d4ff6b442bfeca8076` |
+| `MarsAtlasFilter` | type | public | `sha256:672a9a07ae4a30823ee3619cc74e9740193c65ebf4e20ca2dd20a528885288c3` | `sha256:6482c0041fa2ac40b2fecc0d3d218ad4a7b78b55c6863eef12310bfc29552b67` |
+| `MarsAtlasManifest` | type | public | `sha256:7bcc1f217cae3cf0c1523fa3f9bc9d780cdf3474b08d005f95fc06f2f114349d` | `sha256:04625a65194ee8958cdbe20059cf958c56eced8bf0536da16734041b3ebd8a9e` |
+| `MarsAtlasSize` | type | public | `sha256:53600734aa6dd4c70f786befbee9242685ce924dd6cf99fc3361529a5358e809` | `sha256:b69e06f2cbb6889215e52445805773cc73256fc0a16984808e586e13b3de8e4b` |
+| `MarsAtlasSizeEntry` | type | public | `sha256:3c86c82d085df450164c59c4aececf21a85683f0ae746e88ee462c95e0359d71` | `sha256:855bacb249036eb93369c90706133e39c1861a92c6a8ec3a7869652f6eb06525` |
+| `MarsAtlasSizeInputs` | type | public | `sha256:df593cfcb64fcb13e9460e60706e7f5d88f38de1700ae5da97c35ad3fe13057b` | `sha256:7a38f2a7196be2ef8213570fc33f88d9033804b39482b73421c2d56832c7bac9` |
+| `MarsAtlasStreamStats` | type | public | `sha256:8cdcd236f7f57e6dc47af11860e7cf440cc6d35ef42843db14092f7b5f8fa7f2` | `sha256:632f90a71b4b1eba6752a5ed3b07e8b18541990d1ffbd70f3963e3eda0d37ee3` |
+| `MarsAtlasStreamerOptions` | type | public | `sha256:7f692724da4b670ddde3ab954b35ecfc201c29b4d5fe8e9e51d536921de71266` | `sha256:cf5cb0f03c1687d7d9d14cd3da219cfa5cbb128c24dac0500d9e65345f8be776` |
 | `MarsCanyonSegment` | type | public | `sha256:fad737de23b1f1f79c98e63e4e0135371a4bd197e4e909be981d5c1540e30550` | `sha256:5abeee8c5a1e54c598515d3fe416642b9b087d5fa75b8ea694ca262254acc9b3` |
 | `MarsCraterScale` | type | public | `sha256:759fbb8893db795e173589db5e069476a0197f67986890ab021a8c449dc54050` | `sha256:349a231fc3a32f89064d00715b209ac9cf51d84e84e9f3797e25211ff74960f0` |
-| `MarsCraterScanner` | type-and-value | public | `sha256:b01c5472c3acd96c38f49fd533fa7dddac2e2ccaf70c90849c90b940adf198c2` | `sha256:9481ece42fb0787d252fb0b1b84e4429f5261c02781fcc5fcaeac920c581653f` |
+| `MarsCraterScanner` | type-and-value | public | `sha256:23877c13316bc96736528a2b04b8cbd199f174d8741850c2a55922225ffe3600` | `sha256:d2b112842a0363dc10a496e4c0f43b41a9382ea6ac7393bd4b16bd0943c812b0` |
 | `MarsDichotomyConfig` | type | public | `sha256:7bd92b8f53a1e6a4c1feadb630bf409cd935b5a759daa4d0d0d1815b197076ec` | `sha256:3c2124b5e87c231f1bc8d3f141e94183dd5ad2d685c59c9e36d00cdb618306bb` |
 | `MarsFaceFieldBuffers` | type | public | `sha256:c9786314c958f5a4d2b5fde5851c1ea0c599065ea83888c912d314179ef6d5af` | `sha256:4876e944b02b0debfd0b0c0258c9dd320f62302b3878514f331c695dac2fc7eb` |
 | `MarsFaceFields` | type | public | `sha256:c9956aa50ff9e88d4768b048b8913b131f489818791910442cceee3c383ae895` | `sha256:680403720333fc9415485e83831d34f9500183b352b31f3c7ba536c37defc58c` |
@@ -696,13 +707,15 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `MarsGlobalFieldSet` | type-and-value | public | `sha256:7fc7044755ba3e4246bf463569dfb33d3404642ee22e6166125c5db3ead29542` | `sha256:5af8fc1bd355077ace3c19b52a99c8f908883619c153d354d618442ff19b0c77` |
 | `MarsGlobalSample` | type | public | `sha256:95494e1112da6eae169f6bd22e74075687dfc221a6ad1a4c7b66411f07d62a02` | `sha256:109c1a9ad65da346788c2ff641234cda216b1173cf3fe5e2f73adb4b1e0950c6` |
 | `MarsGlobeSample` | type | public | `sha256:7a58d0210c03923bd953f7eb50f16d3760fbd2397580502571753babb1f5e255` | `sha256:93c86152747a8f0cb9b601fc0b7831b94230cc8d33bfd37e8fc4e291821830de` |
-| `MarsGlobeSampler` | type | public | `sha256:57375ea48c02a7fef0aec3ddf606de8517589f60f3a40c714aed5a5084dea5c6` | `sha256:c5ae5f5a202c28e911b5a14ec3650004127a5216674679442fa2daca9d09cd2b` |
+| `MarsGlobeSampler` | type | public | `sha256:ad6b1860c66bad2cca3c5eb2a3fcf70fbea06751232747c135123ccd4f94b634` | `sha256:1eb110792104034ab24efc23e1dab644e24f899e371bc490e43a470c88f371bc` |
+| `MarsHeightAtlas` | type-and-value | public | `sha256:d7c8fdf69d7b35182721bf7525b94103902347ef741c4905dbd294a476a4ef17` | `sha256:f08ad69743ad254fea94cd27e2a8092f38c63d05dc4b1666948d1e1c379fd7e0` |
+| `MarsHeightAtlasStreamer` | type-and-value | public | `sha256:fb0e373348a83dc6dbf9cb5f8ca42b48fdcb7a085dfb334f22e35d2a61882324` | `sha256:ca38d472a97c808a1ad0c717ee0523b06426b0fc52d6c52062212450242d2ca7` |
 | `MarsMaterial` | type-and-value | public | `sha256:05e698b1af5de8f2c7f874e25da2bb9a7721079148102cd2afb76f9e8c888217` | `sha256:42d1b84688045cd57f6af6e57bcd13ad0f88cd0674dfa5a9723f010d6d0928ca` |
 | `MarsSite` | type-and-value | public | `sha256:15ed8270cbb061f83cfe640b02c7a6298da2f558707bf82912ba40b22412e9e4` | `sha256:81d42a9285aad23c332e55a0e0d7c01263bda6585367e5c87077a4c0d8f07670` |
 | `MarsSiteOptions` | type | public | `sha256:8cbaadd371e545898581c2d47939ff838059a02fe561a80cfc2791badfb54b13` | `sha256:a2ce7f83bbf6a9d632b940b25fe37cd7a43516ff673d524d07fe31fb6933c3bb` |
 | `MarsSitePreset` | type | public | `sha256:b630ba5bdaa4e8572723043810a0ac743dd6f25cab319af4d90cd2ab1afcb51b` | `sha256:2b584541e57c523cd0d1283e64036e13b779acd2af29d0ee9346ebe913955018` |
-| `MarsTerrainStage` | type-and-value | public | `sha256:4cbc7ae3532fdfc4807d01ab20d312293c0f5ffbdc79113b736a396adcbaca07` | `sha256:4cb01eff14d40522b0c038d55ec642cd6006a3e1ae8cdb56198c8e7e371a7739` |
-| `MarsTerrainStageOptions` | type | public | `sha256:ca6ca9f2899ddb4e59a75c6c5a63e7af413c7b101d7707077566e0307ebe67dd` | `sha256:dc9da5269d655e89894991085fe2a72b82df414ff6bbaba9d09951048a94fb79` |
+| `MarsTerrainStage` | type-and-value | public | `sha256:bfa4e91ec54270069576280599367c8118719169f962b1df64d2df578fb18f73` | `sha256:14b2b857d5acfbf252791399c8cfc465606dff5b100141a2b918191bff8a9363` |
+| `MarsTerrainStageOptions` | type | public | `sha256:99b74ac43e352635de41afe21559ab3872edd1754566322eded803950bfd55dc` | `sha256:30a71af84b7f232a4e36cecdb86a5d93a01797cfcd8536568d59571a3107503b` |
 | `MarsTileAdvice` | type | public | `sha256:18dfe7801ff4afc3c85cabeae8565fdc67ef61958b71e4f4c6a171713c7ab929` | `sha256:ac0589b88e4235cba810979414e2dfab2d40a9ac61499afe9f97806d09ec5415` |
 | `MarsTileDetailLevel` | type | public | `sha256:310f7df2f2c8b7791dbad805ae3f35449a97cbc20d0b4e12fe647a85af87a2d2` | `sha256:981b47f5bd9b3acbb8a98f87cd080b271810a141267ab68a81e503ab17b42497` |
 | `MarsVolcanoDef` | type | public | `sha256:f87c7fa3a55654dcbc4df7a1ab357e9f2bc6efc2c148a84f111a4f5bd39356d8` | `sha256:2c933790d0b44ff43156553566178f219965bbd00f5f859f1d8709384d7a96e7` |
@@ -909,8 +922,8 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PlaneTest` | type | public | `sha256:ce64fbda9b9813db960642cccca29c08cf1f9227a753c44fc6bdf7221e9ceb0a` | `sha256:9f25a7e875fa88b81b797ebe87d86418a3f799bda5c06e275429eb3e0b77f99e` |
 | `PlanetActiveEvent` | type | public | `sha256:0f524fb504a703048682fa2d87b3ada33563dd8e8b0025c2203871ec433117f2` | `sha256:225e3ea5eb0d48146661de5f7f259d3909e714f491a98305bad41f020f910ece` |
 | `PlanetAtmosphereFill` | type | public | `sha256:c239192ded2deb667921f9de2e4e0e7ee476a6b82231cb0abbf5d78fd641662f` | `sha256:c1cea3a7d2b06a5b58317baf9eef8c9426603a9591fde8bac8bd7a3db14dedb8` |
-| `PlanetGlobe` | type-and-value | public | `sha256:d3ed7ad677a81ef0b5e311ac3c8b998003905a12860bd96d153c4f39db0ec643` | `sha256:dbb0c647c1fc2d4669b2b67d326b0b41c034e928ff644358cff4ecfefec03a55` |
-| `PlanetGlobeOptions` | type | public | `sha256:ee41345b3f37c9a0b6a3f09f1940d3e428e2a647b956f5efdf16e15d8aade857` | `sha256:3a540de16d1bbbaea60a61baf1a0820c211cb71da0943685061a935f66899318` |
+| `PlanetGlobe` | type-and-value | public | `sha256:f4443ec21770361c396b441af82ef5ea658684c1b156c74676bfd1ac1058b950` | `sha256:8f509b6c68bec558cd301ed5a3d4635c73485f6bbf6884c4be278c17c437f7f4` |
+| `PlanetGlobeOptions` | type | public | `sha256:be4f489d519fd23a30d7b33cbf31f671487f73c45173ea6519be3035cadfcab8` | `sha256:eccb8e68a7b850dfccf949327170d950ea49a5f362c7dfbb6c8f0f6b47a9b0c3` |
 | `PlanetOrbit` | type | public | `sha256:88991209fd4396a877a39a4b3aaa3dccbe073b77d3150b6a3f156a18609890ac` | `sha256:7566ee7acc97659ae6b735683c593086c00e2820c5a07dc9fe53b5f5c4e0a617` |
 | `PlanetOrientation` | type | public | `sha256:4ff3a7481bb60c64003a8ea0416676cf4e6482f0f10aa808094c9a009877ae58` | `sha256:73d6ff07d96e33bf2e737019c2e8dc1412e0d2f741dfcc6d585b6c19a65b99a5` |
 | `PlanetOverlayTexel` | type | public | `sha256:d031adb519f9ae6e6a787b027c019215ed1badb04e6a15c36f60a1bfc133e576` | `sha256:b03ec50972342c73fd4e690f1b1bd38860fe1a5657beffb724af4caa5d77763e` |
@@ -922,7 +935,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `PlanetSpinPhase` | type | public | `sha256:ffd27557e6a353fc734575ec81fb3a65d610425f3ee97fb4dc737aab01bd176d` | `sha256:7f577569cd1a2cd0eb6455292dfe91898161cc7fe71dd1d681d5fc9ee3722b87` |
 | `PlanetSurfaceOverlay` | type | public | `sha256:b6f71ac63a712eb1261c7c3e01c87a600911b530ce203c4a1c5d6a78f9517161` | `sha256:d801a0b49a42dac2a00b4e5b06b003a046b02c7177d40bf0b2f5d7d508ce38dd` |
 | `PlanetSurfaceSample` | type | public | `sha256:f7050b32874a77d5a0a8c3bd3b9eb94996830afd12c5509b8303fce9dd5c8d8e` | `sha256:51b4d2bb16e62bdec454eeedcf30fdcb3dac62c89b0e2fd8aabfd03c86c5196b` |
-| `PlanetSurfaceSampler` | type | public | `sha256:39c5970ae94be351804c1f88e4bfb6b8c88a94bc9f04b79ebe507a556de2003c` | `sha256:09bf6f7a343066b68119752901440a44a99f12a351c34930275f85793f38fafb` |
+| `PlanetSurfaceSampler` | type | public | `sha256:bf218c675df79d13ef2047fecf3422ab37a00b4986c33655ec0994c5a8f8acd7` | `sha256:6acb70be657d42935f71237c45e4ad2a74a0a3cdecbd8ea297bfbb31e8574782` |
 | `PlanetWeatherEventDef` | type | public | `sha256:ec4cf9eabbf876360de7c380ae603f9d5ccc09586eb3ecd903363074d926f11f` | `sha256:bb7dd6d38e92721c736b601ebd00509d8bb7bcf92754a3c547646f84f9fd0d1f` |
 | `PlanetWeatherKind` | type | public | `sha256:4348f88cca5c2f6db43638e542214b51ca9345888b1d83b7d8e08d4804d36e92` | `sha256:32856193e3bef6493864f5dc83e7247307bf66db803721a62cb301ec485f01e7` |
 | `PlanetWeatherSample` | type | public | `sha256:910ce426aecd632f19b73a1808f7589b4d50ee1cbfe83a90f34325057f517708` | `sha256:0bc0777eb23d4234b10e84ea477e3ff521e54e8169e726cc2c71b722f5bf5df8` |
@@ -1682,6 +1695,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `cellFromResult` | value | public | `sha256:4b5842179bf6c256cf62de1552aa535cb837238b372a286654d89f24d720c86c` | `sha256:2e4b2fe00e5843268a58bfd2021a0d6e4265ca953ae86e5f988c90a806a8d694` |
 | `cellular2` | value | public | `sha256:071ef6996c6a1d6f867246aaa4f804a96d9334886dbb07f133a654c4013fe43d` | `sha256:5dd60ebb68166749540c68aae736168578123526e1051237145fc31ee2ae2b5f` |
 | `chooseKtx2Target` | value | public | `sha256:31229dc640a095c48d58d2d89aae4eca068603a6535b63f801f42844a4e893f9` | `sha256:a7a9033be05e642a3d61d3d46dd649cd7acd02d283901c87c3bb9f845cd3dc3b` |
+| `chooseMarsAtlasSize` | value | public | `sha256:eb98b6963e63b5c92efdbeb5ae50c90164a79cbd84b60744b6da33d2502a1c3f` | `sha256:de30b18d8f0796505a6906083c7b2c78280a639bed82bec496e69874f97e93f2` |
 | `chunkCoordKey` | value | public | `sha256:60437e0e62e3fef000e18a43412bf9d4d3cf54b78ccf76032644fae9605b9546` | `sha256:5c7fd9fcec0ba57d978362ac4393c975d1c45443b83980e5066da7429e8ffacc` |
 | `chunkCoordinateKey` | value | public | `sha256:9327709c3a5b474026d4ae301375db2d8f10d9ee09a2106e2ca8881dadf4e131` | `sha256:ee57ecec8508085033c5d42c9ff01a972d0fe31d916ca65e97de8469febae3c9` |
 | `chunkKey` | value | public | `sha256:9cf565f69268f4aa2eed65c15bbf386a68d6f4e28897b14ef933e1f762a161ab` | `sha256:883c35af8bd71c866aff99c13472303cd2a1b48f6717b207b762d79223c8021d` |
@@ -1774,9 +1788,10 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `createIdentitySkinningData` | value | public | `sha256:91dae7b66d9a5a561a6208fe9d5f0e1f0903ececfce8fa9ea923011de87164ec` | `sha256:3c6837e221727b1f72b0164b98675d4b453ce6f17e5aef34fccefbc13f4189ab` |
 | `createInteractiveRockSpec` | value | public | `sha256:428a883ba58e8b24f800246b8000772eed3e6c0b089ec7a247099337acf07fd4` | `sha256:44593ca63d4c26ae402a1aadde5081268e0ec227d636251294269c160a363e2a` |
 | `createLogger` | value | public | `sha256:012bb4a69974dcb8e8324512ddab4a2b108c7394f38a26387dcaf27680714f07` | `sha256:cf655b418c2b0310886db6089ebf680b1f74e40338098c1df65e22f5ffe2ec23` |
+| `createMarsAtlasIndexedDbCache` | value | public | `sha256:7e95c9f1835e5c251697933af80ddbcd6a2c23827c40a4904aadeac6aaaf0891` | `sha256:2177527a1984946ace17b61335c758120b8d25c5a0cb3873d4092b5d2cee456e` |
 | `createMarsGenParams` | value | public | `sha256:5208e030d5c182ea1e1ac102002ec24b963d3e890383e6c3901c8273ba8f35df` | `sha256:898f2a0660e5d12bb25b7138a580dcec9c21c4ebb0cb8f5e4d8bd280f4ae0830` |
-| `createMarsGlobeSampler` | value | public | `sha256:4572750d8c40eb0604bfad03bea35a221f12e63ebd2bd4b2698feb02a6012f08` | `sha256:ac3f09200349b28278b0f765da933b083331c5efa6185cb7488be9d7edd2ca64` |
-| `createMarsPipeline` | value | public | `sha256:7bef354b4a504f3376f42988417db040efdd71493a8c70751bc5ef45555079d6` | `sha256:a0500ddcabc3dc7e8471514d1f473c369246a312f2123aee89e3170fd97c260b` |
+| `createMarsGlobeSampler` | value | public | `sha256:98d3ab00814525b11a0e93ead1b3856149a7050a415044275bf6ba3c91f0739a` | `sha256:d97b1542773090504d71cde6e20bacf956951a244f49a60cadf3f74d9cb6c135` |
+| `createMarsPipeline` | value | public | `sha256:7bef354b4a504f3376f42988417db040efdd71493a8c70751bc5ef45555079d6` | `sha256:b902ac2f7de0b58e5414a3c6b2ccffe5344617814cb071ddb99ca057d2421527` |
 | `createMeltEnvironment` | value | public | `sha256:34656654e2939df6746728093a842566378eaf72e2c26c7d0a97aa8746bba3ae` | `sha256:6172106a34ff6232331d786840be9f2908822f71894ab16f33729a69e6265bf1` |
 | `createMockAudio` | value | public | `sha256:7a6902db6f506d1877725fbb6c996a33b54ca33f21275d288dd8ec3f5e3c38a1` | `sha256:c4499201cecd4954c3beb825fb9e68a97bdc2ba6dbe0f0a0620c9909d18a7b5a` |
 | `createMockGpu` | value | public | `sha256:5af38b8503fbddb3b5a444dc53edbf05dcaf9b15bb4298ac74ab98813210f100` | `sha256:54c2a5815e94e926b3f259edc67ce38f9802d483377e9cf1b0850ee2cc2353f1` |
@@ -1832,6 +1847,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `daysInYear` | value | public | `sha256:09e47b522c0c3114f8f1245211415ad3a8a7304c0bfbd24619584563b8d1a3a2` | `sha256:43e276d075de756fac2c7bb3fd1e60444d69160ecb9ffff7eb8d675398ded3d1` |
 | `decodeGltfAnimations` | value | public | `sha256:3bada25b17ac0ab6cbad1aeee7d5a5c73216a08243a4f3e9302272b0963d610c` | `sha256:c2b1fc28103e3a491ee0195de7ffd236b6d123636549b5f56781eb247c412bb6` |
 | `decodeGltfMesh` | value | public | `sha256:6a5260a410bd71864affbf8e57b5f70c96796e90a60e274e57ac2cc73c7c5ec2` | `sha256:f82777a526b7a426f6ee2800d7a3f175ca90ce832ca19b3060c18ad0ea5fa095` |
+| `decodeMarsAtlasFace` | value | public | `sha256:c8d02dde74fdcb2809b48f025198f77f386d54d2029241f98ca2c6520f4955dc` | `sha256:ca66511cde2cf08ce22da0e197ea89ad7648e2246cf8c624b6a6c48a418d839e` |
 | `decodeNumber` | value | public | `sha256:cafcb3c26a27ddbef9517eefc6e6fda9ee06ca6d45c595eae2d67c3c6f21b0cf` | `sha256:7e71677df4f6f58adb8c3d3046a8412dd555b02d7f4bbe3360ef1e8fd255bf80` |
 | `decodePairToFloat64` | value | public | `sha256:ef62fb1461057e0a1a4901fcc78059b812db9a48229c7d7d0f360fe92ecc79f3` | `sha256:406d0ffffdbbdb6702195f499f8f637186ada1641495b38564d5cc40e6e8b40f` |
 | `decodedAudioBytes` | value | public | `sha256:82c9a35a639107d02128823e4f8e43d7e4bf22369a8702477ff8d5962c65056a` | `sha256:c8c94a7525030e65948ab3155138d92bdf78d53e83959f3e4553ae724b31b93e` |
@@ -1982,6 +1998,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `isIdeographic` | value | public | `sha256:6fbabbd19dec340c518351fcf5e365f00012615fc769d68e80a4f81d45a24b8e` | `sha256:00e502d6443b31d84fbc89ef9781d149fdf1c5ddf4c8bc252f5e0a27d18885c1` |
 | `isKnownFormat` | value | public | `sha256:f93cbbceb6b7acc748ed20de85ecfde482f453826481bf3139c01c529be53251` | `sha256:74e03070d78e730a14f59a44c1f69a007440ba8f25c31e483cfb195f946dcdc8` |
 | `isLeapYear` | value | public | `sha256:b7feec20074bac40bd05528ba8459ae1f55029bb0c147f59ab7478753796c9f6` | `sha256:a1e775319fe9e171fa193379d893129e5db3e8395abb2b0342f8bc3e5773289c` |
+| `isMarsAtlasSize` | value | public | `sha256:1ee1ba6cbc5cf90348cbec95b76e3ba549732f379a8129e58fd4738b584e7f51` | `sha256:dde7a1e9f11bdc9b10779deb6bc70e37bfc5994487f360278a8b88b7cf33007c` |
 | `isMobileUserAgent` | value | public | `sha256:bc6b19185aed6666835117ef4fb4bdfb3dc803a01c33edc134c72909d129eb1d` | `sha256:237523e207058d7fa814ceaf85a509862498896458589220af45bb035540606a` |
 | `isPopulationSource` | value | public | `sha256:c51ea8a899ff5b69e7c086f6984e5fa358bdc3df5f18d977ac426f03b0f45a59` | `sha256:2983ccaac8c9142985fc243d9fb72f6503231efbe0491416ea6d96725910cf06` |
 | `isPowerOfTwo` | value | public | `sha256:3b0e693cd58ca409c4059284e952b7f06117aedc5a64c8798350645b40780073` | `sha256:b2eab0e38b7a0042c5ccc3514b0cfc9b1df6f21a8e41ebc23154bd071e5e76f5` |
@@ -2015,9 +2032,16 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `makeEntityId` | value | public | `sha256:17247dc15f3d2f55a3c8f01a2560f0c69b42647c40823f7f645c99d06a27ea70` | `sha256:2e5566234d7673e44b8319fdd2b8947e2db9828622039f789b7bd7d4a7ba0fb7` |
 | `makeHandle` | value | public | `sha256:e2c1344b40c338df97a028e7d6b352c58836217ea391db1bad892cd58c2bad62` | `sha256:33185ef7033bdc800090f2383325fc47419021982fc22c6855da63cfbb123250` |
 | `marsAngularDistanceMeters` | value | public | `sha256:f439ab26cbfa7c1afa0141d9831d383d3f5efdc90a0b4ba1ac916b20b0f7e9fc` | `sha256:8658a000aa8045889e481a7e1a5c3392a6220ec6873eee0f66b8073b69752f9a` |
+| `marsAtlasFilter` | value | public | `sha256:21750d43ca7efc8bdd3dea4182dbdde7cb21be15a85acbdd8b1ba817421c4298` | `sha256:6e18d6c26f21d9727c8f385faf276d95b3615835ffc21720d7d31c413e85d152` |
+| `marsAtlasGunzip` | value | public | `sha256:ffc0d8abf028860090ba33ad5973f4078e3b7b96860605cf9c0fba65b9c59bf1` | `sha256:72552bee9ed8e8fc07d342ac85e4fed0b51d98f610b1a698c3a639144906ac16` |
+| `marsAtlasPlan` | value | public | `sha256:86de26065b47423523c670838a805a67e60a78d264fde04538a5936c6743fe44` | `sha256:954551d12bcf399e6b3483ccc0a8ba5a0007f9a0ba5c1c72a5dd14b240db46a3` |
+| `marsAtlasQuantize` | value | public | `sha256:a7c1563ee8d13a4d1284ea08b025a02f6a8887fc253de97f82763246abf5cdce` | `sha256:30a05cc7bc7d8bc0d3e2a95a4ea7ea0e5cfac7edcd3de4e219f51e29f8c5fc53` |
+| `marsAtlasTexelDirection` | value | public | `sha256:f6beaea9dcab9a6e6a6bb01f97d1f4087174e630ce79d160b174b59701e2b00b` | `sha256:9b372b03bb68dbc3d62c8eac61260ce3d9e1fe3f40f44cf5c329372061f4308d` |
+| `marsAtlasUnfilter` | value | public | `sha256:82cc4b63b5d4a7396cf704830bca1939464465613d0d816faf02109f5cbc4d18` | `sha256:32b39eb1e17d11cf70a2541819a0f6106140ae24abf53a1ebbde8a03496e4c5a` |
 | `marsDepthForChunkEdge` | value | public | `sha256:a126e8a20f9bab299ae1feed7b7b6e1f8cfd54789b7778f91f7a7e1651b40d5c` | `sha256:bb6ae89fd57db06a166f9e401c1cd2e0504adeb509aea6e4950e7a6b0bc3d351` |
 | `marsDepthForChunkEdgeAtMost` | value | public | `sha256:cc8ea52754bccd90935e973b4b1bd7c9dc8134b62d22a9f64d5743a8951c2c11` | `sha256:8fafe57e868d752a66e0b0233778391edc1e6dd4cd982da9d6d361d3baf3357d` |
 | `marsDirectionToFaceUV` | value | public | `sha256:b9d9c391b72a22a62cb9ce864559fc2b49094d7b0de3bfad49b67862222a24a1` | `sha256:c63beb2fdeb104b71664eed75b533d676227ac97348b61630ed8c299911daf48` |
+| `marsDirectionToFaceUVExact` | value | public | `sha256:43e61cd8d240623f5208415e442a09dc53b5773a14f576d25c4395aa1960155d` | `sha256:f2fbb59d0ef10db019d6c7c96cc3246ed6914918b3d9d0f96820b9258b49759c` |
 | `marsFaceCentreChunkEdgeMeters` | value | public | `sha256:5852d6928399b126386d9fa19699a81f2e7a2f3c265b92838160677dad6ae1d4` | `sha256:e81f6179bb011c82cb12ca21ce5ed0c4a1247d17a4e824ccdec3968800c53968` |
 | `marsFaceFieldsFromBuffers` | value | public | `sha256:12ec173ce95222fc3db02adce2bd9fa192fabc2d0facb6954dcb096298055af3` | `sha256:a2d1aa7ac25a01f759cb7a158811bbe1595a136dd7d54ac5531be1c0f89d85a2` |
 | `marsFaceUVToDirection` | value | public | `sha256:25f8ee45343bc42ed8f4e186ea3d327087163505d402b78433f5f55183896ab9` | `sha256:8cf72b448d910eac21afe872d9321dee8d39012e45bc363810248f13fddcbc94` |
@@ -2025,7 +2049,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `marsLatLonOfDirection` | value | public | `sha256:312a87fcbb0353d293f9de8774baa9cfd57aae58a047423a026eefaed9a40364` | `sha256:57c3fb619f74ebd3684d81b06ca67a06615f4c87c199786f8ffdd33213c21d80` |
 | `marsLatLonToDirection` | value | public | `sha256:33744fa714d4bbee62dc9180b683bb4934c1ee43cdb1eb56f1f9f3a5be94a0e6` | `sha256:3edd19ae6f38064ac5ef9fd53c3cdf13285a3cc88ae9ca6d5691b136edaf7dd3` |
 | `marsNormalize` | value | public | `sha256:e9d0e19cd094769ade08ff0390eda71478bc03cbbc6218702e55a6d78e166fb8` | `sha256:a5d63f76ad71818dc3ff8f78c7b2215bea068dc1aee01e6186fab4deaed93e78` |
-| `marsSampleAnalytic` | value | public | `sha256:c87aacecd6933dff0bad5b602b4a287904ca3c01beed0d1af1f4b141bc683509` | `sha256:9a8d744d025823431b53cb40101cf5d46639a270c01eef1c91be42cfd3b8d245` |
+| `marsSampleAnalytic` | value | public | `sha256:c87aacecd6933dff0bad5b602b4a287904ca3c01beed0d1af1f4b141bc683509` | `sha256:b703e6b785daa8e1806bf4073494f9add12b9a0d3a7cece1f0a43cc4558c31c8` |
 | `marsSampleCinderCones` | value | public | `sha256:4eafc93a081ef12049d48174d779269bc186af536e7eac3753dcbc6b616e69f3` | `sha256:f6ede74809736d5a51e0cda2c04128ffc6c0b4f4b54625a5dec7e54d8c59b8c3` |
 | `marsSampleCraterDelta` | value | public | `sha256:4eaec74f13e7c181b9402fedac045077ed2a0240c59d7d882a2cff1dd56bde40` | `sha256:ede203de50bef21fc6ce6ac583e7f6126116c51c8f9804b157c1d06f45b14e33` |
 | `marsSampleRegionalBase` | value | public | `sha256:df86d200ccf1342022744b824a60d167878eea3d6ac739ab97d0e26b4c516119` | `sha256:a14c1d982336af78a2d7b093e1f7267c514255c06fe98ca2bfe0f4b0eb4f62cc` |
@@ -2072,6 +2096,7 @@ The rows below are sorted by exported name. `declarationHash` identifies the dir
 | `parseColor` | value | public | `sha256:c9607bf5fedd435eb06221ba1ea96e1caeffc3235383b890ab9455004ddf5dd9` | `sha256:ddc6a0bcff6ee21027bb37e0944f05f9b93f7ab0cdc41a131dc8b8c9a637f655` |
 | `parseLength` | value | public | `sha256:70c11a6dba5ecd06635276b117f70743977d669ed729ef2fe46caf4b62fb159d` | `sha256:15563502866c123ef6832eb0c5e5f9dea6c726fe0cc8dcd371b47b901514fea8` |
 | `parseLogLevel` | value | public | `sha256:e5aca8f4e766aee0e320000b118204781fe8767f151f67e5223079f4f921996f` | `sha256:851f08ebc23518f7bb2feb3a3caeb53e54aa7b42e5c82402ba5f6731432b7cdf` |
+| `parseMarsAtlasManifest` | value | public | `sha256:90e5487efd9991d51ed8f7ee7bc34604793c1be5750685de39110092a4190096` | `sha256:861927722c74a1269c7172c2d6107aaf8dfb94e672ca494ab84a3256a788941f` |
 | `parseTrack` | value | public | `sha256:e0fcde4e9a3b2b4cb223ac1a25ab3b021d76e34c602dd8ac8baa9decf2c90886` | `sha256:875fa1cdc31d41a8ff89727b77ffa999209d77716e43e7b3cf2e06f5971435bd` |
 | `particleDebugLines` | value | public | `sha256:28cd22552c75552a2489f54336d820674d42b0ff518db4a8174eaeaf40682b34` | `sha256:f4af6fdb99d8a9c5e3f8df2373af4499cfdf970fc92bea252352cb9ba635e6f6` |
 | `particleSoundLevels` | value | public | `sha256:82ae88342a23a8e616d95d7b048856c579acbc04344a2f2bb074e81c1679abc0` | `sha256:dbdef1a3383cc39bdfc95c5b2676131d776604ec52ad7d72df8c565936733ee1` |

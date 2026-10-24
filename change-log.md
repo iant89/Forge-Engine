@@ -30925,6 +30925,51 @@ JSON array below; agents maintain it by hand until then.
       "tools/browser-check.mjs",
       "change-log.md"
     ]
+  },
+  {
+    "id": "2487",
+    "date": "2026-10-24T08:50:00Z",
+    "type": "pr-merge",
+    "pr": null,
+    "branch": "fe-40-mola-heights",
+    "base": "mars-orbit-explorer",
+    "title": "Real USGS MOLA elevation for the Mars Orbit Explorer: three-size cube-sphere height atlas, loader, stage and globe sampler",
+    "model": "Grok Bot",
+    "modelVersion": null,
+    "summary": "Adds an offline baker (tools/bake-mola-atlas.mjs) and committed MOLA height atlases (phone 2.0 MB, tablet 7.6 MB, desktop 27.9 MB) on the engine's exact cube sphere, an atlas loader/streamer with bilinear/bicubic sampling, lazy per-face loading and IndexedDB caching, an exact inverse of the spherified-cube warp, and real-height paths in MarsTerrainStage and the Mars globe sampler (procedural detail fades in on fine tiles; no atlas means the procedural planet unchanged). The orbit demo picks the size from ?tier= and device detection with a ?mola= override.",
+    "files": [
+      "ARCHITECTURE.md",
+      "docs/API-REFERENCE.md",
+      "docs/API-REVIEW.md",
+      "docs/API.md",
+      "docs/KNOWN-ISSUES.md",
+      "docs/MARS-TERRAIN.md",
+      "docs/PLANET-ORBIT.md",
+      "docs/VERIFICATION.md",
+      "engine/api-approvals.json",
+      "engine/api-surface.json",
+      "engine/src/core/capabilities.ts",
+      "engine/src/rendering/planetGlobe.ts",
+      "engine/src/terrain/mars/cubeSphere.ts",
+      "engine/src/terrain/mars/geology.ts",
+      "engine/src/terrain/mars/globeSampler.ts",
+      "engine/src/terrain/mars/heightAtlas.ts",
+      "engine/src/terrain/mars/index.ts",
+      "engine/src/terrain/mars/stage.ts",
+      "engine/src/terrain/pipelineSpec.ts",
+      "examples/public/mars/mola/ (manifest.json + 18 face files)",
+      "examples/src/main.ts",
+      "examples/src/scenes/marsOrbitAtlas.ts",
+      "examples/src/scenes/marsOrbitScene.ts",
+      "mnemosyne.md",
+      "tests/core/runtimeApi.test.ts",
+      "tests/full.test.ts",
+      "tests/terrain/marsHeightAtlas.test.ts",
+      "tests/tools/apiAudit.test.ts",
+      "tests/tools/selrun.test.ts",
+      "tools/bake-mola-atlas.mjs",
+      "tools/browser-check.mjs",
+      "change-log.md"
+    ]
   }
 ]
-```
