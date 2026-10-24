@@ -1839,7 +1839,9 @@ CURRENTLY COMPLETE:
     [x] Improved Mars atmospheric scattering. (The dust sky gains the most from the LUT — 2-5x
         luminance at every sun elevation the preset is used at — because a thin, strongly
         forward-scattering atmosphere loses most of its light to higher orders. The remaining
-        wavelength-dependent Mie lobe is in KNOWN-ISSUES.)
+        wavelength-dependent Mie lobe landed with the Mars Orbit Explorer: `AtmosphereParams.mieAureole`
+        adds a tight, per-channel forward lobe, which is Mars' blue sunset glow; its limits are in
+        KNOWN-ISSUES.)
 
     [x] Better twilight. (Twilight is the second-and-higher orders: the sky integral alone goes to
         zero the moment the sun crosses the horizon. Measured 2.2x at the zenith and 6x at the

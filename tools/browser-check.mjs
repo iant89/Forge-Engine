@@ -153,6 +153,7 @@ const GLTF_SKIN_ONLY = process.argv.includes("--gltf-skin");
 const RESCUE_ONLY = process.argv.includes("--rescue");
 const AMAZON_ONLY = process.argv.includes("--amazon");
 const MECHANICAL_ONLY = process.argv.includes("--mechanical");
+const MARS_ORBIT_ONLY = process.argv.includes("--mars-orbit");
 const BROWSER_SECTION_NAMES = ["renderer", "terrain", "vehicle-particles", "animation", "environment", "mars"];
 const SECTION_ONLY = (() => {
   const inline = process.argv.find((arg) => arg.startsWith("--section="));
@@ -163,7 +164,7 @@ const SECTION_ONLY = (() => {
 const workerSmokeOnly = process.argv.includes("--workers-only");
 const otherFocusedMode =
   MARS_WORKERS_ONLY || MARS_GENERATOR_ONLY || MARS_INTERACTIVE_ONLY || TERRAIN_LAYERS_ONLY ||
-  SKINNING_ONLY || GLTF_SKIN_ONLY || RESCUE_ONLY || AMAZON_ONLY || MECHANICAL_ONLY || workerSmokeOnly;
+  SKINNING_ONLY || GLTF_SKIN_ONLY || RESCUE_ONLY || AMAZON_ONLY || MECHANICAL_ONLY || MARS_ORBIT_ONLY || workerSmokeOnly;
 if (SECTION_ONLY !== null && !BROWSER_SECTION_NAMES.includes(SECTION_ONLY)) {
   console.error(`check:browser NOT RUN — unknown section "${SECTION_ONLY}" (choose ${BROWSER_SECTION_NAMES.join(", ")})`);
   process.exit(2);
@@ -192,7 +193,9 @@ const CHECK_NAME = SECTION_ONLY !== null
                 ? "check:browser:amazon"
                 : MECHANICAL_ONLY
                 ? "check:browser:mechanical"
-                : "check:browser";
+                : MARS_ORBIT_ONLY
+                  ? "check:browser:mars-orbit"
+                  : "check:browser";
 const PORT = Number(process.env.PORT ?? 5199);
 const URL = `http://127.0.0.1:${PORT}/`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -920,6 +923,69 @@ async function checkAmazonRiver() {
       `frame mean=${pixels.mean.toFixed(1)}, GPU errors=${driven.stats.gpuErrors}`,
   );
   return driven.state;
+}
+
+/**
+ * Focused Mars Orbit Explorer smoke (fe-39): the planet is on screen and bakes, a mouse drag turns it,
+ * the touch diagnostics toggle, a dive lands on the ground with the region's weather and terrain,
+ * and the return button flies back to orbit. `?moinstant=1` lands transitions at once and `?mobake=`
+ * raises the per-frame bake budget — headless SwiftShader renders only a few frames a second, so the
+ * real-time easing is not what this gate measures.
+ */
+async function checkMarsOrbit() {
+  await page.goto(`${URL}?scene=mars-orbit&tier=low&moinstant=1&mobake=40`, { waitUntil: "load", timeout: 60000 });
+  await page.waitForFunction(() => window.__forge?.marsOrbitState?.() != null, null, { polling: 250, timeout: 90000 });
+  await waitPresentedFrames(2);
+  const first = await page.evaluate(() => window.__forge.marsOrbitState());
+  if (first.mode !== "orbit") throw new Error(`mars-orbit did not start in orbit: ${JSON.stringify(first)}`);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
+  const cover = await samplePixels();
+  if (!(cover.distinct >= 8)) throw new Error(`only ${cover.distinct} distinct colours; the globe is not rendering`);
+  if (!(cover.mean >= 6)) throw new Error(`frame is almost black (mean luminance ${cover.mean.toFixed(1)})`);
+  await page.screenshot({ path: "tools/.browser-check-mars-orbit.png", timeout: 60000 });
+
+  // A mouse drag grabs the planet and turns it.
+  const lon0 = (await page.evaluate(() => window.__forge.marsOrbitState())).subCameraLonDeg;
+  await page.mouse.move(520, 360);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(520 + i * 20, 360);
+    await sleep(60);
+  }
+  const mid = await page.evaluate(() => window.__forge.marsOrbitState());
+  await page.mouse.up();
+  if (mid.gesture !== "drag") throw new Error(`a mouse drag was not recognised as a drag: ${JSON.stringify(mid)}`);
+  const lon1 = (await page.evaluate(() => window.__forge.marsOrbitState())).subCameraLonDeg;
+  const turned = Math.abs(((lon1 - lon0 + 540) % 360) - 180);
+  if (!(turned > 3)) throw new Error(`dragging turned the planet by only ${turned.toFixed(2)}°`);
+
+  await page.evaluate(() => window.__forge.marsOrbitDiagnostics(true));
+  const diag = await page.evaluate(() => window.__forge.marsOrbitState().diagnosticsVisible);
+  if (diag !== true) throw new Error("the touch diagnostics overlay did not open");
+  await page.evaluate(() => window.__forge.marsOrbitDiagnostics(false));
+
+  // Dive into the southern basin during the regional dust storm.
+  await page.evaluate(() => window.__forge.marsOrbitDive(-42, 70, { hours: 13, ls: 225 }));
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 250, timeout: 60000 });
+  await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
+  const ground = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
+  if (Math.abs(ground.state.site.latDeg + 42) > 0.01 || Math.abs(ground.state.site.lonDeg - 70) > 0.01) {
+    throw new Error(`landed at the wrong place: ${JSON.stringify(ground.state.site)}`);
+  }
+  if (!(ground.state.weather.dust > 0.5)) throw new Error(`the storm site has no dust: ${JSON.stringify(ground.state.weather)}`);
+  await sleep(1500);
+  await page.screenshot({ path: "tools/.browser-check-mars-orbit-ground.png", timeout: 60000 });
+
+  await page.evaluate(() => window.__forge.marsOrbitReturn());
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 250, timeout: 60000 });
+  const end = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
+  if (end.stats.gpuErrors !== 0 || end.stats.lastError) throw new Error(`Mars orbit GPU error: ${end.stats.lastError}`);
+  console.log(
+    `mars orbit: globe ${(first.globeProgress * 100).toFixed(0)}%→, drag turned ${turned.toFixed(1)}°, ` +
+      `ground dust=${ground.state.weather.dust.toFixed(2)} (${ground.state.weather.dominantId}), terrain ${ground.state.terrainReadyChunks}/${ground.state.terrainChunks} chunks, ` +
+      `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}`,
+  );
+  return end.state;
 }
 
 /** Focused Alpine rescue smoke: selector wiring, dynamic physics, cargo mission, storm, and drive. */
@@ -3804,6 +3870,9 @@ try {
   } else if (AMAZON_ONLY) {
     await checkAmazonRiver();
     console.log("Focused Amazon river scene/controls check only; the full renderer and Mars suite was not run.");
+  } else if (MARS_ORBIT_ONLY) {
+    await checkMarsOrbit();
+    console.log("Focused Mars Orbit Explorer check only; the full renderer and Mars suite was not run.");
   } else if (MECHANICAL_ONLY) {
     await waitPresentedFrames(1);
     await page.selectOption("#scene-select", "vehicle", { force: true });

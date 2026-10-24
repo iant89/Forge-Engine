@@ -1183,6 +1183,23 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "SceneSkySettings.aerialPerspective defaults off, serializes, maps to perFrame flag bit 6, and is verified by a real-WebGPU geometry A/B; the CPU reference integrates direct and optional multiple scattering.",
   },
 
+  {
+    id: "environment.marsAureole",
+    phase: "17.1",
+    status: "verified",
+    summary: "Wavelength-dependent forward Mie lobe (AtmosphereParams.mieAureole): the blue glow around the setting Mars sun",
+    evidence: ["tests/environment/planetOrbit.test.ts", "tools/wgsl-check.mjs", "docs/PLANET-ORBIT.md"],
+    notes: "The sky shader, aerial perspective and the CPU twin share one per-channel phase (mieChannelPhase); absent or zero keeps every Earth scene bit-for-bit single-lobe. The weights are tuned to imagery and the LUT's higher orders stay isotropic.",
+  },
+  {
+    id: "environment.planetOrbit",
+    phase: "17.1",
+    status: "verified",
+    summary: "Reusable planet-viewer systems: planet frames and calendar, globe spin/inertia controller, season-driven PlanetWeatherSystem with polar caps, progressive PlanetGlobe, DustDevilField",
+    evidence: ["tests/environment/planetOrbit.test.ts", "tests/examples/marsOrbitScene.test.ts", "docs/PLANET-ORBIT.md"],
+    notes: "Unit-tested on the mock device; the ?scene=mars-orbit pixels were checked by hand in headless SwiftShader screenshots, and there is no check:browser section for it yet.",
+  },
+
   // ---------------------------------------------------------------- world / content
   {
     id: "world.population",

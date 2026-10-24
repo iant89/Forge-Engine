@@ -189,9 +189,18 @@ seam. (roadmap: 23.3)
   inclination. (roadmap: 17)
 * **The sun disc is not a physical radiance.** `sunDiscIntensity` (default 100× the sun's
   transmitted irradiance) is a look control; the real disc (~14 700×) would bloom the whole frame. (capability: environment.sunDisc)
-* **Mars' blue sunset aureole is not modelled.** It needs a wavelength-dependent Mie lobe; the preset
-  has one `g`, and the LUT's higher orders are deliberately isotropic (Phase 17.1). The daytime
-  butterscotch sky and the bright forward aureole are there. (roadmap: 17)
+* **Mars' blue sunset aureole is a tuned second lobe, not a measured phase function.**
+  `AtmosphereParams.mieAureole` adds a tight per-channel forward lobe (blue strongest) to the Mie
+  phase, so the glow around a low sun turns blue; the weights are chosen against Pathfinder/Spirit
+  imagery, and the LUT's higher orders stay deliberately isotropic (Phase 17.1), so the glow does not
+  spread into the multiply-scattered twilight. Verified on the CPU twin and by screenshots of
+  `?scene=mars-orbit`, not by a real-WebGPU A/B in `check:browser`. (roadmap: 17)
+* **The Mars Orbit Explorer globe is a baked texture, not a streamed planet.** `PlanetGlobe` samples the
+  Mars generator on a grid (≈10–21 km per texel on the high/low tiers) and shows it on one sphere; zooming
+  in blurs, and the ground view is a separate terrain world swapped in under a haze, not a continuous
+  level of detail. Orbit and ground clouds/dust are driven by the same event table but are two renderings
+  of it. Performance on real iOS Safari GPUs is unmeasured (the verification here ran on SwiftShader);
+  `?tier=low` is the lever. See docs/PLANET-ORBIT.md. (roadmap: 17)
 * **Fog is per-fragment and unshadowed.** No volumetric light shafts; the fog colour does not depend on
   the view direction (the sky's horizon average is used). (roadmap: 17)
 
