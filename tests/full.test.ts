@@ -123,6 +123,7 @@ export const linkedSuites = [
   ["tests/examples/dustStormRoute.test.ts", () => import("./examples/dustStormRoute.test.ts")],
   ["tests/examples/highGainAntenna.test.ts", () => import("./examples/highGainAntenna.test.ts")],
   ["tests/examples/marsGeneratorScene.test.ts", () => import("./examples/marsGeneratorScene.test.ts")],
+  ["tests/examples/marsReferenceAcceptance.test.ts", () => import("./examples/marsReferenceAcceptance.test.ts")],
   ["tests/examples/marsReferenceTelemetry.test.ts", () => import("./examples/marsReferenceTelemetry.test.ts")],
   ["tests/examples/marsShowcase.test.ts", () => import("./examples/marsShowcase.test.ts")],
   ["tests/examples/marsShowcaseDamage.test.ts", () => import("./examples/marsShowcaseDamage.test.ts")],
@@ -170,4 +171,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(166);
+report(167);

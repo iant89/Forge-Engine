@@ -1,6 +1,6 @@
 # Forge Engine — Progress
 
-_Last updated: 2026-10-21_
+_Last updated: 2026-10-23_
 
 A simple checklist of what Forge can do today and what is still planned. Statuses come from
 [ROADMAP.md](ROADMAP.md) and [engine/src/core/capabilities.ts](engine/src/core/capabilities.ts).
@@ -236,7 +236,7 @@ The scene selector includes these demos. Mars Showcase opens by default.
 
 ## Road to 1.0 (Phases 23, 27–29)
 
-- [~] Mars reference vertical slice: the existing showcase is reconciled against Phase 23, now uses a dynamic solver-coupled chassis in its shared terrain/rock world, and publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API; its fixed-step Mars solar cycle drives the reference sun, ambient and horizon fog, and dry clear/dust/global-dust weather profiles now drive deterministic wind, haze, lighting and a thin high veil without wet-ground side effects. Sustained continuous-drive/environment validation, Stage A erosion, richer Mars dust transport, camera modes and integrated replay remain (Phase 23)
+- [~] Mars reference vertical slice: the showcase uses a dynamic solver-coupled chassis in its shared terrain/rock world and publishes `forge.mars-reference/1` frame/streaming/particle/traversal telemetry in the HUD and browser API. The fixed-step Mars solar cycle drives the reference sun, ambient and horizon fog; clear/dust/global-dust profiles remain dry; the new `forge.mars-acceptance/1` monitor records continuous moving time, path, terrain gaps, resident/asset peaks, dry-environment violations and all four camera modes; a deterministic `forge.mars-crater-route/1` crosses a real seed-1337 crater; camera poses and generic input/hash replay are wired through `window.__forge`. The real-browser Mars section now asserts those gates, but this checkout could not execute it because the provisioned Chromium binary is absent. Stage A erosion and richer Mars dust transport remain explicitly out of scope (Phase 23).
 - [x] Public API audit and release contract: the root-only `@forge/engine` boundary and the
   2,196-export surface (2,187 public, nine experimental), type/value kinds, stability labels,
   direct declarations and transitive engine-local type contracts have a deterministic CI-gated

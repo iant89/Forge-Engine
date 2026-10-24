@@ -899,6 +899,16 @@ async function main(): Promise<void> {
           ` · managed ${count(reference.gpuWorld.managedBatches)} batches / ${count(reference.gpuWorld.managedInstances)} instances` +
           ` · cpu-out ${count(reference.gpuWorld.cpuRejectedInstances)}` +
           ` · recent visible ${count(reference.gpuWorld.objectBatchesVisible)}/${count(reference.gpuWorld.objectBatchesTested)}`;
+        if (reference.acceptance) {
+          const acceptance = reference.acceptance;
+          hud.textContent +=
+            `\naccept ${acceptance.passed ? "PASS" : "WARMING"} · moving ${acceptance.movingSeconds.toFixed(1)}s/${acceptance.thresholds.movingSeconds}s` +
+            ` · path ${acceptance.distanceMeters.toFixed(1)}m · chunks ${acceptance.visitedChunks}` +
+            ` · terrain gaps ${acceptance.terrainGapSeconds.toFixed(2)}s · dry violations ${acceptance.dryEnvironmentViolations}` +
+            `\ncameras ${acceptance.cameraModes.join(",") || "—"} · env samples ${acceptance.environmentSamples}` +
+            ` · ready ${acceptance.modelReady ? "model" : "model?"}/${acceptance.terrainReady ? "terrain" : "terrain?"}` +
+            ` · crater route ${reference.craterRoute.passed ? "ready" : "missing"} · asset errors ${acceptance.modelErrors}`;
+        }
       }
     }
     const extra = currentHandle?.overlay?.();
@@ -1156,6 +1166,16 @@ async function main(): Promise<void> {
       if (activeSceneName === "mars-showcase")
         (currentHandle as MarsShowcaseSceneHandle | null)?.setMarsWeather?.(mode);
     },
+    /** Phase 23.7: switch the Mars reference camera (chase, cockpit, free, cinematic). */
+    setMarsCameraMode: (mode: "chase" | "cockpit" | "free" | "cinematic") => {
+      if (activeSceneName === "mars-showcase")
+        (currentHandle as MarsShowcaseSceneHandle | null)?.setMarsCameraMode?.(mode);
+    },
+    /** Phase 23.7: set a fixed Mars free-camera pose for screenshots and browser gates. */
+    setMarsCameraLookAt: (eye: [number, number, number], target: [number, number, number]) => {
+      if (activeSceneName === "mars-showcase")
+        (currentHandle as MarsShowcaseSceneHandle | null)?.setMarsCameraLookAt?.(eye, target);
+    },
     /** Phase 23: versioned telemetry/streaming/traversal contract; null outside Mars Showcase. */
     marsReferenceState: () => {
       const handle = currentHandle as MarsShowcaseSceneHandle | null;
@@ -1170,6 +1190,26 @@ async function main(): Promise<void> {
     resetMarsReferenceTraversal: () => {
       if (activeSceneName === "mars-showcase")
         (currentHandle as MarsShowcaseSceneHandle | null)?.resetMarsReferenceTraversal?.();
+    },
+    /** Phase 23.9: start the generic Forge input recorder on the Mars rover channel. */
+    startMarsReplay: () => {
+      if (activeSceneName === "mars-showcase")
+        (currentHandle as MarsShowcaseSceneHandle | null)?.startMarsReplay?.();
+    },
+    /** Phase 23.9: stop Mars recording and return the portable replay document. */
+    stopMarsReplay: () => {
+      if (activeSceneName !== "mars-showcase") return null;
+      return (currentHandle as MarsShowcaseSceneHandle | null)?.stopMarsReplay?.() ?? null;
+    },
+    /** Phase 23.9: play a portable Mars recording and expose exact state-hash divergences. */
+    playMarsReplay: (recording: Parameters<NonNullable<MarsShowcaseSceneHandle["playMarsReplay"]>>[0]) => {
+      if (activeSceneName !== "mars-showcase") return null;
+      return (currentHandle as MarsShowcaseSceneHandle | null)?.playMarsReplay?.(recording) ?? null;
+    },
+    /** Phase 23.9: current Mars recording/playback status. */
+    marsReplayState: () => {
+      if (activeSceneName !== "mars-showcase") return null;
+      return (currentHandle as MarsShowcaseSceneHandle | null)?.marsReplayState?.() ?? null;
     },
     /** Ported Mars generator inspector (`?scene=mars-generator`): site, fidelity, generation mode. */
     marsGeneratorState: () => {
