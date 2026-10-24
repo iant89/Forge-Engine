@@ -44,6 +44,7 @@ export const linkedSuites = [
   ["tests/environment/environment17_5.test.ts", () => import("./environment/environment17_5.test.ts")],
   ["tests/environment/environment17_6.test.ts", () => import("./environment/environment17_6.test.ts")],
   ["tests/environment/snowMelt.test.ts", () => import("./environment/snowMelt.test.ts")],
+  ["tests/environment/planetOrbit.test.ts", () => import("./environment/planetOrbit.test.ts")],
   ["tests/environment/ocean.test.ts", () => import("./environment/ocean.test.ts")],
   ["tests/environment/stormRealism.test.ts", () => import("./environment/stormRealism.test.ts")],
   ["tests/audio/vehicleAudio.test.ts", () => import("./audio/vehicleAudio.test.ts")],
@@ -129,6 +130,7 @@ export const linkedSuites = [
   ["tests/examples/marsShowcaseDamage.test.ts", () => import("./examples/marsShowcaseDamage.test.ts")],
   ["tests/examples/marsShowcaseCollision.test.ts", () => import("./examples/marsShowcaseCollision.test.ts")],
   ["tests/examples/marsDustStorm.test.ts", () => import("./examples/marsDustStorm.test.ts")],
+  ["tests/examples/marsOrbitScene.test.ts", () => import("./examples/marsOrbitScene.test.ts")],
   ["tests/examples/mechanicalScene.test.ts", () => import("./examples/mechanicalScene.test.ts")],
   ["tests/examples/offroadHillScene.test.ts", () => import("./examples/offroadHillScene.test.ts")],
   ["tests/examples/orbitControls.test.ts", () => import("./examples/orbitControls.test.ts")],
@@ -171,4 +173,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(167);
+report(169);
