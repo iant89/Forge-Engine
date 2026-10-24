@@ -599,4 +599,91 @@ group("Physics - Shape Validation", () => {
   });
 });
 
+group("Physics - Timestep Validation (CR-003)", () => {
+  // Before CR-003 these were all accepted: fixedDt 0 or maxSubsteps 0 froze the world silently,
+  // a negative dt ran time backwards, and step(NaN) left a NaN accumulator that never stepped again.
+  function fallingWorld(options: ConstructorParameters<typeof PhysicsWorld>[0] = {}): { world: PhysicsWorld; ball: RigidBody } {
+    const world = new PhysicsWorld({ gravity: new Vec3(0, -9.81, 0), ...options });
+    const ball = new RigidBody({ shape: new SphereShape(0.5), mass: 1, position: new Vec3(0, 50, 0), linearDamping: 0 });
+    world.addBody(ball);
+    return { world, ball };
+  }
+  const BAD_DT = [0, -1 / 60, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+
+  test("rejects a fixedDt that is not finite and > 0, and maxSubsteps that is not an integer >= 1", () => {
+    for (const fixedDt of BAD_DT) assertThrows(() => new PhysicsWorld({ fixedDt }), UsageError);
+    for (const maxSubsteps of [0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assertThrows(() => new PhysicsWorld({ maxSubsteps }), UsageError);
+    }
+    const world = new PhysicsWorld({ fixedDt: 1 / 120, maxSubsteps: 1 });
+    assert.equal(world.fixedDt, 1 / 120);
+    assert.equal(world.maxSubsteps, 1);
+  });
+
+  test("applyOptions rejects a bad fixedDt without applying any of the other options", () => {
+    const { world } = fallingWorld({ fixedDt: 1 / 60 });
+    for (const fixedDt of BAD_DT) {
+      assertThrows(
+        () => world.applyOptions({ gravity: new Vec3(0, 5, 0), fixedDt, solverOptions: { velocityIterations: 1 } }),
+        UsageError,
+      );
+    }
+    assert.equal(world.fixedDt, 1 / 60);
+    assert.equal(world.gravity.y, -9.81, "gravity was not applied by the rejected update");
+    assert.deepEqual(world.solver.velocityIterations, new PhysicsWorld().solver.velocityIterations);
+    world.applyOptions({ fixedDt: 1 / 30 });
+    assert.equal(world.fixedDt, 1 / 30);
+  });
+
+  test("stepOnce rejects a zero, negative or non-finite dt and leaves the world untouched", () => {
+    const { world, ball } = fallingWorld();
+    const before = world.snapshot();
+    for (const dt of BAD_DT) assertThrows(() => world.stepOnce(dt), UsageError);
+    assert.deepEqual(world.snapshot(), before);
+    world.stepOnce();
+    world.stepOnce(1 / 120);
+    assert.equal(world.stepCount, 2);
+    assert.ok(ball.position.y < 50 && Number.isFinite(ball.position.y));
+  });
+
+  test("step(NaN) throws instead of poisoning the accumulator; other frame times keep their clamp", () => {
+    const { world, ball } = fallingWorld();
+    assertThrows(() => world.step(Number.NaN), UsageError);
+    assert.equal(world.accumulator, 0);
+    assert.equal(world.step(-1), 0, "negative frame time clamps to 0");
+    assert.equal(world.step(Number.POSITIVE_INFINITY), 8, "huge frame time clamps to 0.2 s, capped at maxSubsteps");
+    let steps = 0;
+    for (let i = 0; i < 60; i++) steps += world.step(1 / 60);
+    assert.equal(steps, 60, "the world keeps stepping normally afterwards");
+    assert.ok(Number.isFinite(world.accumulator) && world.accumulator >= 0 && world.accumulator < world.fixedDt);
+    for (const value of [ball.position.y, ball.renderPosition.y]) assert.ok(Number.isFinite(value), "interpolated pose stays finite");
+  });
+
+  test("stepDeterministic takes a non-negative integer count; 0 is a no-op", () => {
+    const { world } = fallingWorld();
+    for (const n of [-1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) assertThrows(() => world.stepDeterministic(n), UsageError);
+    world.stepDeterministic(0);
+    assert.equal(world.stepCount, 0);
+    world.stepDeterministic(3);
+    assert.equal(world.stepCount, 3);
+  });
+
+  test("restoreSnapshot rejects an invalid fixedDt or accumulator before changing anything", () => {
+    const { world } = fallingWorld();
+    world.stepDeterministic(5);
+    const good = world.snapshot();
+    world.stepDeterministic(5);
+    const current = world.snapshot();
+    for (const fixedDt of BAD_DT) {
+      assertThrows(() => world.restoreSnapshot({ ...good, world: { ...good.world, fixedDt } }), UsageError);
+    }
+    for (const accumulator of [-0.001, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assertThrows(() => world.restoreSnapshot({ ...good, world: { ...good.world, accumulator } }), UsageError);
+    }
+    assert.deepEqual(world.snapshot(), current);
+    world.restoreSnapshot(good);
+    assert.deepEqual(world.snapshot(), good);
+  });
+});
+
 await finish();

@@ -5,6 +5,11 @@
  *  - Fixed timestep simulation with substepping and interpolation
  *  - Deterministic broadphase and narrowphase contact generation
  *  - Bit-for-bit trajectory reproducibility across varying display frame rates
+ *
+ * Timestep contract (CR-003): `fixedDt` and every `stepOnce` duration are finite and > 0 seconds;
+ * `maxSubsteps` and the `stepDeterministic` count are integers (≥ 1 and ≥ 0); `step` takes any
+ * non-NaN frame time and clamps it to [0, 0.2]. A violation throws `UsageError` before anything
+ * changes, so a bad value can never reach the accumulator or the interpolation factor.
  */
 
 import { Vec3, type Vec3Ops } from "../math/vec.js";
@@ -16,6 +21,18 @@ import { SphereShape, BoxShape, PlaneShape, HeightfieldShape } from "./shapes.js
 import { SweepAndPruneBroadphase, type BroadphaseStats } from "./broadphase.js";
 import { UsageError } from "../core/errors.js";
 import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
+
+function requirePositiveFinite(where: string, name: string, value: number): void {
+  if (!(Number.isFinite(value) && value > 0)) {
+    throw new UsageError(`${where}: ${name} must be a finite number of seconds > 0 (got ${value})`);
+  }
+}
+
+function requireInteger(where: string, name: string, value: number, min: number): void {
+  if (!(Number.isInteger(value) && value >= min)) {
+    throw new UsageError(`${where}: ${name} must be an integer >= ${min} (got ${value})`);
+  }
+}
 
 /** Small temporal/spatial guards used by the JS continuous-collision path. */
 const CCD_TIME_EPS = 1e-8;
@@ -102,9 +119,13 @@ export class PhysicsWorld {
   contactListener: ((report: ContactReport) => void) | null = null;
 
   constructor(options: PhysicsWorldOptions = {}) {
+    const fixedDt = options.fixedDt ?? 1 / 60;
+    const maxSubsteps = options.maxSubsteps ?? 8;
+    requirePositiveFinite("PhysicsWorld", "fixedDt", fixedDt);
+    requireInteger("PhysicsWorld", "maxSubsteps", maxSubsteps, 1);
     if (options.gravity) this.gravity.copyFrom(options.gravity);
-    this.fixedDt = options.fixedDt ?? 1 / 60;
-    this.maxSubsteps = options.maxSubsteps ?? 8;
+    this.fixedDt = fixedDt;
+    this.maxSubsteps = maxSubsteps;
     this.solver = new SequentialImpulseSolver(options.solverOptions);
   }
 
@@ -117,9 +138,11 @@ export class PhysicsWorld {
    * Copy explicitly-provided options onto this world (adopt / share path).
    * Only defined fields are applied — `undefined` does not clobber existing values.
    * Used by {@link PhysicsSystem} and {@link ForgeJSPhysics} when constructed with `world`
-   * (or `backend`) plus gravity / fixedDt / solverOptions.
+   * (or `backend`) plus gravity / fixedDt / solverOptions. An invalid `fixedDt` throws before any
+   * option is applied. `maxSubsteps` is construction-only and is not applied here.
    */
   applyOptions(options: PhysicsWorldOptions): void {
+    if (options.fixedDt !== undefined) requirePositiveFinite("PhysicsWorld.applyOptions", "fixedDt", options.fixedDt);
     if (options.gravity !== undefined) this.gravity.copyFrom(options.gravity);
     if (options.fixedDt !== undefined) this.fixedDt = options.fixedDt;
     if (options.solverOptions !== undefined) {
@@ -183,6 +206,10 @@ export class PhysicsWorld {
       throw new UsageError(`PhysicsWorld.restoreSnapshot: bodies [${ids.join(",")}] do not match the snapshot's [${saved.join(",")}]`);
     }
     const w = snap.world;
+    requirePositiveFinite("PhysicsWorld.restoreSnapshot", "fixedDt", w.fixedDt);
+    if (!(Number.isFinite(w.accumulator) && w.accumulator >= 0)) {
+      throw new UsageError(`PhysicsWorld.restoreSnapshot: accumulator must be a finite number >= 0 (got ${w.accumulator})`);
+    }
     this.accumulator = w.accumulator;
     this.time = w.time;
     this.stepCount = w.stepCount;
@@ -229,8 +256,11 @@ export class PhysicsWorld {
   /**
    * Advance simulation by variable frame time `dt`.
    * Executes zero or more fixed steps deterministically and computes render interpolation.
+   * `dt` is clamped to [0, 0.2] seconds; `NaN` throws, since it would poison the accumulator and
+   * stop the world for good.
    */
   step(dt: number): number {
+    if (Number.isNaN(dt)) throw new UsageError("PhysicsWorld.step: dt is NaN");
     const clampedDt = Math.min(0.2, Math.max(0, dt));
     this.accumulator += clampedDt;
 
@@ -259,6 +289,7 @@ export class PhysicsWorld {
    * Guaranteed deterministic across platforms and framerates.
    */
   stepDeterministic(fixedSteps: number): void {
+    requireInteger("PhysicsWorld.stepDeterministic", "fixedSteps", fixedSteps, 0);
     for (let i = 0; i < fixedSteps; i++) {
       this.fixedStep(this.fixedDt);
     }
@@ -269,8 +300,10 @@ export class PhysicsWorld {
    * Does **not** use the variable-dt accumulator — callers that already own a fixed
    * clock (e.g. {@link PhysicsSystem} via `context.fixedDt`) get one step per call,
    * never 0/N from leftover accumulator state. Render poses snap to the post-step pose.
+   * `dt` must be finite and > 0: a zero-length step is rejected rather than counted as a step.
    */
   stepOnce(dt: number = this.fixedDt): void {
+    requirePositiveFinite("PhysicsWorld.stepOnce", "dt", dt);
     this.fixedStep(dt);
     // ECS / deterministic callers have no leftover frame alpha — snap render = sim.
     for (const body of this.bodies) {

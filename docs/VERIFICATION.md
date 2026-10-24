@@ -1337,6 +1337,18 @@ It also pins shape-argument validation:
 `new BoxShape(new Vec3(1, 1, 1))` used to produce NaN half-extents that surfaced much later as NaN
 contacts; it now throws `UsageError` at the constructor, while finite degenerate sizes still clamp.
 
+Timestep validation (CR-003), six checks:
+- `fixedDt` (constructor, `applyOptions`, `restoreSnapshot`) and `stepOnce(dt)` must be finite and
+  > 0.
+- `maxSubsteps` must be an integer ≥ 1, and the `stepDeterministic` count an integer ≥ 0.
+- `step(NaN)` throws. Other frame times keep their [0, 0.2] s clamp.
+- A restored accumulator must be finite and ≥ 0.
+
+Each rejection is a `UsageError` raised before anything changes: a rejected `applyOptions` applies
+none of its gravity or solver options, and the snapshot is unchanged after a rejected `stepOnce` or
+restore. Before this, `fixedDt` 0 or `maxSubsteps` 0 froze the world silently, a negative step ran
+time backwards, and `step(NaN)` left a NaN accumulator that never stepped again.
+
 ### `tests/core/tasks.test.ts` — worker execution (Phase 9.1)
 
 Two layers against the same shipping code. The worker-scope protocol is driven in-process over a fake

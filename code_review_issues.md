@@ -24,7 +24,7 @@ treated as confirmed defects.
 |----|----------|-----------|-------|--------|
 | CR-001 | HIGH | ECS / Entity IDs | Entity generation truncated to 8 bits | FIXED (CPU gates verified; Phase 4 integration pending) |
 | CR-002 | MEDIUM | Core / Object Pool | Duplicate and foreign object releases are not rejected | FIXED (CPU gates verified; Phase 4 integration pending) |
-| CR-003 | MEDIUM | Physics | Invalid timestep configuration is not validated | OPEN |
+| CR-003 | MEDIUM | Physics | Invalid timestep configuration is not validated | FIXED (CPU gates verified; Phase 4 integration pending) |
 
 Severity definitions:
 
@@ -277,10 +277,11 @@ Evidence:
 - `npm run typecheck`, `test:check`, `lint:arch`, `api:check`, `docs:check`
   and `check:wgsl` pass.
 - `npm test`: 167 suites passed and 3 failed, the same failures as in the
-  CR-001 resolution. `tests/core/tasks.test.ts` "inlineFallback" has now
-  failed in both full-suite runs while passing in isolation, which points to
-  an order dependency rather than a random flake. It is unrelated to this
-  change and should be investigated separately.
+  CR-001 resolution. `tests/core/tasks.test.ts` "inlineFallback" failed
+  in this full-suite run as well, while passing in isolation. Correction:
+  this was first read as an order dependency, but the check passed in the
+  CR-003 full run. It is intermittent. It is unrelated to this change and
+  should be investigated separately.
 
 ## 5. CR-003: Physics World Accepts Invalid Timesteps
 
@@ -356,6 +357,67 @@ calculations.
 - Existing physics and vehicle tests pass.
 - New validation and regression tests pass.
 
+### Resolution (2026-10-24, branch `code-review-issues`)
+
+Confirmed by reproduction before the fix:
+
+| Input | Behaviour before the fix |
+| --- | --- |
+| `fixedDt` 0 | 8 zero-length steps per frame; the world silently froze; interpolation factor `0/0` |
+| `fixedDt` < 0 | `time` ran backwards |
+| `fixedDt` NaN or Infinity | never stepped |
+| `maxSubsteps` 0 or < 0 | silently froze |
+| `step(NaN)` | `NaN` accumulator; the world never stepped again |
+| `stepOnce(NaN)` | `time` became `NaN` |
+| `stepOnce(-0.01)` | time ran backwards |
+| `applyOptions({ gravity, fixedDt: NaN })` | applied the gravity, then stored the `NaN` |
+| `stepDeterministic(2.5)` | ran 3 steps |
+
+Additional entry point found: `restoreSnapshot` loaded `fixedDt` and the
+accumulator unchecked, even though it documents "throws before changing
+anything".
+
+Contract (module doc of `engine/src/physics/world.ts`). Every violation
+throws `UsageError` before any state changes:
+
+- `fixedDt` (constructor, `applyOptions`, `restoreSnapshot`): finite and
+  > 0.
+- `maxSubsteps` (constructor only; `applyOptions` does not apply it): an
+  integer >= 1.
+- `stepOnce(dt)`: finite and > 0. A zero-duration step is rejected rather
+  than treated as a no-op, because it would still count as a solver step
+  in hashed and replayed state.
+- `stepDeterministic(n)`: an integer >= 0; 0 is a no-op.
+- `step(dt)`: `NaN` is rejected. Every other value keeps the existing
+  documented clamp to [0, 0.2] s, so negative and infinite frame times
+  behave as before.
+- Snapshot accumulator: finite and >= 0.
+
+The checks are module-level helpers, not new class members. Public
+declarations changed only in doc comments, and `npm run api:check` passes
+without an update. Callers inside the engine pass validated values:
+`PhysicsSystem` and `ForgeJSPhysics` construct or adopt through the same
+constructor and `applyOptions`.
+
+Evidence:
+
+- New group in `tests/physics/physics.test.ts`, "Physics - Timestep
+  Validation (CR-003)": six checks. All six fail without the fix and pass
+  with it.
+- `npm run typecheck`, `test:check`, `lint:arch`, `api:check`, `docs:check`,
+  `check:wgsl` and `check:replay-engines` (V8 and JavaScriptCore produce
+  identical hashes) pass.
+- `npm test`: 168 suites passed and 2 failed. The failures are the
+  `marsShowcaseDamage` and `marsShowcaseCollision` suites that also fail on
+  `main`. The physics, vehicle, snapshot and replay suites pass.
+
+Not in scope, recorded for the audit and not as confirmed defects:
+
+- `SolverOptions` values (iteration counts, baumgarte, slop) are not
+  range-checked.
+- `gravity` is not checked for finite values.
+- The experimental WASM state ABI carries its own `fixedDt` field.
+
 ## 6. Recommended Implementation Order
 
 ### Phase 1: Entity Identity Correctness
@@ -410,15 +472,15 @@ Issues:
 
 Tasks:
 
-- [ ] Define valid fixedDt and maxSubsteps ranges.
-- [ ] Add constructor validation.
-- [ ] Add applyOptions() validation.
-- [ ] Add stepOnce() duration validation.
-- [ ] Ensure invalid updates preserve previous valid state.
-- [ ] Add invalid-input regression tests.
-- [ ] Run physics tests.
-- [ ] Run vehicle physics tests.
-- [ ] Run deterministic replay tests.
+- [x] Define valid fixedDt and maxSubsteps ranges.
+- [x] Add constructor validation.
+- [x] Add applyOptions() validation.
+- [x] Add stepOnce() duration validation.
+- [x] Ensure invalid updates preserve previous valid state.
+- [x] Add invalid-input regression tests.
+- [x] Run physics tests.
+- [x] Run vehicle physics tests (full suite).
+- [x] Run deterministic replay tests (full suite + check:replay-engines).
 
 Completion requirement:
 
@@ -584,12 +646,12 @@ High-priority findings: 1
 Medium-priority findings: 2
 Low-priority findings: 0
 
-Fixes implemented: 2 (CR-001, CR-002)
-Regression tests added: 3 (CR-001: 1, CR-002: 2)
-Issues verified as fixed: 2 (CR-001, CR-002: CPU gates; browser gate
-pending)
-Additional defects found while fixing: 1 (liveEntityIds, folded into
-CR-001)
+Fixes implemented: 3 (CR-001, CR-002, CR-003)
+Regression tests added: 9 (CR-001: 1, CR-002: 2, CR-003: 6)
+Issues verified as fixed: 3 (CPU gates; Phase 4 browser gate and
+benchmarks pending)
+Additional defects found while fixing: 2 (CR-001: liveEntityIds; CR-003:
+restoreSnapshot, both folded into their issues)
 
 Overall status: INITIAL REVIEW COMPLETE; FULL AUDIT IN PROGRESS
 

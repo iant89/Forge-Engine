@@ -31199,6 +31199,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "CR-002 root cause, private-member API-hash note, tasks.test.ts order dependency",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2507",
+    "date": "2026-10-24T17:18:34Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/physics/world.ts",
+    "what": "Validate fixedDt/maxSubsteps at construction, fixedDt in applyOptions before any option applies, stepOnce dt, stepDeterministic count, step(NaN), and fixedDt/accumulator in restoreSnapshot; UsageError before any mutation",
+    "why": "CR-003: invalid timesteps froze the world silently, ran time backwards, or poisoned the accumulator with NaN"
+  },
+  {
+    "id": "2508",
+    "date": "2026-10-24T17:18:34Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/physics/physics.test.ts",
+    "what": "Six CR-003 timestep-validation checks",
+    "why": "Regression coverage; all six fail without the fix"
+  },
+  {
+    "id": "2509",
+    "date": "2026-10-24T17:18:34Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/VERIFICATION.md",
+    "what": "Describe the CR-003 timestep-validation checks in the physics suite entry",
+    "why": "Keep the gate description truthful"
+  },
+  {
+    "id": "2510",
+    "date": "2026-10-24T17:18:34Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "code_review_issues.md",
+    "what": "CR-003 marked fixed with reproduction table, contract, evidence and out-of-scope notes; correct the tasks.test.ts order-dependency claim",
+    "why": "Record verified fix status"
+  },
+  {
+    "id": "2511",
+    "date": "2026-10-24T17:18:34Z",
+    "type": "change",
+    "pr": null,
+    "branch": "code-review-issues",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "CR-003 contract and step(NaN) root cause; correct the tasks.test.ts note",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

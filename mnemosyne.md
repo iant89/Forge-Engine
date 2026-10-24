@@ -3189,4 +3189,13 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   modifiers. Re-typing an existing private (same name, no `readonly` added) keeps the declaration byte-identical; a new private member or
   modifier changes the approved hash. Diff `engine/dist/**/*.d.ts` before/after to confirm.
 - `ObjectPool` has no engine/editor/example consumers; only `tests/core/runtimeApi.test.ts`.
-- `tasks.test.ts` "inlineFallback" failed in two consecutive full `npm test` runs but passes alone: order dependency, not random flake.
+- `tasks.test.ts` "inlineFallback" failed in two consecutive full `npm test` runs but passes alone; it then passed in the next full run, so it is intermittent (not proven order-dependent).
+
+## 2026-10-24 — CR-003 PhysicsWorld timestep validation
+
+- `fixedDt`/`stepOnce` dt must be finite > 0, `maxSubsteps` integer ≥ 1, `stepDeterministic` integer ≥ 0, `step(NaN)` throws (other dt
+  keep the [0, 0.2] clamp), restored accumulator finite ≥ 0 — all `UsageError` before mutating. Contract is in the `world.ts` module doc.
+- The nasty one was `step(NaN)`: `Math.max(0, NaN)` is NaN, so the accumulator stayed NaN and the world never stepped again, silently.
+- Validation helpers are module-level functions on purpose: a new private method would change `PhysicsWorld`'s approved declaration hash.
+  Doc-comment changes do not affect `api:check`.
+- Open, unconfirmed: SolverOptions ranges and non-finite gravity are unchecked.
