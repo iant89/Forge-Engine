@@ -31043,6 +31043,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Root cause, fix and gate gap of the return-to-orbit black screen",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2494",
+    "date": "2026-10-24T16:18:03Z",
+    "type": "change",
+    "pr": null,
+    "branch": "main",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "code_review_issues.md",
+    "what": "Add the initial source-level code review findings (CR-001 entity generation truncation, CR-002 object pool duplicate releases, CR-003 unvalidated physics timesteps) with fix plans, regression tests and acceptance criteria",
+    "why": "Record the review as actionable, trackable tasks; saved verbatim at the user's request"
   }
 ]
 ```
