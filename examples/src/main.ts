@@ -66,6 +66,7 @@ import { buildSkinningScene, type SkinningSceneHandle } from "./scenes/skinningS
 import { buildGltfSkinScene, type GltfMaterialFeature, type GltfSkinSceneHandle } from "./scenes/gltfSkinScene.js";
 import { buildAlpineRescueScene, type AlpineRescueSceneHandle } from "./scenes/alpineRescueScene.js";
 import { buildAmazonRiverScene, type AmazonRiverSceneHandle } from "./scenes/amazonRiverScene.js";
+import { buildMarsOrbitScene, type MarsOrbitHandle } from "./scenes/marsOrbitScene.js";
 import { buildMarsDustStormScene, type MarsDustStormHandle } from "./scenes/marsDustStormScene.js";
 import { OFFROAD_WEATHER_NAMES, buildOffroadHillScene, type OffroadSceneHandle, type OffroadWeather } from "./scenes/offroadHillScene.js";
 import { buildScriptingScene, type ScriptingSceneHandle } from "./scenes/scriptingScene.js";
@@ -362,6 +363,7 @@ async function main(): Promise<void> {
     document.body.classList.toggle("scene-mars", name === "mars-showcase");
     document.body.classList.toggle("scene-mars-generator", name === "mars-generator");
     document.body.classList.toggle("scene-storm", name === "mars-dust-storm");
+    document.body.classList.toggle("scene-mars-orbit", name === "mars-orbit");
     document.body.classList.toggle("scene-sky", name === "sky");
     document.body.classList.toggle("scene-weather", name === "weather");
     document.body.classList.toggle("scene-rescue", name === "alpine-rescue");
@@ -456,6 +458,18 @@ async function main(): Promise<void> {
       const weatherParam = new URLSearchParams(window.location.search).get("weather");
       const weather = OFFROAD_WEATHER_NAMES.find((w) => w === weatherParam);
       currentHandle = buildOffroadHillScene(engine, { deviceTier: tier, weather });
+    } else if (name === "mars-orbit") {
+      // fe-39: `?tier=` forces the device tier; `?ls=` the starting season; `?touchdiag=1` opens the diagnostics.
+      const query = new URLSearchParams(window.location.search);
+      const forced = query.get("tier");
+      const lsParam = Number(query.get("ls"));
+      currentHandle = buildMarsOrbitScene(engine, {
+        canvas,
+        deviceTier: forced === "low" || forced === "medium" || forced === "high" ? forced : undefined,
+        startLs: query.get("ls") !== null && Number.isFinite(lsParam) ? lsParam : undefined,
+        diagnostics: query.get("touchdiag") === "1",
+        bakeBudgetMs: query.get("mobake") !== null && Number(query.get("mobake")) > 0 ? Number(query.get("mobake")) : undefined,
+      });
     } else if (name === "ui") {
       // The engine-native UI framework (docs/UI.md): drawn by the WebGPU UI overlay pass.
       currentHandle = buildUIShowcaseScene(engine, canvas, new URLSearchParams(window.location.search));
@@ -1134,6 +1148,36 @@ async function main(): Promise<void> {
       handle.holdEffects(action === "hold");
       return true;
     },
+    /** Mars Orbit Explorer (fe-39): state and test/screenshot hooks. */
+    marsOrbitState: () => (activeSceneName === "mars-orbit" ? (currentHandle as MarsOrbitHandle | null)?.marsOrbitState() ?? null : null),
+    marsOrbitDive: (latDeg: number, lonDeg: number, opts?: { hours?: number; ls?: number }) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.diveTo(latDeg, lonDeg, opts);
+    },
+    marsOrbitReturn: () => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.returnToOrbit();
+    },
+    marsOrbitFocus: (latDeg: number, lonDeg: number) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.focusOn(latDeg, lonDeg);
+    },
+    marsOrbitSetLs: (ls: number) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.setSolarLongitude(ls);
+    },
+    marsOrbitSetHours: (hours: number) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.setLocalHours(hours);
+    },
+    marsOrbitSetSeasonRate: (solsPerSecond: number) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.setSeasonRate(solsPerSecond);
+    },
+    marsOrbitDiagnostics: (visible: boolean) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.setDiagnostics(visible);
+    },
+    marsOrbitZoom: (factor: number) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.zoomOrbit(factor);
+    },
+    /** The live Scene of the Mars Orbit Explorer (browser checks poke at its settings; null elsewhere). */
+    marsOrbitScene: () => (activeSceneName === "mars-orbit" ? currentHandle?.scene ?? null : null),
+    marsOrbitPick: (x: number, y: number) =>
+      activeSceneName === "mars-orbit" ? (currentHandle as MarsOrbitHandle | null)?.pickAt(x, y) ?? null : null,
     /** Mars Dust Storm: move the rover to (x, z) on the ground (browser checks / screenshots). */
     marsDustStormTeleport: (x: number, z: number) =>
       activeSceneName === "mars-dust-storm" ? (currentHandle as MarsDustStormHandle | null)?.teleport?.(x, z) ?? false : false,

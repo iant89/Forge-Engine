@@ -439,6 +439,9 @@ export class AtmosphereModel {
     const tGround = raySphereEntry(0, oy, 0, dx, dy, dz, R);
     const hitsGround = tGround > 0;
     const tMax = hitsGround ? tGround : tTop;
+    // An observer above the atmosphere starts integrating where the ray enters the shell (mirrors the sky shader).
+    const tEnter = height > p.atmosphereHeight ? Math.max(raySphereEntry(0, oy, 0, dx, dy, dz, R + p.atmosphereHeight), 0) : 0;
+    const pathLength = Math.max(tMax - tEnter, 0);
     const cosTheta = dx * sunDir.x + dy * sunDir.y + dz * sunDir.z;
     const phaseR = rayleighPhase(cosTheta);
     const phaseM = miePhase(cosTheta, phaseG);
@@ -460,13 +463,13 @@ export class AtmosphereModel {
     let odM = 0;
     let odO = 0;
     const invN = 1 / viewSamples;
-    let tPrev = 0;
+    let tPrev = tEnter;
     for (let i = 0; i < viewSamples; i++) {
-      // Cubic spacing: segment i spans tMax·[(i/N)³, ((i+1)/N)³]. A horizon ray is hundreds of
+      // Cubic spacing: segment i spans tEnter + pathLength·[(i/N)³, ((i+1)/N)³]. A horizon ray is hundreds of
       // kilometres long but nearly all of its in-scattered blue comes from the first few tens, so
       // uniform segments miss most of it at low sample counts (the shader uses the same spacing).
       const u = (i + 1) * invN;
-      const tNext = tMax * u * u * u;
+      const tNext = tEnter + pathLength * u * u * u;
       const ds = tNext - tPrev;
       const t = 0.5 * (tPrev + tNext);
       tPrev = tNext;
