@@ -398,3 +398,116 @@ edges the generator's own lookup is the approximate one.
 | `tools/mars-terrain/pregenerate.ts` | drop-in replacement for `build.ts`'s full-face sweep (`npx ts-node src/pregenerate.ts --site … --bands …`). Not runnable from this repo — it imports the generator's `src/`. |
 | `tools/mars-port-check.mjs` | the comparison above (`npm run check:mars-port`). |
 | `tools/mars-terrain/README.md` | install instructions, CLI flags, and the size table repeated for the generator side. |
+
+## 8. Real elevation: the MOLA height atlas (fe-40)
+
+The procedural surface (dichotomy, one volcano, one canyon, jittered craters) is a *model* of Mars. Where the
+real thing is available the stage and the globe use it: the **USGS/NASA MOLA global DEM** (MGS laser altimeter,
+463 m/px, metres above the MOLA areoid) resampled onto exactly this port's cube sphere and shipped as a small
+**height atlas** (`examples/public/mars/mola/`, loader in `engine/src/terrain/mars/heightAtlas.ts`). If no atlas
+is loaded nothing changes: every code path falls back to the procedural surface bit-for-bit.
+
+### What the atlas is
+
+* Six faces in `cubeSphere.ts` order (`+X −X +Y −Y +Z −Z`), the **same spherified-cube warp**, `res × res`
+  **node-registered** (node `i` is at `u = -1 + 2i/(res-1)`, the convention `MarsGlobalFieldSet` uses), so a node on a
+  cube edge or corner is the *same point* on both/all three faces and carries one value: the faces join with no seam.
+  The baker evaluates `marsFaceUVToDirection` at every node and writes the shared nodes as one averaged value.
+* One-texel **apron** around each face (`res + 2` stored), baked from the real data on the *extended* chart, so
+  bicubic filtering runs to the very edge of a face with no cross-face lookup.
+* `marsDirectionToFaceUVExact` is the **closed-form inverse** of the warp (the existing `marsDirectionToFaceUV` is only
+  the approximate gnomonic inverse, off by more than 0.05 face units near edges — tolerable for Stage A's coarse lookup, tens of
+  kilometres of error here). Round trip is exact to ~1e-16.
+* Lat/lon follow `marsLatLonToDirection` (`lon = atan2(z, x)`, east-positive, `+Y` = north pole), which is also the GeoTIFF's
+  labelling, so Olympus Mons is at 226° E, Valles Marineris at 302° E, Hellas at ~62–70° E. (The frame is left-handed
+  like the rest of Forge, so seen from outside, east is on the right — no mirroring.)
+* Heights are metres above the MOLA datum, i.e. above the areoid, quantised to 16 bits over `[-8200, 21200]` m (0.45 m
+  steps; MOLA spans −8142…+21160 m). The port's reference sphere is `MARS_RADIUS_M = 3,389,500 m` (the generator's mean
+  radius); the datum offset to the 3,396,190 m areoid radius is not applied — real elevations are used *as* "metres above
+  the reference sphere", exactly like the procedural ones.
+* Files are `gzip(delta-predicted, byte-planar uint16)` (`encoding: "gzip-grad16"`): a gradient predictor
+  (`left + up − upLeft`) and a low-byte/high-byte split, then gzip level 9. Decoding is `DecompressionStream("gzip")` +
+  an unfilter loop (tens of ms for a 2048² face). Browsers without `DecompressionStream` (Safari < 16.4) fail the load, and the
+  demo then runs on the procedural planet.
+
+### Three sizes
+
+| size | per face | node spacing (face centre) | gzip size (6 faces) | meant for |
+|---|---|---|---|---|
+| `phone` | 512² | ~10.4 km | **2.0 MB** | iPhone / low tier / ≤ 2 GB devices |
+| `tablet` | 1024² | ~5.2 km | **7.6 MB** | iPad, medium tier, ≤ 4 GB |
+| `desktop` | 2048² | ~2.6 km | **27.9 MB** | high tier, desktop browsers |
+
+Total in the repo: **37.5 MB** (`manifest.json` records every file's size and SHA-256). The `desktop` size is the
+`tablet` level (the orbit globe needs the whole planet; a 1° globe grid gains nothing from 2.6 km nodes) **plus the
+2048² faces fetched lazily, one face at a time, only for the face(s) under the site the viewer lands on** (about 4.2–4.9 MB
+each; `MarsHeightAtlasStreamer.loadNear`). `marsAtlasPlan(size)` states this: `{ base, detail }`. A device therefore only ever
+downloads the one size it needs (`desktop`: tablet 7.6 MB up front + ~5 MB per landing). `MarsAtlasCache` (IndexedDB via
+`createMarsAtlasIndexedDbCache`) keys face files by SHA-256, so a second visit downloads nothing and a re-bake can never
+serve stale data. Decoding is on the main thread (native gunzip is already off-thread; the unfilter is ~10–50 ms per face).
+
+`chooseMarsAtlasSize({ override, tier, phone, mobile, deviceMemoryGB })` picks the size: `?mola=` wins; otherwise the
+smaller of what the tier allows (`low` phone, `medium` tablet, `high` desktop) and what the device can hold (phone-class: `phone`;
+other mobile/touch: ≤ `tablet`; ≤ 2 GB memory: `phone`; ≤ 4 GB: ≤ `tablet`). The Mars Orbit Explorer wires `?mola=phone|tablet|desktop|off`.
+
+A *finer* ground atlas (4096² faces, ~1.3 km nodes, ≈110 MB gzip) is possible with the same tool and loader but is not
+shipped: the repo budget is better spent elsewhere, and below the node spacing the ground is procedural detail anyway
+(see below). If you want it, host it as a release asset and point `atlasBaseUrl` at it.
+
+### Baking it (offline; not in CI)
+
+```sh
+npx tsx tools/bake-mola-atlas.mjs --input Mars_MGS_MOLA_DEM_mosaic_global_463m.tif    # -> examples/public/mars/mola/
+```
+
+The source is the USGS Astrogeology 463 m global GeoTIFF (2.1 GB, int16, uncompressed strips, equirectangular, ±180/±90,
+nodata −32768); the tool reads the header rather than assuming its layout, builds a box-filter pyramid, and for every node
+averages a 4×4 (8×8 poleward of 75°) grid of bilinear taps from the pyramid level matching the tap spacing, so 463 m data is
+*band-limited* into 2–10 km nodes instead of aliased. It then merges the shared edge nodes, quantises, writes the files and
+reads them back through the runtime sampler to check Olympus Mons, Ascraeus, Elysium, Hellas, Valles Marineris, Argyre,
+Utopia and the hemispheric means. It streams the TIFF by strips; see the log it prints for timings.
+
+**Resolution limit, honestly:** the finest shipped node is 2.6 km, so craters narrower than ~5 km and canyon walls are
+softened (Olympus's summit reads ≈21.15 km in the shipped atlases). Seeing the 463 m data
+itself on the ground needs the 4096² option or a tiled streamer.
+
+### How the terrain stage uses it
+
+`new MarsTerrainStage({ site, heightAtlas })` (or `createMarsPipeline`):
+
+* **Base relief = real height**, bicubic (Catmull–Rom) so slopes stay continuous across texels. The procedural dichotomy,
+  canyon, volcano and cinder cones — and the Stage A `erosionDelta`, which belongs to the procedural base — are *replaced*.
+* **Layered on top:** the *small* crater band only (radii 150 m–1.8 km, `MARS_CRATER_SCALES[2]`, smaller than a node) and the
+  fine-detail band (`marsFineDetail`: ±15 m meso, ridged micro, 0.35 m fine), both weighted by how fine the tile is:
+  weight 1 at ≤ 150 m between vertices, 0 at ≥ 900 m, smoothstepped. Every tile the demos use (4–32 m) is at 1; a
+  continental-scale tile shows the real heights alone, so invented relief never buries a real feature.
+* **Material** is classified from the real heights (deep basins `< −5500 m` → layered sediment, `> 10 km` → volcanic flank,
+  small-crater floor, else regolith/bedrock by the same patch noise) rather than from the procedural volcano/canyon masks.
+* A vertex on a face that is **not loaded** falls back to the procedural surface; `hasRealElevation` says whether any face is
+  attached. With a multi-level atlas the finest loaded level wins per face (a level is never blended with another, so near a
+  face edge where only one side has the fine level, heights differ by that level's resampling error — load the neighbours with
+  `facesNear`/`loadNear`, as the demo does).
+* The stage's `identity` gains a `heightAtlas` key **only when an atlas is attached** (atlas-less cache keys are unchanged),
+  and such a stage is *inline-only* like a Stage A–backed one: `createPipelineFromSpec` throws `InlineOnlyError`, so the
+  scheduler runs it on the main thread.
+
+### How the globe uses it
+
+`createMarsGlobeSampler(params, { atlas })` / `sampler.setAtlas(atlas)`: elevation is the real height, **band-limited over the
+grid cell** the globe will interpolate it across (`PlanetGlobe` passes each pass's cell size as `footprintRad`; the sampler
+averages up to 3–4 taps per axis so a 15–60 km cell does not alias 5 km data). Albedo is the existing marking field tinted by
+an **elevation colour ramp** (dark brown basins → ferric orange → pale high dust, mixed 50% under the markings), volcanic
+highs and basin sediment classes from the real heights, and **darkened on steep ground** (slope from four taps), which is what
+makes Valles Marineris' walls and crater rims read. `PlanetGlobe` also gained `reliefGain` (the strength of the baked shaded
+relief, default 1.15); the demo uses 1.6 with `reliefStrength` 36 over real data so form stays readable on the lit side at noon.
+With real data the sampler is cheap (no crater scanner), so the demo adds a finer final grid pass (0.75° low, 0.5° medium,
+0.33° high).
+
+### Verification
+
+`tests/terrain/marsHeightAtlas.test.ts` (43 checks) reads the **shipped files** back through the runtime code: manifest
+hashes and the size budget; Olympus/Ascraeus/Elysium summits, Hellas/Valles/Argyre/Utopia floors, the hemispheric dichotomy
+and east-positive longitude (no mirroring) on `phone` and `tablet`; one `desktop` face; shared-edge nodes equal across every
+cube edge and no step across a walk over every edge; atlas round trip on a synthetic field; fallback; lazy loading, caching,
+failure and retry; the size policy; the stage and globe sampler. The bake tool's own read-back runs the same feature checks.
+`npm run check:browser:mars-orbit` loads the atlas in a real browser for each size (`?mola=`).

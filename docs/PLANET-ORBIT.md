@@ -72,8 +72,19 @@ under every contact and a rolling event log — for working out why a device is 
 | `?tier=low\|medium\|high` | force the quality tier (globe mesh/texture/passes, devils, terrain distance) |
 | `?ls=<deg>` | start at a solar longitude |
 | `?touchdiag=1` | open the touch diagnostics |
+| `?mola=phone\|tablet\|desktop\|off` | real MOLA elevation atlas size (default: from the tier and the device); `off` = the procedural planet |
 | `?moinstant=1` | dives and returns land at once (tests, headless) |
 | `?mobake=<ms>` | per-frame globe bake budget (default is small so frames stay smooth) |
+
+## Real elevation (fe-40)
+
+The globe and the ground terrain use **real MOLA heights** where the atlas is available (`docs/MARS-TERRAIN.md` §8).
+`marsOrbitAtlas.ts` picks the size (`?mola=` or tier + device: iPhone → `phone` 2 MB, iPad/medium → `tablet` 7.6 MB, high →
+`desktop` = tablet base + lazy 2048² faces), downloads only that, and caches the face files in IndexedDB. The planet is not drawn
+until the base level is in ("loading elevation data…"); if the atlas is missing or the browser cannot decode it the demo falls back
+to the procedural planet. On a dive, a `desktop` device fetches the 2048² faces under the site (the 2.8 s orbit approach usually
+covers it; otherwise the approach waits up to 12 s with "loading terrain detail…") before the terrain is built, so tiles are
+generated once with the finest heights. The HUD overlay reads `elev <size> <res>² <status>`.
 
 ## Verification and limits
 
@@ -83,7 +94,8 @@ under every contact and a rolling event log — for working out why a device is 
 * Browser: `npm run check:browser:mars-orbit` (globe renders and bakes, a mouse drag turns it, diagnostics toggle,
   dive to a storm site with dust and terrain, return). It runs under headless SwiftShader at a few fps, so it uses
   `?moinstant=1`; it does **not** measure real-time easing or real-GPU / iOS performance.
-* The globe texture is ≈10–21 km per texel; zooming blurs and there is no multi-resolution level of detail.
+* The globe texture is ≈10–21 km per texel procedural, **≈5–20 km over real data** (final grid pass 0.33–0.75°, the atlas nodes
+  are 2.6–10 km); zooming blurs and there is no multi-resolution level of detail.
   The orbit and ground renderings of the same weather are separate (the orbit shows clouds/dust on a shell; the
   ground shows haze, devils and a sheet cloud layer).
 * See `docs/KNOWN-ISSUES.md` for the tracked limitations.

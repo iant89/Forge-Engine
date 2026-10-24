@@ -908,6 +908,17 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "geology is regional, so most sites bake a single dominant channel.",
   },
   {
+    id: "terrain.marsRealElevation",
+    phase: "10.9",
+    status: "partial",
+    summary: "Real USGS MOLA elevation: offline-baked cube-sphere height atlas in three sizes (phone/tablet/desktop), bicubic loader, stage and globe sampler over real heights with procedural fallback",
+    evidence: ["tests/terrain/marsHeightAtlas.test.ts", "tools/bake-mola-atlas.mjs", "examples/public/mars/mola/manifest.json", "docs/MARS-TERRAIN.md", "tools/browser-check.mjs"],
+    notes:
+      "The atlas shares cubeSphere.ts exactly (face order, spherified warp, an exact closed-form inverse, node-registered grid with shared-edge nodes averaged so faces join without a seam) and is read back through the runtime sampler at bake time. " +
+      "Node spacing is 10.4/5.2/2.6 km, so finer relief is procedural detail faded in below ~900 m vertex spacing; no atlas means the procedural stage unchanged. " +
+      "Verified in Node and headless SwiftShader; real-device/GPU behaviour and a finer-than-2.6-km atlas are not.",
+  },
+  {
     id: "terrain.materialLayering",
     phase: "10.8",
     status: "verified",

@@ -196,11 +196,22 @@ seam. (roadmap: 23.3)
   spread into the multiply-scattered twilight. Verified on the CPU twin and by screenshots of
   `?scene=mars-orbit`, not by a real-WebGPU A/B in `check:browser`. (roadmap: 17)
 * **The Mars Orbit Explorer globe is a baked texture, not a streamed planet.** `PlanetGlobe` samples the
-  Mars generator on a grid (≈10–21 km per texel on the high/low tiers) and shows it on one sphere; zooming
-  in blurs, and the ground view is a separate terrain world swapped in under a haze, not a continuous
-  level of detail. Orbit and ground clouds/dust are driven by the same event table but are two renderings
-  of it. Performance on real iOS Safari GPUs is unmeasured (the verification here ran on SwiftShader);
-  `?tier=low` is the lever. See docs/PLANET-ORBIT.md. (roadmap: 17)
+  Mars surface on a grid (≈5–20 km per texel over real MOLA heights, ≈10–21 km procedural) and shows it on one
+  sphere; zooming in blurs, and the ground view is a separate terrain world swapped in under a haze, not a
+  continuous level of detail. Orbit and ground clouds/dust are driven by the same event table but are two
+  renderings of it. Performance on real iOS Safari GPUs is unmeasured (the verification here ran on
+  SwiftShader); `?tier=low` is the lever. See docs/PLANET-ORBIT.md. (roadmap: 17)
+* **Real Mars elevation is a 2.6–10 km atlas, not the 463 m DEM, and only the heights are real.** The MOLA height
+  atlas (`examples/public/mars/mola/`, 2.0 / 7.6 / 27.9 MB for phone / tablet / desktop, 37.5 MB in git history
+  for good) has node spacing ≈10.4 / 5.2 / 2.6 km; below that the ground is procedural detail (small craters,
+  `marsFineDetail`) that is plausible but not the real surface, so Olympus Mons has the right size and shape but
+  not its real caldera walls, and Valles Marineris' walls are softened. Heights are used as metres above the
+  reference sphere (the MOLA areoid is ~6.7 km larger in radius than the port's mean radius; no datum shift is
+  applied). Albedo markings are still procedural — only the elevation ramp, volcanic/basin tints and slope shading
+  come from the data. The atlas needs `DecompressionStream("gzip")` (Safari ≥ 16.4, Chrome 80+, Firefox 113+); an
+  older browser, or a failed fetch, falls back to the procedural planet with the reason in the overlay. The
+  atlas-backed terrain stage is inline-only (no worker generation). Verified in SwiftShader and the Node tests, not
+  on a real iPhone. (capability: terrain.marsRealElevation)
 * **Fog is per-fragment and unshadowed.** No volumetric light shafts; the fog colour does not depend on
   the view direction (the sky's horizon average is used). (roadmap: 17)
 
