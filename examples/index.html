@@ -159,7 +159,8 @@
          the keys still work as shortcuts, but the panel is the interface, so it is shown whenever
          its scene is up regardless of pointer or width, and the keyboard hint gets out of the way. */
       #sky-touch,
-      #weather-touch {
+      #weather-touch,
+      #mars-generator-touch {
         display: none;
         position: fixed;
         inset: 0;
@@ -168,6 +169,7 @@
       }
       body.scene-sky #sky-touch { display: block; }
       body.scene-weather #weather-touch { display: block; }
+      body.scene-mars-generator #mars-generator-touch { display: block; }
       body.scene-sky #controls-hint,
       body.scene-weather #controls-hint,
       body.scene-rescue #controls-hint { display: none; }
@@ -684,7 +686,8 @@
         width: 100%;
         max-width: 460px;
       }
-      button.touch-btn {
+      button.touch-btn,
+      input.touch-range {
         pointer-events: auto;
         flex: 1 1 0;
         min-height: 44px;
@@ -978,6 +981,18 @@
       <div id="arm-stick-right" class="arm-stick arm-stick-right" role="application" aria-label="Arm stick. Up and down raise or lower the elbow, left and right spin the turret.">
         <span class="arm-stick-label" aria-hidden="true">↔ TURRET · ↕ ELBOW</span>
         <div class="veh-knob"></div>
+      </div>
+    </div>
+    <div id="mars-generator-touch" class="touch-panel" aria-label="Mars field observatory controls">
+      <div class="touch-row" role="group" aria-label="Mars local weather">
+        <button type="button" id="mg-clear" class="touch-btn">Clear</button>
+        <button type="button" id="mg-dust" class="touch-btn">Dust front</button>
+        <button type="button" id="mg-global-dust" class="touch-btn">Global dust</button>
+      </div>
+      <div class="touch-row" role="group" aria-label="Mars solar time">
+        <button type="button" id="mg-time-back" class="touch-btn">−1h</button>
+        <input id="mg-time" class="touch-range" type="range" min="0" max="24" step="0.25" value="14" aria-label="Local solar time">
+        <button type="button" id="mg-time-forward" class="touch-btn">+1h</button>
       </div>
     </div>
     <div id="sky-touch">

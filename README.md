@@ -3,6 +3,8 @@
 Browser-native, WebGPU-first 3D game and real-time simulation engine.
 
 ```sh
+bash scripts/setup-ubuntu.sh       # fresh Ubuntu: install prerequisites, build, then start the demo
+bash scripts/setup-ubuntu.sh --no-demo # provision and build without starting the demo
 npm run setup          # install/verify Node, npm packages, headless Chromium (idempotent)
 npm run verify         # typecheck + unit tests + WGSL checks
 npm run api:check      # Phase 27: reject surface/contract drift and stale per-symbol approvals

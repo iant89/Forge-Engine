@@ -183,9 +183,9 @@ group("Mars generator inspector (Phase 10.9)", () => {
     assert.equal((terrain.pipeline.stages).length, 1);
     const stage = terrain.pipeline.stages[0] as MarsTerrainStage;
     assert.ok(stage instanceof MarsTerrainStage);
-    // The volcano preset is the generator CLI's own default; the terrain seed is the port's seed.
-    assert.equal(stage.site.latDeg, MARS_SITE_PRESETS.olympusMons!.latDeg);
-    assert.equal(stage.site.lonDeg, MARS_SITE_PRESETS.olympusMons!.lonDeg);
+    // Start at the Valles-Marineris-like canyon; the terrain seed is the port's seed.
+    assert.equal(stage.site.latDeg, MARS_SITE_PRESETS.vallesRift!.latDeg);
+    assert.equal(stage.site.lonDeg, MARS_SITE_PRESETS.vallesRift!.lonDeg);
     assert.equal(stage.hasErosionCorrection, false);
     assert.equal(terrain.seed, 1337);
     // The repo ships no Stage A cache, so the demo must not pretend it has one.
@@ -201,7 +201,7 @@ group("Mars generator inspector (Phase 10.9)", () => {
     assert.ok(gpu.mock.liveTextures.size > 0); // the four shared PBR arrays
 
     assertMatchObject(handle.marsGeneratorState(), {
-      site: MARS_SITE_PRESETS.olympusMons!.name,
+      site: MARS_SITE_PRESETS.vallesRift!.name,
       detailLevel: "micro",
       chunkSize: 128,
       skirtDepth: 32,
@@ -215,18 +215,18 @@ group("Mars generator inspector (Phase 10.9)", () => {
   });
 
   test("moves the patch when the site moves, and reports it", async () => {
-    const volcano = await fixture();
+    const volcano = await fixture("olympusMons");
     const canyon = await fixture("vallesRift");
     assert.equal(canyon.handle.marsGeneratorState().site, MARS_SITE_PRESETS.vallesRift!.name);
     // The canyon's site sits ~13 km below the volcano's summit, so the same local (0,0) must differ.
     assert.ok(Math.abs(volcano.terrain.getHeightAt(0, 0) - canyon.terrain.getHeightAt(0, 0)) > 1000);
     assertContains(canyon.handle.overlay?.(), `${MARS_SITE_PRESETS.vallesRift!.latDeg}°`);
 
-    // An arbitrary lat,lon pair is a site too, and an unknown key falls back to the volcano.
+    // An arbitrary lat,lon pair is a site too, and an unknown key falls back to the canyon.
     const crater = await fixture("0,0");
     assertMatchObject(crater.handle.marsGeneratorState(), { site: "lat 0 lon 0", latDeg: 0, lonDeg: 0 });
     const unknown = await fixture("not-a-site");
-    assert.equal(unknown.handle.marsGeneratorState().site, MARS_SITE_PRESETS.olympusMons!.name);
+    assert.equal(unknown.handle.marsGeneratorState().site, MARS_SITE_PRESETS.vallesRift!.name);
   });
 
   test("gives every resident tile its own splat mask built from the stage's own weights", async () => {
@@ -303,7 +303,7 @@ group("Mars generator inspector (Phase 10.9)", () => {
     assert.ok(bestSecondShare([rim.shares]) > 0.25);
     assert.ok(meanChannelShares(mixed).every((share) => share > 0.03));
 
-    const volcano = await fixture();
+    const volcano = await fixture("olympusMons");
     volcano.tick(10);
     const summitTiles = tileChannelShares(volcano.terrain);
     const summit = summitTiles.map((tile) => tile.shares);
