@@ -68,7 +68,7 @@ group("gestures", () => {
     log.length = 0;
     g.pointerDown(1, 300, 300, 1000);
     g.pointerMove(1, 303, 300, 1010);
-    assert.deepEqual(log, [], "inside the slop nothing happens");
+    assert.equal(log.length, 0, "inside the slop nothing happens");
     g.pointerMove(1, 340, 310, 1030);
     g.pointerUp(1, 340, 310, 1060);
     assert.equal(log[0], "dragStart 300,300");

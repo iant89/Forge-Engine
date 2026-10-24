@@ -144,7 +144,7 @@ group("planetFrame: the calendar", () => {
 
 group("PlanetSpinController: drag, inertia, auto-spin, animation", () => {
   const worldDirOf = (spin: PlanetSpinController, lat: number, lon: number): Vec3 =>
-    rotateByQuat(spin.orientation, latLonToDirection(lat, lon, new Vec3()), new Vec3());
+    rotateByQuat(spin.orientation, latLonToDirection(lat, lon, new Vec3()), new Vec3()) as Vec3;
 
   test("a dragged point follows the pointer", () => {
     const spin = new PlanetSpinController({ autoSpinRadPerSecond: 0 });

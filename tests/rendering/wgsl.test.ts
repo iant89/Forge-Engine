@@ -145,7 +145,7 @@ group("generated uniform structs are legal in every browser's uniform address sp
     assert.equal(RENDERING_STRUCTS.ObjectUniforms.offsetOf("distanceFade"), 176);
     assert.equal(RENDERING_STRUCTS.ObjectUniforms.offsetOf("instanceOffset"), 160);
     assert.equal(RENDERING_STRUCTS.InstanceStruct.byteSize("storage"), 80);
-    assert.equal(RENDERING_STRUCTS.SkyUniforms.byteSize("uniform"), 144);
+    assert.equal(RENDERING_STRUCTS.SkyUniforms.byteSize("uniform"), 160);
     assert.equal(RENDERING_STRUCTS.SkyUniforms.offsetOf("planetRadius"), 96);
     // Phase 17.1: `multiScattering` sits between the star field and the sample counts.
     assert.equal(RENDERING_STRUCTS.SkyUniforms.offsetOf("multiScattering"), 120);
