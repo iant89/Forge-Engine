@@ -898,13 +898,21 @@ The rules every module above assumes (pinned by `tests/math/math.test.ts`; the l
 
 ## 6. Materials
 
-A `Material` is a shared data record: an 80-byte `MaterialUniforms` block (base colour, metallic,
-roughness, emissive factor × strength, texture flags) written only when `dirty`, plus one bind group
+A `Material` is a shared data record: a 272-byte `MaterialUniforms` block (base colour, metallic,
+roughness, emissive factor × strength, texture flags, UV-set selectors, and five texture-transform
+records) written only when `dirty`, plus one bind group
 created once with the material's textures (missing maps resolve to shared 1×1 defaults so the layout
 has no optional slots). Pipeline choice depends only on `technique` (`standard`, `unlit`, `emissive`,
 `debug-line`, `blit`, `water`, `terrain`), which maps are bound, `transparent`, alpha test and `doubleSided`; changing a
 colour costs one uniform write and no pipeline. Emissive is `emissiveFactor × emissiveStrength` **not** modulated by the base colour
 (glTF semantics) — that is what makes an emissive cube a bloom source regardless of its albedo.
+
+**Imported texture transforms.** Each glTF material texture slot keeps its own `KHR_texture_transform`
+`scale`, `rotation`, `offset`, and optional `texCoord` override. The override is applied before the
+base texture-info coordinate choice, and the shader applies the affine transform in the extension's
+order (scale, counter-clockwise rotation around the UV origin, offset), then the engine material's
+authored tiling/offset. The five transform records are uploaded in group 2, so the standard, terrain,
+prepass, and depth/shadow paths use identical UVs without a per-texture pipeline permutation.
 
 ### Four-layer terrain surfaces (10.8)
 

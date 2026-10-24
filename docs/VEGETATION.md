@@ -23,7 +23,7 @@ Every `refreshInterval` it applies hide (`maxDistance`) and hi/lo (`lodDistance`
 Instances inside `swayDistance` lean about their root through `windSway`. `setSurface(wetness, snow)` writes per-object snow/wetness to the materials.
 Shadow casting is a **third ring** (fe-37d): a model's `shadowDistance` (default `Infinity`) turns `castShadow` off on its parts past that range, so a forest stops paying for shadows it cannot show. `stats_`/`stats()` report `casting` alongside `hidden`, `hi`, `lo` and `swaying`. Keep `maxDistance` finite: a model left at `0` is drawn forever, and its casters walk the shadow pass every frame.
 The off-road hill demo had exactly that: ~3500 trees with `maxDistance: 0` and both parts casting, so facing the treeline cost ~6700 visible renderables and thousands of casters. With `maxDistance` 70/105/145 m, `shadowDistance` 26/38/52 m and `lodDistance` 16/22/30 m (low/medium/high), the same view draws ~2800 renderables with 664 casters.
-Limits: the sway is a whole-plant lean (no per-vertex bending). Leaf shadows are card-shaped, because the depth pass has no alpha test.
+Limits: the sway is a whole-plant lean (no per-vertex bending). Leaf shadows remain card-shaped, although MASK material alpha now participates in the depth/shadow cutoff.
 
 ## Track weather — `engine/src/terrain/trackWeather.ts`
 `TrackWeatherGround(track)` lays a `GroundMoistureField` over the track. Soils come from the cross-section: gravel road, grass berms, dirt beyond.

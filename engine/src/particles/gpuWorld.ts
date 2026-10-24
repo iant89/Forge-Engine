@@ -11,7 +11,7 @@ import type { SystemContext } from "../scene/systems.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { RenderGraph, RenderGraphHandle } from "../rendering/renderGraph.js";
 import { Mat4 } from "../math/mat.js";
-import { GpuParticleSystem, type GpuParticleSystemOptions } from "./gpuSystem.js";
+import { GpuParticleSystem, type GpuParticleDiagnosticRequest, type GpuParticleDiagnosticSnapshot, type GpuParticleSystemOptions } from "./gpuSystem.js";
 
 export interface GpuParticleWorldOptions extends GpuParticleSystemOptions {
   name?: string;
@@ -147,6 +147,32 @@ export class GpuParticleWorld extends SceneObject {
   setRibbon(enabled: boolean): void {
     this.options.ribbons = enabled;
     this._system?.setRibbons(enabled);
+  }
+
+  /** Request one explicit, asynchronous diagnostic readback; ordinary rendering never calls this. */
+  requestDiagnostics(options: GpuParticleDiagnosticRequest = {}): Promise<GpuParticleDiagnosticSnapshot> {
+    return this._system?.requestDiagnostics(options) ?? Promise.resolve({
+      status: "unavailable",
+      alive: null,
+      visible: null,
+      samples: [],
+      sampleLimit: 0,
+      scannedSlots: 0,
+      bytes: 0,
+    });
+  }
+
+  /** Most recently completed diagnostic sample, without scheduling a new readback. */
+  diagnosticSnapshot(): GpuParticleDiagnosticSnapshot {
+    return this._system?.diagnosticSnapshot() ?? {
+      status: "unavailable",
+      alive: null,
+      visible: null,
+      samples: [],
+      sampleLimit: 0,
+      scannedSlots: 0,
+      bytes: 0,
+    };
   }
 
   /** Enqueue particle.sim / sort / render / resolve. No-op until init finishes. */

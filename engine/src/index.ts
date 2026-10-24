@@ -214,6 +214,7 @@ export type {
   DecodedGltfAsset,
   DecodedGltfImage,
   DecodedGltfMaterial,
+  DecodedGltfTextureTransform,
   DecodedGltfMesh,
   DecodedGltfSampler,
   DecodedGltfTexture,
@@ -423,7 +424,7 @@ export { PipelineFactory, type PipelineFactoryOptions, type PipelineKeyOptions }
 export { fitShadowMapSize, shadowAtlasBytes, DEFAULT_SHADOW_MEMORY_BUDGET, SHADOW_TEXEL_BYTES } from "./rendering/shadowBudget.js";
 export { Geometry, VERTEX_LAYOUT, VERTEX_STRIDE, UV1_VERTEX_LAYOUT, UV1_VERTEX_STRIDE, UV1_VERTEX_ATTRIBUTES, SKIN_VERTEX_LAYOUT, SKIN_VERTEX_STRIDE, SKIN_VERTEX_ATTRIBUTES, SKIN_JOINTS_PER_VERTEX, computeNormalsAndTangents, type GeometrySource, type MorphTargetSource, type SkinVertexStream } from "./rendering/geometry.js";
 export { Mesh, type Submesh, type SkinBinding, type SkinSource } from "./rendering/mesh.js";
-export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique } from "./rendering/material.js";
+export { Material, MaterialLibrary, type MaterialOptions, type MaterialTechnique, type MaterialTextureSlot, type MaterialTextureTransform } from "./rendering/material.js";
 export { SplatMaterial, splatUvTransform, type SplatMaterialOptions, type SplatTextureSet, type SplatSurfaceLayer } from "./rendering/splatMaterial.js";
 export { TERRAIN_FRAGMENT_BODY, SPLAT_BINDINGS } from "./rendering/shaders/terrain.js";
 export {
@@ -507,7 +508,7 @@ export { inspectRenderGraph, formatRenderGraph, type RenderGraphView, type Rende
 export { inspectGpuResources, formatGpuResources, groupOfLabel, type GpuResourceView, type GpuResourceGroup, type GpuResourceInspectOptions } from "./debug/gpuResourceInspector.js";
 export { physicsDebugDraw, drawPhysicsDebug, type PhysicsDebugLine, type PhysicsDebugLineKind, type PhysicsDebugView, type PhysicsDebugOptions } from "./debug/physicsDebugDraw.js";
 export { inspectTerrain, terrainDebugLines, drawTerrainDebug, type TerrainChunkState, type TerrainChunkDebugInfo, type TerrainDebugSnapshot, type TerrainDebugOptions, type TerrainDebugLine } from "./debug/terrainDebugger.js";
-export { inspectParticles, particleDebugLines, drawParticleDebug, type ParticleDebugSample, type ParticleEmitterDebugInfo, type ParticleWorldDebugInfo, type ParticleDebugSnapshot, type ParticleDebugOptions, type ParticleDebugLine, type ParticleDebugLineKind } from "./debug/particleDebugger.js";
+export { inspectParticles, requestGpuParticleDiagnostics, particleDebugLines, drawParticleDebug, type ParticleDebugSample, type ParticleGpuDiagnosticInfo, type ParticleEmitterDebugInfo, type ParticleWorldDebugInfo, type ParticleDebugSnapshot, type ParticleDebugOptions, type ParticleDebugLine, type ParticleDebugLineKind } from "./debug/particleDebugger.js";
 export { inspectStreaming, type StreamingDebugEngine, type StreamingObjectDebugInfo, type StreamingDebugSnapshot, type StreamingDebugOptions } from "./debug/streamingDebugger.js";
 export { inspectEnvironment, environmentDebugLines, drawEnvironmentDebug, type EnvironmentDebugOptions, type DayNightDebugInfo, type SunLightDebugInfo, type WeatherDebugInfo, type LightningStrikeDebugInfo, type LightningDebugInfo, type EnvironmentDebugSnapshot, type EnvironmentDebugLineKind, type EnvironmentDebugLine } from "./debug/environmentDebugger.js";
 export { DeveloperConsole, createDeveloperConsole, type DeveloperConsoleHost, type DeveloperConsoleOptions, type DeveloperConsoleCommand, type DeveloperConsoleCommandContext, type DeveloperConsoleEntry } from "./debug/console.js";

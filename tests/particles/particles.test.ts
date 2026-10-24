@@ -684,6 +684,57 @@ group("particles — Phase 12 GPU system", () => {
     assert.doesNotMatch(PARTICLE_RENDER_SHADER, /max\(\s*soft\s*,\s*0\.05\s*\)/);
   });
 
+  test("GPU diagnostics are opt-in, asynchronous, and expose copied counters without changing the default pass list", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    try {
+      const system = new GpuParticleSystem(gpu, { capacity: 64, seed: 3 });
+      await system.init();
+      const frame = {
+        dt: 1 / 60,
+        viewProj: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+        cameraPos: { x: 0, y: 1, z: 4 },
+        cameraRight: { x: 1, y: 0, z: 0 },
+        cameraUp: { x: 0, y: 1, z: 0 },
+      };
+      system.prepare(frame);
+      const graph = new RenderGraph(gpu);
+      const swap = gpu.device.createTexture({ label: "diag-swap", size: { width: 16, height: 8 }, format: gpu.format, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC });
+      const depth = gpu.device.createTexture({ label: "diag-depth", size: { width: 16, height: 8 }, format: gpu.depthFormat, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
+      graph.begin();
+      const color = graph.importTexture("diag-color", swap);
+      const depthHandle = graph.importTexture("diag-depth", depth);
+      graph.addPass({ name: "seed", color: [{ texture: color }], depth: { texture: depthHandle }, execute: (ctx) => ctx.beginRenderPass().end() });
+      system.enqueue(graph, { color, depth: depthHandle, colorFormat: gpu.format, depthFormat: gpu.depthFormat });
+      assert.deepEqual(system.lastEnqueuedPasses, ["particle.sim", "particle.sort", "particle.render", "particle.resolve"], "no request means no diagnostic pass");
+      assert.equal(gpu.mock.outstanding.buffers.includes("gpuParticles.diagnostics.readback"), false, "the default frame allocates no readback buffer");
+      const request = system.requestDiagnostics({ sampleCount: 4 });
+      assert.equal(gpu.mock.outstanding.buffers.includes("gpuParticles.diagnostics.readback"), true, "the readback is allocated only after an explicit request");
+      // The request is made for the next graph, not inserted into an already encoded frame.
+      assert.equal(system.diagnosticSnapshot().status, "pending");
+      const next = new RenderGraph(gpu);
+      next.begin();
+      const nextColor = next.importTexture("diag-color-2", swap);
+      const nextDepth = next.importTexture("diag-depth-2", depth);
+      next.addPass({ name: "seed-2", color: [{ texture: nextColor }], depth: { texture: nextDepth }, execute: (ctx) => ctx.beginRenderPass().end() });
+      system.enqueue(next, { color: nextColor, depth: nextDepth, colorFormat: gpu.format, depthFormat: gpu.depthFormat });
+      assertContains(system.lastEnqueuedPasses, "particle.diagnostics");
+      next.execute();
+      const diagnostic = await request;
+      assert.equal(diagnostic.status, "ready");
+      assert.equal(diagnostic.alive, 0, "the strict mock does not execute WGSL, so the initial state is dead");
+      assert.equal(diagnostic.visible, system.capacity);
+      assert.equal(diagnostic.samples.length, 0);
+      assert.equal(diagnostic.sampleLimit, 4);
+      assert.equal(diagnostic.bytes, system.storageBytes() + 32);
+      assert.deepEqual(gpu.mock.errors, []);
+      swap.destroy();
+      depth.destroy();
+      system.dispose();
+    } finally {
+      await gpu.dispose();
+    }
+  });
+
   test("cull draw uses compacted visible list + drawIndirect (no instance_index identity fallback)", async () => {
     assertContains(PARTICLE_RENDER_SHADER, "particleIndex == 0xffffffffu");
     assert.doesNotMatch(PARTICLE_RENDER_SHADER, /select\(\s*inst\s*,\s*particleIndex/);

@@ -33,8 +33,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done (built + tes
 
 ## Deferred / next after v1 (honest list)
 
-- WASM physics core (ADR-009) once a verified toolchain is available in the build image.
-- KTX2/Basis *transcoding* (needs a third-party transcoder; container parsing is implemented, see ASSETS.md).
+- WASM physics core once a verified toolchain is available in the build image.
+- KTX2/Basis *transcoding* (needs a third-party transcoder; container parsing is implemented, while transcoding remains host/tooling work).
 - Virtual texturing when sparse resource bindings are exposable.
 - SDFGI / real-time GI.
 - Editor scene *editing* (save back to disk via File System Access API; serialization exists).

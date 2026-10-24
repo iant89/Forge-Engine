@@ -284,14 +284,15 @@ seam. (roadmap: 23.3)
 
 ## Documentation debt
 
-`ARCHITECTURE.md` describes the target design and still refers to documents that do not exist yet
-(`ASSETS.md` and some ADRs). `PERFORMANCE.md` now exists as Phase 22's audited benchmark history.
-Sections marked "As built" in `ARCHITECTURE.md` and
-`docs/RENDERING.md` describe what is real today. `ROADMAP.md`'s status block, this file and
-`engine/src/core/capabilities.ts` are cross-checked by `npm run docs:check` (Phase 9.6), so a phase
-cannot be advertised as verified while a capability inside it is not, and a limitation cannot outlive
-its implementation. An earlier revision of the roadmap marked phases done without the code; that is
-what the gate now makes impossible to repeat silently.
+`ARCHITECTURE.md` now names only subsystem documents present in this checkout; it does not claim a
+missing `ASSETS.md` or ADR directory. Asset and benchmark implementation details
+are instead evidenced by the source, focused tests, `docs/API.md`, and `docs/VERIFICATION.md`.
+Sections marked "As built" in `ARCHITECTURE.md` and `docs/RENDERING.md` describe what is real today.
+`ROADMAP.md`'s status block, this file and `engine/src/core/capabilities.ts` are cross-checked by
+`npm run docs:check` (Phase 9.6), so a phase cannot be advertised as verified while a capability
+inside it is not, and a limitation cannot outlive its implementation. An earlier revision of the
+roadmap marked phases done without the code; that is what the gate now makes impossible to repeat
+silently.
 
 ## Snow melt and mud (fe-38)
 

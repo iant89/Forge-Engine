@@ -32,6 +32,7 @@ export type {
   DecodedGltfAsset,
   DecodedGltfImage,
   DecodedGltfMaterial,
+  DecodedGltfTextureTransform,
   DecodedGltfMesh,
   DecodedGltfSampler,
   DecodedGltfTexture,

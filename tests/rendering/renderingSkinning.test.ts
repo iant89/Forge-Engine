@@ -551,16 +551,10 @@ group("Renderer with skinned renderables", () => {
     const skinBindings = mock.commandLog.filter((e) => e.type === "setBindGroup" && e.index === 3);
     assert.ok(skinBindings.length >= 1);
     for (const bind of skinBindings) assert.equal((bind.dynamicOffsets as number[]).length, 1);
-    // The shadow and prepass skinned layouts interpose an *empty* group 2 (their programs have no
-    // material group, and the palette stays at group 3). Chromium invalidates a command buffer whose
-    // draw leaves a declared group unbound — empty or not — so the pass must bind one there, and the
-    // mock refuses the draw outright if it does not (which is how the CI runner's Chromium 131 caught
-    // a frame that renders fine on a newer build).
-    // (Index 2 also carries the material group in the colour pass, hence the group-label filter.)
-    const gapBindings = mock.commandLog.filter(
-      (e) => e.type === "setBindGroup" && e.index === 2 && e.group === "skin.gap.bindgroup",
-    );
-    assert.ok(gapBindings.length >= 2); // once per skinned shadow + prepass draw
+    // Alpha-tested shadow and prepass variants now bind the same material group as the forward
+    // path; the palette remains at group 3. This is what lets MASK coverage participate in depth.
+    const materialBindings = mock.commandLog.filter((e) => e.type === "setBindGroup" && e.index === 2);
+    assert.ok(materialBindings.length >= 2); // once per skinned shadow + prepass draw
     const pipelines = mock.commandLog.filter((e) => e.type === "setPipeline").map((e) => String(e.pipeline));
     // Pipeline labels are the cache keys, so the skinned variant shows up as the `|skin|` slot.
     assert.equal(pipelines.some((p) => p.startsWith("pipeline.standard|") && p.includes("|skin|")), true);

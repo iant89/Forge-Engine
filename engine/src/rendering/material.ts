@@ -22,6 +22,14 @@ import type { Texture } from "../resources/texture.js";
 
 export type MaterialTechnique = "standard" | "unlit" | "emissive" | "debug-line" | "blit" | "water" | "terrain";
 
+export type MaterialTextureSlot = "albedo" | "normal" | "metallicRoughness" | "emissive" | "occlusion";
+
+export interface MaterialTextureTransform {
+  scale?: [number, number];
+  offset?: [number, number];
+  rotation?: number;
+}
+
 export interface MaterialOptions {
   label?: string;
   technique?: MaterialTechnique;
@@ -57,6 +65,8 @@ export interface MaterialOptions {
   normalScale?: number;
   /** glTF texture-coordinate set per map; 0 = TEXCOORD_0, 1 = TEXCOORD_1. */
   uvSets?: Partial<MaterialUvSets>;
+  /** Per-texture UV transforms; defaults to the identity transform. */
+  uvTransforms?: Partial<Record<MaterialTextureSlot, MaterialTextureTransform>>;
 }
 
 export interface MaterialUvSets {
@@ -65,6 +75,25 @@ export interface MaterialUvSets {
   metallicRoughness: number;
   emissive: number;
   occlusion: number;
+}
+
+const MATERIAL_TEXTURE_SLOTS: readonly MaterialTextureSlot[] = ["albedo", "normal", "metallicRoughness", "emissive", "occlusion"];
+
+type MaterialTextureTransformValue = { scale: [number, number]; offset: [number, number]; rotation: number };
+
+function identityTextureTransform(): MaterialTextureTransformValue {
+  return { scale: [1, 1], offset: [0, 0], rotation: 0 };
+}
+
+function normaliseTextureTransform(value: MaterialTextureTransform | undefined): MaterialTextureTransformValue {
+  const scale = value?.scale ?? [1, 1];
+  const offset = value?.offset ?? [0, 0];
+  const rotation = value?.rotation ?? 0;
+  return {
+    scale: [Number.isFinite(scale[0]) ? scale[0] : 1, Number.isFinite(scale[1]) ? scale[1] : 1],
+    offset: [Number.isFinite(offset[0]) ? offset[0] : 0, Number.isFinite(offset[1]) ? offset[1] : 0],
+    rotation: Number.isFinite(rotation) ? rotation : 0,
+  };
 }
 
 export const FLAG_ALBEDO = 1;
@@ -125,6 +154,13 @@ export class Material {
   readonly tiling = new Vec2(1, 1);
   readonly offset = new Vec2(0, 0);
   readonly uvSets: MaterialUvSets = { albedo: 0, normal: 0, metallicRoughness: 0, emissive: 0, occlusion: 0 };
+  readonly uvTransforms: Record<MaterialTextureSlot, MaterialTextureTransformValue> = {
+    albedo: identityTextureTransform(),
+    normal: identityTextureTransform(),
+    metallicRoughness: identityTextureTransform(),
+    emissive: identityTextureTransform(),
+    occlusion: identityTextureTransform(),
+  };
   dirty = true;
   /**
    * fe-38: per-object snow (written by `SnowMeltSystem` through `setSnowCover`): `amount` 0..1, the
@@ -151,6 +187,11 @@ export class Material {
     this.opacity = options.opacity ?? 1;
     this.normalScale = options.normalScale ?? 1;
     if (options.uvSets) Object.assign(this.uvSets, options.uvSets);
+    if (options.uvTransforms) {
+      for (const slot of MATERIAL_TEXTURE_SLOTS) {
+        if (options.uvTransforms[slot]) this.uvTransforms[slot] = normaliseTextureTransform(options.uvTransforms[slot]);
+      }
+    }
     for (const key of Object.keys(this.uvSets) as (keyof MaterialUvSets)[]) {
       const value = this.uvSets[key];
       if (value !== 0 && value !== 1) this.uvSets[key] = 0;
@@ -319,6 +360,21 @@ export class Material {
     f32[so + 1] = this.snowCover.line;
     f32[so + 2] = this.snowCover.wetness;
     f32[so + 3] = 0;
+    const uvScaleOffset = a.struct.field("uvScaleOffset", "uniform");
+    const uvRotation = a.struct.field("uvRotation", "uniform");
+    const transformBase = uvScaleOffset.offset >> 2;
+    const rotationBase = uvRotation.offset >> 2;
+    for (let i = 0; i < MATERIAL_TEXTURE_SLOTS.length; i++) {
+      const transform = this.uvTransforms[MATERIAL_TEXTURE_SLOTS[i]!];
+      f32[transformBase + i * 4] = transform.scale[0];
+      f32[transformBase + i * 4 + 1] = transform.scale[1];
+      f32[transformBase + i * 4 + 2] = transform.offset[0];
+      f32[transformBase + i * 4 + 3] = transform.offset[1];
+      f32[rotationBase + i * 4] = Math.cos(transform.rotation);
+      f32[rotationBase + i * 4 + 1] = Math.sin(transform.rotation);
+      f32[rotationBase + i * 4 + 2] = 0;
+      f32[rotationBase + i * 4 + 3] = 0;
+    }
   }
 
   /** {@link SnowCoverTarget}: show snow on every surface of this material facing up past `snowLine`. */
@@ -360,12 +416,18 @@ export class Material {
       occlusionStrength: this.occlusionStrength,
       samplers: { ...this.samplers },
       uvSets: { ...this.uvSets },
+      uvTransforms: Object.fromEntries(MATERIAL_TEXTURE_SLOTS.map((slot) => [slot, { ...this.uvTransforms[slot], scale: [...this.uvTransforms[slot].scale] as [number, number], offset: [...this.uvTransforms[slot].offset] as [number, number] }])) as Partial<Record<MaterialTextureSlot, MaterialTextureTransform>>,
     });
     m.alphaTest = this.alphaTest;
     m.baseColor.copyFrom(this.baseColor);
-    const { uvSets, ...overrides } = options;
+    const { uvSets, uvTransforms, ...overrides } = options;
     Object.assign(m, overrides);
     if (uvSets) Object.assign(m.uvSets, uvSets);
+    if (uvTransforms) {
+      for (const slot of MATERIAL_TEXTURE_SLOTS) {
+        if (uvTransforms[slot]) m.uvTransforms[slot] = normaliseTextureTransform(uvTransforms[slot]);
+      }
+    }
     for (const key of Object.keys(m.uvSets) as (keyof MaterialUvSets)[]) {
       if (m.uvSets[key] !== 0 && m.uvSets[key] !== 1) m.uvSets[key] = 0;
     }
