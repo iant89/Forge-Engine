@@ -427,7 +427,15 @@ group("Mars globe sampler, globe and devils", () => {
     const sy = 3;
     // A wildly different fine surface: only the border fade can make the seam match.
     const mesh = planetDetailMesh(w, globe, meshW, meshH, sx, sy, R, 2, (along, lat) => 80 * Math.sin(along * 0.7) + 40 * Math.cos(lat));
-    assert.equal(mesh.positions.length, (mesh.nx + 1) * (mesh.ny + 1) * 3);
+    assert.equal(mesh.gridVertices, (mesh.nx + 1) * (mesh.ny + 1));
+    // A flange vertex for every border vertex (this window meets the globe on all four sides).
+    assert.equal(mesh.positions.length / 3 - mesh.gridVertices, 2 * (mesh.nx + 1) + 2 * (mesh.ny + 1));
+    // Flange vertices sit below the surface they continue.
+    for (let v = mesh.gridVertices; v < mesh.positions.length / 3; v++) {
+      const r = Math.hypot(mesh.positions[v * 3]!, mesh.positions[v * 3 + 1]!, mesh.positions[v * 3 + 2]!);
+      assert.ok(r < R + 2 * 120 + 20, `flange vertex ${v} at radius ${r}`);
+    }
+    assert.ok(mesh.indices.every((i) => i < mesh.positions.length / 3));
     const at = (a: number, b: number): [number, number, number] => {
       const o = (b * (mesh.nx + 1) + a) * 3;
       return [mesh.positions[o]!, mesh.positions[o + 1]!, mesh.positions[o + 2]!];

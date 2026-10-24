@@ -134,13 +134,19 @@ export function planetDetailWindowContains(w: PlanetDetailWindow, i: number, j: 
   return di < w.cellsX;
 }
 
-/** The patch mesh `planetDetailMesh` builds: `(nx + 1) × (ny + 1)` vertices, north row first, west to east. */
+/**
+ * The patch mesh `planetDetailMesh` builds. The first `(nx + 1) × (ny + 1)` vertices are the grid,
+ * north row first, west to east; the flange vertices follow.
+ */
 export interface PlanetDetailMesh {
   nx: number;
   ny: number;
+  /** Number of grid vertices (the rest are the flange). */
+  gridVertices: number;
   positions: Float32Array;
   uvs: Float32Array;
   tangents: Float32Array;
+  indices: Uint32Array;
 }
 
 /**
@@ -151,6 +157,12 @@ export interface PlanetDetailMesh {
  * the straight edge between two globe vertices, so the patch border meets the globe without a crack.
  * Edges at a pole, and the east/west edges of a window that wraps the whole circle, have no neighbour
  * and do not fade. `elevation(alongDeg, latDeg)` takes degrees east of the window's west edge.
+ *
+ * "On the edge" is not enough for the rasteriser: the globe draws each cell edge as one long edge and
+ * the patch as `sx` short ones (a T-junction), and pixels along it fall through both — a line of sky
+ * through the planet. So every border that meets the globe also gets a **flange**: its vertices copied
+ * half a globe cell outward and sunk below the surface, under the globe. Its texture coordinates stay
+ * on the border, where the patch texture equals the globe's, so a crack shows the same colour.
  */
 export function planetDetailMesh(
   window: PlanetDetailWindow,
@@ -166,12 +178,22 @@ export function planetDetailMesh(
   const rows = window.j1 - window.j0;
   const nx = window.cellsX * sx;
   const ny = rows * sy;
-  const count = (nx + 1) * (ny + 1);
+  const gridCount = (nx + 1) * (ny + 1);
+  const fullCircle = window.cellsX >= meshW;
+  // Flange edges: borders that meet the globe (not a pole, not the seam of a full circle).
+  const edges: Array<{ start: number; step: number; n: number; inward: number }> = [];
+  if (window.j0 > 0) edges.push({ start: 0, step: 1, n: nx + 1, inward: nx + 1 });
+  if (window.j1 < meshH) edges.push({ start: ny * (nx + 1), step: 1, n: nx + 1, inward: -(nx + 1) });
+  if (!fullCircle) {
+    edges.push({ start: 0, step: nx + 1, n: ny + 1, inward: 1 });
+    edges.push({ start: nx, step: nx + 1, n: ny + 1, inward: -1 });
+  }
+  const flangeCount = edges.reduce((sum, e) => sum + e.n, 0);
+  const count = gridCount + flangeCount;
   const positions = new Float32Array(count * 3);
   const uvs = new Float32Array(count * 2);
   const tangents = new Float32Array(count * 4);
   const row = meshW + 1;
-  const fullCircle = window.cellsX >= meshW;
   let vi = 0;
   for (let b = 0; b <= ny; b++) {
     const l = Math.min(rows - 1, Math.floor(b / sy));
@@ -213,5 +235,107 @@ export function planetDetailMesh(
       vi++;
     }
   }
-  return { nx, ny, positions, uvs, tangents };
+  // Grid triangles, wound like the globe's.
+  const gridTris = nx * ny * 6;
+  const flangeTris = edges.reduce((sum, e) => sum + (e.n - 1) * 12, 0);
+  const indices = new Uint32Array(gridTris + flangeTris);
+  let k = 0;
+  for (let b = 0; b < ny; b++) {
+    for (let a = 0; a < nx; a++) {
+      const i0 = b * (nx + 1) + a;
+      const i1 = i0 + 1;
+      const i2 = i0 + nx + 1;
+      const i3 = i2 + 1;
+      indices[k++] = i0; indices[k++] = i1; indices[k++] = i2;
+      indices[k++] = i1; indices[k++] = i3; indices[k++] = i2;
+    }
+  }
+  // Flanges: outward by half a globe cell (the step from the next vertex in, scaled), sunk by a
+  // little more than the chord sag of a globe cell so it stays under the globe's triangles.
+  const cellRad = (Math.PI / meshH);
+  const sink = radius * (1 - Math.cos(cellRad)) * 2 + radius * 2e-5;
+  for (const e of edges) {
+    const first = vi;
+    const reach = (e.inward === 1 || e.inward === -1 ? sx : sy) * 0.5;
+    for (let t = 0; t < e.n; t++) {
+      const v = e.start + t * e.step;
+      const w = v + e.inward;
+      const px = positions[v * 3]!, py = positions[v * 3 + 1]!, pz = positions[v * 3 + 2]!;
+      let ox = px + (px - positions[w * 3]!) * reach;
+      let oy = py + (py - positions[w * 3 + 1]!) * reach;
+      let oz = pz + (pz - positions[w * 3 + 2]!) * reach;
+      const l = Math.hypot(ox, oy, oz) || 1;
+      const down = (l - sink) / l;
+      ox *= down; oy *= down; oz *= down;
+      positions[vi * 3] = ox;
+      positions[vi * 3 + 1] = oy;
+      positions[vi * 3 + 2] = oz;
+      uvs[vi * 2] = uvs[v * 2]!;
+      uvs[vi * 2 + 1] = uvs[v * 2 + 1]!;
+      tangents[vi * 4] = tangents[v * 4]!;
+      tangents[vi * 4 + 2] = tangents[v * 4 + 2]!;
+      tangents[vi * 4 + 3] = 1;
+      vi++;
+    }
+    // Both windings: the strip is narrow and its facing depends on the edge, so draw it either way.
+    for (let t = 0; t < e.n - 1; t++) {
+      const a0 = e.start + t * e.step;
+      const a1 = e.start + (t + 1) * e.step;
+      const f0 = first + t;
+      const f1 = f0 + 1;
+      indices[k++] = a0; indices[k++] = a1; indices[k++] = f0;
+      indices[k++] = a1; indices[k++] = f1; indices[k++] = f0;
+      indices[k++] = a0; indices[k++] = f0; indices[k++] = a1;
+      indices[k++] = a1; indices[k++] = f0; indices[k++] = f1;
+    }
+  }
+  return { nx, ny, gridVertices: gridCount, positions, uvs, tangents, indices };
+}
+
+/**
+ * The baked shaded-relief multiplier `1 + gain · (shade − flat)` at every node of a `w×h` elevation
+ * grid (rows north to south), from central differences between neighbouring nodes: light from the
+ * north-west, 42° up, slopes scaled by `relief`. `metresX(row)` is the east–west node spacing on that
+ * row, `metresY` the north–south one; `wrapX` wraps the columns (a whole-planet grid) instead of
+ * clamping them. Interpolating this grid bicubically gives a smooth shade per texel for one lookup,
+ * where four elevation lookups per texel used to cost most of a bake.
+ */
+export function planetReliefShade(
+  elev: ArrayLike<number>,
+  w: number,
+  h: number,
+  wrapX: boolean,
+  metresX: (row: number) => number,
+  metresY: number,
+  relief: number,
+  gain: number,
+  out: Float32Array = new Float32Array(w * h),
+): Float32Array {
+  const lx = -0.5, ly = 0.5, lz = 0.7071;
+  const lnorm = Math.hypot(lx, ly, lz);
+  const flat = lz / lnorm;
+  for (let j = 0; j < h; j++) {
+    const jn = j > 0 ? j - 1 : j;
+    const js = j < h - 1 ? j + 1 : j;
+    const spanY = (js - jn) * metresY;
+    const mx = metresX(j);
+    for (let i = 0; i < w; i++) {
+      let ie: number;
+      let iw: number;
+      if (wrapX) {
+        ie = (i + 1) % w;
+        iw = (i - 1 + w) % w;
+      } else {
+        ie = i < w - 1 ? i + 1 : i;
+        iw = i > 0 ? i - 1 : i;
+      }
+      const spanX = (wrapX ? 2 : ie - iw) * mx;
+      const dEast = spanX > 0 ? ((elev[j * w + ie]! - elev[j * w + iw]!) / spanX) * relief : 0;
+      const dNorth = spanY > 0 ? ((elev[jn * w + i]! - elev[js * w + i]!) / spanY) * relief : 0;
+      const nl = Math.hypot(dEast, dNorth, 1);
+      const shade = (-dEast * lx - dNorth * ly + lz) / (nl * lnorm);
+      out[j * w + i] = 1 + gain * (shade - flat);
+    }
+  }
+  return out;
 }

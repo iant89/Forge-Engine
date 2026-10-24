@@ -452,6 +452,7 @@ export {
   type CylinderOptions,
 } from "./rendering/primitives.js";
 export { PlanetGlobe, type PlanetGlobeOptions, type PlanetSurfaceSample, type PlanetSurfaceSampler } from "./rendering/planetGlobe.js";
+export { planetDetailMesh, planetDetailWindow, planetDetailWindowContains, planetGridCubic, type PlanetDetailMesh, type PlanetDetailWindow } from "./rendering/planetDetail.js";
 export { MoistureGroundMaps, MoistureOverlayMaps, withFieldUvs, moistureGroundGeometrySource, createMoistureGround } from "./rendering/moistureGround.js";
 export { PerFrameUniforms, LightUniforms, LightBlock, ShadowUniforms, ShadowPassUniforms, MaterialUniforms, SplatUniforms, ObjectUniforms, InstanceStruct, ObjectCullUniforms, ObjectBatchEntry, ObjectBatchBlock, ObjectCullStatsBlock, PostUniforms, SsaoUniforms, SkyUniforms, CloudUniforms, WaterUniforms, ClusterUniforms, ClusterLightBlock, ClusterGridBlock, ClusterRangeEntry, ClusterRangeBlock, RENDERING_STRUCTS, RENDERING_STORAGE_STRUCTS, MAX_LIGHTS_PER_FRAME, MAX_CASCADES, MAX_SPOT_SHADOWS, DEFAULT_SPOT_SHADOWS, MAX_POINT_SHADOWS, POINT_SHADOW_FACES, MAX_SHADOW_LAYERS, MAX_CULLED_BATCHES, structSize, type RenderingStructName, type RenderingStorageStructName } from "./rendering/uniforms.js";
 export {

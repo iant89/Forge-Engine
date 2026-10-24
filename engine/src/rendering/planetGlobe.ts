@@ -22,6 +22,21 @@
  * bilinear interpolation — the planet resolves in over a second or two rather than blocking start-up.
  * `progress` runs 0..1 across the passes.
  *
+ * The baked relief takes its slope from a bicubic (Catmull-Rom) interpolation of the grid, so the
+ * shading is continuous across grid cells rather than one flat tone per cell.
+ *
+ * **Detail patch** (zoomed-in level of detail, enabled by `detailTextureSize`). One texture for the
+ * whole planet is ≈10–20 km per texel, which a close orbit magnifies into blur. {@link setDetailFocus}
+ * names the spot under the camera; once the globe is baked, `update` bakes a *detail window* around it
+ * (`rendering/planetDetail.ts`): globe mesh cells snapped to a latitude/longitude rectangle, re-drawn as
+ * a finer displaced patch with its own texture — colour from a coarse grid of full samples, elevation
+ * and shaded relief from a finer grid of the sampler's cheap `elevation` path, the surface overlay on
+ * top. The globe leaves those cells out of its index buffer while the patch shows; the patch's border
+ * lies on the globe's cell edges and its outermost cell fades into the globe's own texture and shape,
+ * so the seam has no crack or step. A bake runs in the same time-sliced budget; the previous patch
+ * stays visible until the next one swaps in. The host shows `detailGeometry` with `detailMaterial`
+ * whenever {@link detailVisible}.
+ *
  * Texture updates write every mip level (`Texture.writeMipData`), box-filtered on the CPU, so a
  * minified globe never shows stale or garbage mips. All GPU objects are released by `dispose()`.
  */
@@ -32,6 +47,7 @@ import { Geometry, computeNormalsAndTangents } from "./geometry.js";
 import { Material } from "./material.js";
 import { maxMipLevels } from "../gpu/formats.js";
 import type { PlanetAtmosphereFill, PlanetOverlayTexel, PlanetSurfaceOverlay } from "../environment/planetWeather.js";
+import { localGridCubic, planetDetailMesh, planetDetailWindow, planetDetailWindowContains, planetGridCubic, planetReliefShade, type PlanetDetailWindow } from "./planetDetail.js";
 
 export type { PlanetAtmosphereFill, PlanetOverlayTexel, PlanetSurfaceOverlay };
 
@@ -54,6 +70,11 @@ export interface PlanetSurfaceSampler {
   sample(dx: number, dy: number, dz: number, out: PlanetSurfaceSample, footprintRad?: number): PlanetSurfaceSample;
   /** Cheap albedo multiplier around 1 for texel-level variation; omitted = none. */
   detail?(dx: number, dy: number, dz: number): number;
+  /**
+   * Elevation only (metres), much cheaper than `sample`; the detail patch reads its fine relief from it.
+   * Omitted: the patch takes elevation from its colour grid's `sample` calls (coarser).
+   */
+  elevation?(dx: number, dy: number, dz: number, footprintRad?: number): number;
 }
 
 export interface PlanetGlobeOptions {
@@ -81,7 +102,45 @@ export interface PlanetGlobeOptions {
   cloudAltitude?: number;
   /** Cloud shell mesh segments. Default 128 × 64. */
   cloudSegments?: readonly [number, number];
+  /** Detail patch texture size (square). 0 (the default) disables the patch. */
+  detailTextureSize?: number;
+  /** Detail patch mesh resolution: roughly this many quads across the window. Default 160. */
+  detailMeshQuads?: number;
   label?: string;
+}
+
+/** The globe surface mesh as built (kept so the detail patch can cut and restore its hole). */
+interface SurfaceSource {
+  positions: Float32Array;
+  normals: Float32Array;
+  uvs: Float32Array;
+  tangents: Float32Array;
+  indices: Uint32Array;
+  label: string;
+}
+
+/** A detail patch bake in progress (see `stepDetail`). */
+interface DetailJob {
+  window: PlanetDetailWindow;
+  /** The cap baked: unit centre and radius (radians). */
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  /** 0 colour grid, 1 elevation grid, 2 texels, 3 mesh + swap. */
+  phase: number;
+  cursor: number;
+  /** Colour grid: `gw×gh` nodes with a one-node apron, rgb (× the sampler's `detail`) + elevation per node. */
+  gw: number;
+  gh: number;
+  colour: Float32Array;
+  /** Elevation grid: `ew×eh` nodes with a one-node apron. */
+  ew: number;
+  eh: number;
+  elev: Float32Array;
+  /** Relief multiplier per elevation node (filled when the elevation grid is complete). */
+  shade: Float32Array;
+  pixels: Uint8Array;
 }
 
 const DEG = Math.PI / 180;
@@ -92,6 +151,9 @@ export class PlanetGlobe {
   readonly surfaceMaterial: Material;
   readonly cloudGeometry: Geometry;
   readonly cloudMaterial: Material;
+  /** The detail patch (null when `detailTextureSize` is 0); draw it while {@link detailVisible}. */
+  readonly detailGeometry: Geometry | null;
+  readonly detailMaterial: Material | null;
 
   private readonly device: GraphicsDevice;
   private readonly sampler: PlanetSurfaceSampler;
@@ -125,6 +187,7 @@ export class PlanetGlobe {
   private bakeElevation: Float32Array = new Float32Array(0);
   private bakeColor: Uint8Array = new Uint8Array(0);
   private bakeRow = 0;
+  private bakeShade: Float32Array = new Float32Array(0);
   private bakeActive = false;
   private bakeDetail = false;
   private done = false;
@@ -141,6 +204,16 @@ export class PlanetGlobe {
   private atmosphereRowsPerSlice: number;
   private readonly overlayOut: PlanetOverlayTexel = { coverage: 0, r: 0, g: 0, b: 0 };
   private disposed = false;
+
+  // detail patch
+  private readonly detailSize: number;
+  private readonly detailQuads: number;
+  private readonly detailTexture: Texture | null = null;
+  private surfaceSource: SurfaceSource | null = null;
+  private focus: { x: number; y: number; z: number; radius: number } | null = null;
+  private shown: { window: PlanetDetailWindow; x: number; y: number; z: number; radius: number } | null = null;
+  private job: DetailJob | null = null;
+  private detailStale = false;
 
   constructor(device: GraphicsDevice, options: PlanetGlobeOptions) {
     this.device = device;
@@ -187,6 +260,22 @@ export class PlanetGlobe {
     });
     const [cw, ch] = options.cloudSegments ?? [128, 64];
     this.cloudGeometry = Geometry.create(device, this.shellSource(Math.max(8, Math.floor(cw)), Math.max(4, Math.floor(ch)), this.radius + cloudAltitude, `${label}.cloudShell`));
+    this.detailSize = Math.max(0, Math.floor(options.detailTextureSize ?? 0));
+    this.detailQuads = Math.max(16, Math.floor(options.detailMeshQuads ?? 160));
+    if (this.detailSize > 0) {
+      this.detailSize = Math.max(64, this.detailSize);
+      const blank = new Uint8Array(this.detailSize * this.detailSize * 4);
+      this.detailTexture = Texture.fromRgba8(device, this.detailSize, this.detailSize, blank, { label: `${label}.detail`, srgb: true, mipmaps: true });
+      // Clamp, not repeat: a repeating sampler blends the far edge of the patch into its border texels
+      // (a one-texel stripe along the seam); anisotropy keeps the patch crisp toward the limb.
+      this.detailMaterial = new Material({ label: `${label}.detail`, color: 0xffffff, roughness: 0.96, metallic: 0, albedoMap: this.detailTexture })
+        .setSamplers({ albedo: device.sampler("anisotropic") });
+      // A placeholder until the first patch is baked (the host keeps it hidden until then).
+      this.detailGeometry = Geometry.create(device, this.shellSource(2, 2, this.radius, `${label}.detail`));
+    } else {
+      this.detailMaterial = null;
+      this.detailGeometry = null;
+    }
     this.beginPass();
   }
 
@@ -201,6 +290,43 @@ export class PlanetGlobe {
 
   get ready(): boolean {
     return this.done;
+  }
+
+  /** True while a baked detail patch is in place (draw `detailGeometry`; the globe has a hole under it). */
+  get detailVisible(): boolean {
+    return this.shown !== null;
+  }
+
+  /** True while a detail patch is being baked. */
+  get detailBusy(): boolean {
+    return this.job !== null;
+  }
+
+  /** The shown patch's cap radius, degrees (0 when none). */
+  get detailRadiusDeg(): number {
+    return this.shown ? this.shown.radius / DEG : 0;
+  }
+
+  /**
+   * Ask for detail within `radiusRad` of the unit direction `(dx, dy, dz)` (planet-fixed frame). The
+   * shown patch is kept while it still covers that cap at a useful resolution; otherwise a patch with
+   * some margin around it is baked in the background. Ignored without `detailTextureSize`.
+   */
+  setDetailFocus(dx: number, dy: number, dz: number, radiusRad: number): void {
+    if (!this.detailTexture) return;
+    const l = Math.hypot(dx, dy, dz);
+    if (!(l > 0) || !(radiusRad > 0)) return;
+    this.focus = { x: dx / l, y: dy / l, z: dz / l, radius: Math.min(radiusRad, Math.PI / 3) };
+  }
+
+  /** Drop the detail patch: the full globe is drawn again. */
+  clearDetailFocus(): void {
+    this.focus = null;
+    this.job = null;
+    if (this.shown) {
+      this.shown = null;
+      if (this.surfaceSource) this.surfaceGeometry.updateFrom(this.surfaceSource);
+    }
   }
 
   /** The finest completed pass's grid columns (0 before the first pass finishes). */
@@ -229,6 +355,9 @@ export class PlanetGlobe {
     this.overlaySouthStart = this.texH - rows;
     this.overlayPending = true;
     this.overlayCursor = 0;
+    // A shown patch carries its own copy of the overlay: re-bake it in place if it reaches the band.
+    const w = this.shown?.window;
+    if (w && (w.lat0 >= minAbs || w.lat0 - w.latSpan <= -minAbs)) this.detailStale = true;
   }
 
   /** Produce the cloud layer's pixels with `fill`; null clears it. */
@@ -266,8 +395,12 @@ export class PlanetGlobe {
       else this.stepSample(over);
     }
     if (!over() && this.overlayPending && this.bakeCols > 0 && !this.bakeActive) this.stepOverlay(over);
+    if (this.done && this.detailTexture) {
+      this.planDetail();
+      if (this.job && !over()) this.stepDetail(over);
+    }
     if (!over() && this.atmosphereCursor >= 0 && this.atmosphere) this.stepAtmosphere();
-    return !this.done || this.overlayPending || this.atmosphereCursor >= 0;
+    return !this.done || this.overlayPending || this.atmosphereCursor >= 0 || this.job !== null;
   }
 
   dispose(): void {
@@ -279,6 +412,10 @@ export class PlanetGlobe {
     this.cloudTexture.dispose();
     this.surfaceMaterial.dispose(this.device);
     this.cloudMaterial.dispose(this.device);
+    this.detailGeometry?.dispose();
+    this.detailTexture?.dispose();
+    this.detailMaterial?.dispose(this.device);
+    this.job = null;
   }
 
   // ---------------------------------------------------------------------------------- sampling
@@ -320,7 +457,8 @@ export class PlanetGlobe {
     this.bakeRows = rows;
     this.bakeElevation = this.gridElevation;
     this.bakeColor = this.gridColor;
-    this.surfaceGeometry.updateFrom(this.buildSurfaceSource(cols, rows, this.bakeElevation));
+    this.surfaceSource = this.buildSurfaceSource(cols, rows, this.bakeElevation);
+    this.surfaceGeometry.updateFrom(this.surfaceSource);
     this.bakeRow = 0;
     this.bakeActive = true;
     this.bakeDetail = this.passIndex > 0 && typeof this.sampler.detail === "function";
@@ -357,19 +495,21 @@ export class PlanetGlobe {
     const cellLon = 360 / cols;
     const cellLat = 180 / rows;
     const R = this.radius;
-    const relief = this.relief;
-    // Light for the baked relief: from the north-west, 42° up, in (east, north, up) of the texel.
-    const lx = -0.5, ly = 0.5, lz = 0.7071;
-    const lnorm = Math.hypot(lx, ly, lz);
-    const flat = lz / lnorm;
+    // The relief multiplier per grid node, once per pass; each texel interpolates it bicubically.
+    if (this.bakeRow === 0 || this.bakeShade.length !== cols * rows) {
+      this.bakeShade = planetReliefShade(
+        elev, cols, rows, true,
+        (j) => R * DEG * Math.max(0.02, Math.cos((90 - ((j + 0.5) / rows) * 180) * DEG)) * cellLon,
+        R * DEG * cellLat, this.relief, this.reliefGain,
+      );
+    }
+    const shadeGrid = this.bakeShade;
     while (this.bakeRow < H) {
       const y = this.bakeRow;
       const lat = 90 - ((y + 0.5) / H) * 180;
       const latR = lat * DEG;
       const cosLat = Math.max(0.02, Math.cos(latR));
       const sinLat = Math.sin(latR);
-      const metresPerDegLon = R * DEG * cosLat;
-      const metresPerDegLat = R * DEG;
       for (let x = 0; x < W; x++) {
         const lon = ((x + 0.5) / W) * 360;
         // Colour: bilinear of the 3-channel grid.
@@ -388,17 +528,9 @@ export class PlanetGlobe {
         let r = color[o00]! * w00 + color[o10]! * w10 + color[o01]! * w01 + color[o11]! * w11;
         let g = color[o00 + 1]! * w00 + color[o10 + 1]! * w10 + color[o01 + 1]! * w01 + color[o11 + 1]! * w11;
         let b = color[o00 + 2]! * w00 + color[o10 + 2]! * w10 + color[o01 + 2]! * w01 + color[o11 + 2]! * w11;
-        // Shaded relief from the elevation gradient (central differences, half a cell either side).
-        const eE = this.gridLookup(elev, cols, rows, lat, lon + cellLon * 0.5);
-        const eW = this.gridLookup(elev, cols, rows, lat, lon - cellLon * 0.5);
-        const eN = this.gridLookup(elev, cols, rows, lat + cellLat * 0.5, lon);
-        const eS = this.gridLookup(elev, cols, rows, lat - cellLat * 0.5, lon);
-        const dEast = ((eE - eW) / (cellLon * metresPerDegLon)) * relief;
-        const dNorth = ((eN - eS) / (cellLat * metresPerDegLat)) * relief;
-        // Surface normal in (east, north, up): (-dEast, -dNorth, 1).
-        const nl = Math.hypot(dEast, dNorth, 1);
-        const shade = (-dEast * lx - dNorth * ly + lz) / (nl * lnorm);
-        let k = 1 + this.reliefGain * (shade - flat);
+        // Shaded relief: the node multipliers, interpolated bicubically (a bilinear slope would be one
+        // flat tone per grid cell).
+        let k = planetGridCubic(shadeGrid, cols, rows, lat, lon);
         if (detail) {
           const cl = cosLat;
           const lonR = lon * DEG;
@@ -489,10 +621,253 @@ export class PlanetGlobe {
     uploadChain(this.device, this.cloudTexture, this.cloudPixels, this.cloudW, this.cloudH);
   }
 
+  // -------------------------------------------------------------------------------- detail patch
+
+  /** Start a bake when the focus has left the shown patch (or it needs a refresh). */
+  private planDetail(): void {
+    const f = this.focus;
+    if (!f) return;
+    const covers = (c: { x: number; y: number; z: number; radius: number }): boolean => {
+      const angle = Math.acos(Math.max(-1, Math.min(1, c.x * f.x + c.y * f.y + c.z * f.z)));
+      // Covered with a little room to spare, and not so much larger than asked that it is blurry (a
+      // fresh bake is 1.45× the view; zooming in past 0.55 of it re-bakes at the finer size).
+      return angle + f.radius <= c.radius * 0.97 && f.radius >= c.radius * 0.55;
+    };
+    if (this.job && covers(this.job)) return;
+    if (this.shown && covers(this.shown) && !this.detailStale) return;
+    if (this.shown && covers(this.shown) && this.detailStale) {
+      this.detailStale = false;
+      this.beginDetail(this.shown.x, this.shown.y, this.shown.z, this.shown.radius);
+      return;
+    }
+    // Bake with margin, so small moves and zooms stay inside it.
+    this.detailStale = false;
+    this.beginDetail(f.x, f.y, f.z, Math.min(Math.PI / 3, f.radius * 1.45));
+  }
+
+  private beginDetail(x: number, y: number, z: number, radius: number): void {
+    const window = planetDetailWindow(x, y, z, radius, this.meshW, this.meshH);
+    const P = this.detailSize;
+    // Node counts follow the window's ground extent so nodes are roughly square on the ground.
+    const midLat = (window.lat0 - window.latSpan / 2) * DEG;
+    const kmX = window.lonSpan * Math.max(0.05, Math.cos(midLat));
+    const kmY = window.latSpan;
+    const nodes = (along: number, longest: number, n: number): number => Math.max(6, Math.round((along / Math.max(longest, 1e-9)) * n)) + 3;
+    const longest = Math.max(kmX, kmY);
+    const gw = nodes(kmX, longest, P / 8);
+    const gh = nodes(kmY, longest, P / 8);
+    const fine = typeof this.sampler.elevation === "function";
+    // Fine relief at half the texture's resolution: ≈ the atlas node spacing at a close zoom.
+    const ew = fine ? nodes(kmX, longest, P / 2) : gw;
+    const eh = fine ? nodes(kmY, longest, P / 2) : gh;
+    this.job = {
+      window, x, y, z, radius,
+      phase: 0, cursor: 0,
+      gw, gh, colour: new Float32Array(gw * gh * 4),
+      ew, eh, elev: new Float32Array(ew * eh), shade: new Float32Array(ew * eh),
+      pixels: new Uint8Array(P * P * 4),
+    };
+  }
+
+  private stepDetail(over: () => boolean): void {
+    const job = this.job!;
+    const w = job.window;
+    const sampler = this.sampler;
+    if (job.phase === 0) {
+      const out = this.sampleOut;
+      const stepLon = w.lonSpan / (job.gw - 3);
+      const stepLat = w.latSpan / (job.gh - 3);
+      const footprint = Math.min(stepLat, stepLon) * DEG;
+      const total = job.gw * job.gh;
+      let n = 0;
+      while (job.cursor < total) {
+        const b = (job.cursor / job.gw) | 0;
+        const a = job.cursor - b * job.gw;
+        const lat = clampLat(w.lat0 - (b - 1) * stepLat);
+        const lon = w.lon0 + (a - 1) * stepLon;
+        const c = Math.cos(lat * DEG);
+        const dx = c * Math.cos(lon * DEG);
+        const dy = Math.sin(lat * DEG);
+        const dz = c * Math.sin(lon * DEG);
+        sampler.sample(dx, dy, dz, out, footprint);
+        // The sampler's `detail` is low-frequency (tens of km): the colour grid resolves it.
+        const k = typeof sampler.detail === "function" ? sampler.detail(dx, dy, dz) : 1;
+        const o = job.cursor * 4;
+        job.colour[o] = out.r * k;
+        job.colour[o + 1] = out.g * k;
+        job.colour[o + 2] = out.b * k;
+        job.colour[o + 3] = out.elevation;
+        job.cursor++;
+        if ((++n & 15) === 0 && over()) return;
+      }
+      job.phase = 1;
+      job.cursor = 0;
+    }
+    if (job.phase === 1) {
+      if (typeof sampler.elevation !== "function") {
+        for (let i = 0; i < job.gw * job.gh; i++) job.elev[i] = job.colour[i * 4 + 3]!;
+      } else {
+        const stepLon = w.lonSpan / (job.ew - 3);
+        const stepLat = w.latSpan / (job.eh - 3);
+        const footprint = Math.min(stepLat, stepLon) * DEG;
+        const total = job.ew * job.eh;
+        let n = 0;
+        while (job.cursor < total) {
+          const b = (job.cursor / job.ew) | 0;
+          const a = job.cursor - b * job.ew;
+          const lat = clampLat(w.lat0 - (b - 1) * stepLat);
+          const lon = w.lon0 + (a - 1) * stepLon;
+          const c = Math.cos(lat * DEG);
+          job.elev[job.cursor] = sampler.elevation(c * Math.cos(lon * DEG), Math.sin(lat * DEG), c * Math.sin(lon * DEG), footprint);
+          job.cursor++;
+          if ((++n & 63) === 0 && over()) return;
+        }
+      }
+      this.shadeDetailNodes(job);
+      job.phase = 2;
+      job.cursor = 0;
+      if (over()) return;
+    }
+    if (job.phase === 2) {
+      while (job.cursor < this.detailSize) {
+        this.bakeDetailRow(job, job.cursor);
+        job.cursor++;
+        if (over()) return;
+      }
+      job.phase = 3;
+    }
+    // Phase 3: the mesh, then swap everything in at once.
+    this.swapDetail(job);
+    this.job = null;
+  }
+
+  /** The relief multiplier at every elevation node. */
+  private shadeDetailNodes(job: DetailJob): void {
+    const w = job.window;
+    const R = this.radius;
+    const eStepLon = w.lonSpan / (job.ew - 3);
+    const eStepLat = w.latSpan / (job.eh - 3);
+    // The globe's relief multiplier is tuned for its own grid spacing; slopes over finer spacing are
+    // steeper, so scale it down with the square root of the spacing ratio to keep the same character.
+    const baseCellLat = 180 / Math.max(1, this.bakeRows);
+    const relief = this.relief * Math.sqrt(Math.min(1, eStepLat / baseCellLat));
+    const nodeLat = (b: number): number => clampLat(w.lat0 - (b - 1) * eStepLat);
+    planetReliefShade(
+      job.elev, job.ew, job.eh, false,
+      (b) => R * DEG * Math.max(0.02, Math.cos(nodeLat(b) * DEG)) * eStepLon,
+      R * DEG * eStepLat, relief, this.reliefGain, job.shade,
+    );
+  }
+
+  /** One row of the patch texture: colour grid × node shade (bicubic), overlay, border fade. */
+  private bakeDetailRow(job: DetailJob, y: number): void {
+    const P = this.detailSize;
+    const w = job.window;
+    const lat = w.lat0 - ((y + 0.5) / P) * w.latSpan;
+    const cStepLon = w.lonSpan / (job.gw - 3);
+    const cStepLat = w.latSpan / (job.gh - 3);
+    const eStepLon = w.lonSpan / (job.ew - 3);
+    const eStepLat = w.latSpan / (job.eh - 3);
+    const overlay = this.overlay && Math.abs(lat) >= this.overlay.minAbsLatDeg ? this.overlay : null;
+    const ov = this.overlayOut;
+    const cellLon = 360 / this.meshW;
+    const cellLat = 180 / this.meshH;
+    const fullCircle = w.cellsX >= this.meshW;
+    const dLat = Math.min(w.j0 > 0 ? (w.lat0 - lat) / cellLat : Infinity, w.j1 < this.meshH ? (lat - (w.lat0 - w.latSpan)) / cellLat : Infinity);
+    const cy = (w.lat0 - lat) / cStepLat + 1;
+    const ey = (w.lat0 - lat) / eStepLat + 1;
+    const pix = job.pixels;
+    const col = job.colour;
+    for (let x = 0; x < P; x++) {
+      const along = ((x + 0.5) / P) * w.lonSpan;
+      const lon = w.lon0 + along;
+      // Colour: bilinear in the colour grid.
+      const cx = along / cStepLon + 1;
+      const i0 = Math.min(job.gw - 2, Math.floor(cx));
+      const j0 = Math.min(job.gh - 2, Math.floor(cy));
+      const fu = cx - i0;
+      const fv = cy - j0;
+      const o00 = (j0 * job.gw + i0) * 4, o10 = o00 + 4, o01 = o00 + job.gw * 4, o11 = o01 + 4;
+      const w00 = (1 - fu) * (1 - fv), w10 = fu * (1 - fv), w01 = (1 - fu) * fv, w11 = fu * fv;
+      let r = col[o00]! * w00 + col[o10]! * w10 + col[o01]! * w01 + col[o11]! * w11;
+      let g = col[o00 + 1]! * w00 + col[o10 + 1]! * w10 + col[o01 + 1]! * w01 + col[o11 + 1]! * w11;
+      let b = col[o00 + 2]! * w00 + col[o10 + 2]! * w10 + col[o01 + 2]! * w01 + col[o11 + 2]! * w11;
+      let k = localGridCubic(job.shade, job.ew, job.eh, along / eStepLon + 1, ey);
+      k = k < 0.45 ? 0.45 : k > 1.55 ? 1.55 : k;
+      r *= k; g *= k; b *= k;
+      if (overlay) {
+        overlay.texel(lat, ((lon % 360) + 360) % 360, ov);
+        const c = ov.coverage < 0 ? 0 : ov.coverage > 1 ? 1 : ov.coverage;
+        r += (ov.r - r) * c;
+        g += (ov.g - g) * c;
+        b += (ov.b - b) * c;
+      }
+      // Fade into the globe's own texture across the outermost globe cell, where the shape fades too.
+      const dLon = fullCircle ? Infinity : Math.min(along, w.lonSpan - along) / cellLon;
+      const t = Math.min(dLat, dLon);
+      if (t < 1) {
+        const fade = t <= 0 ? 0 : t * t * (3 - 2 * t);
+        this.globeTexel(lat, lon, ov);
+        r = ov.r + (r - ov.r) * fade;
+        g = ov.g + (g - ov.g) * fade;
+        b = ov.b + (b - ov.b) * fade;
+      }
+      const p = (y * P + x) * 4;
+      pix[p] = r < 0 ? 0 : r > 255 ? 255 : r;
+      pix[p + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+      pix[p + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+      pix[p + 3] = 255;
+    }
+  }
+
+  /** Bilinear read of the uploaded globe texture (base + overlay) at a latitude/longitude into `out.r/g/b`. */
+  private globeTexel(lat: number, lon: number, out: PlanetOverlayTexel): void {
+    const W = this.texW;
+    const H = this.texH;
+    const u = ((((lon % 360) + 360) % 360) / 360) * W - 0.5;
+    const v = ((90 - lat) / 180) * H - 0.5;
+    const i0 = Math.floor(u);
+    const j0 = Math.floor(v);
+    const fu = u - i0;
+    const fv = v - j0;
+    const ja = Math.min(H - 1, Math.max(0, j0)) * W;
+    const jb = Math.min(H - 1, Math.max(0, j0 + 1)) * W;
+    const ia = ((i0 % W) + W) % W;
+    const ib = (ia + 1) % W;
+    const f = this.surfaceFinal;
+    const a = (ja + ia) * 4, b = (ja + ib) * 4, c = (jb + ia) * 4, d = (jb + ib) * 4;
+    const w00 = (1 - fu) * (1 - fv), w10 = fu * (1 - fv), w01 = (1 - fu) * fv, w11 = fu * fv;
+    out.r = f[a]! * w00 + f[b]! * w10 + f[c]! * w01 + f[d]! * w11;
+    out.g = f[a + 1]! * w00 + f[b + 1]! * w10 + f[c + 1]! * w01 + f[d + 1]! * w11;
+    out.b = f[a + 2]! * w00 + f[b + 2]! * w10 + f[c + 2]! * w01 + f[d + 2]! * w11;
+  }
+
+  /** Build the patch mesh for a finished job and swap mesh, texture and the globe's hole in together. */
+  private swapDetail(job: DetailJob): void {
+    const src = this.surfaceSource;
+    if (!src || !this.detailGeometry || !this.detailTexture) return;
+    const w = job.window;
+    const rows = w.j1 - w.j0;
+    const eStepLon = w.lonSpan / (job.ew - 3);
+    const eStepLat = w.latSpan / (job.eh - 3);
+    const mesh = planetDetailMesh(
+      w, src.positions, this.meshW, this.meshH,
+      Math.max(1, Math.round(this.detailQuads / w.cellsX)), Math.max(1, Math.round(this.detailQuads / rows)),
+      this.radius, this.exaggeration,
+      (along, lat) => localGridCubic(job.elev, job.ew, job.eh, along / eStepLon + 1, (w.lat0 - lat) / eStepLat + 1),
+    );
+    const { positions, uvs, tangents, indices } = mesh;
+    const normals = computeNormalsAndTangents(positions, indices, uvs).normals;
+    this.detailGeometry.updateFrom({ positions, normals, uvs, tangents, indices, label: "planet.detail" });
+    uploadChain(this.device, this.detailTexture, job.pixels, this.detailSize, this.detailSize);
+    this.surfaceGeometry.updateFrom({ ...src, indices: sphereIndicesWithout(this.meshW, this.meshH, w) });
+    this.shown = { window: w, x: job.x, y: job.y, z: job.z, radius: job.radius };
+  }
+
   // ------------------------------------------------------------------------------------- meshes
 
   /** The surface sphere, displaced by `elevation` (a `cols×rows` grid) when given. */
-  private buildSurfaceSource(cols: number, rows: number, elevation: Float32Array | null): { positions: Float32Array; normals: Float32Array; uvs: Float32Array; tangents: Float32Array; indices: Uint32Array; label: string } {
+  private buildSurfaceSource(cols: number, rows: number, elevation: Float32Array | null): SurfaceSource {
     const ws = this.meshW;
     const hs = this.meshH;
     const count = (ws + 1) * (hs + 1);
@@ -590,6 +965,32 @@ export class PlanetGlobe {
     }
     return { positions, normals, uvs, tangents, indices: sphereIndices(ws, hs), label };
   }
+}
+
+/** `sphereIndices` with the cells inside `hole` left out (the detail patch draws them). */
+function sphereIndicesWithout(ws: number, hs: number, hole: PlanetDetailWindow): Uint32Array {
+  const indices = new Uint32Array(ws * hs * 6);
+  let k = 0;
+  for (let j = 0; j < hs; j++) {
+    for (let i = 0; i < ws; i++) {
+      if (planetDetailWindowContains(hole, i, j, ws)) continue;
+      const a = j * (ws + 1) + i;
+      const b = a + 1;
+      const c = a + ws + 1;
+      const d = c + 1;
+      indices[k++] = a;
+      indices[k++] = b;
+      indices[k++] = c;
+      indices[k++] = b;
+      indices[k++] = d;
+      indices[k++] = c;
+    }
+  }
+  return indices.subarray(0, k);
+}
+
+function clampLat(lat: number): number {
+  return lat > 90 ? 90 : lat < -90 ? -90 : lat;
 }
 
 function sphereIndices(ws: number, hs: number): Uint32Array {

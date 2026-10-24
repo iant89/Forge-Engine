@@ -38,6 +38,22 @@ export function orbitClipPlanes(radius: number, altitude: number): { near: numbe
   return { near, far };
 }
 
+/** Largest visible cap (radians) the globe's detail patch is used for; wider views use the whole-planet texture. */
+export const DETAIL_MAX_RADIUS = (24 * Math.PI) / 180;
+
+/**
+ * Angular radius (radians, at the planet centre) of the ground an orbit camera at `altitude`, looking
+ * straight down with vertical field `fovYRad`, can see out to its frame corners — or 0 when that is
+ * wider than {@link DETAIL_MAX_RADIUS} and the detail patch should be off.
+ */
+export function detailFocusRadius(radius: number, altitude: number, fovYRad: number, aspect: number): number {
+  const corner = Math.atan(Math.tan(fovYRad / 2) * Math.hypot(1, Math.max(0.1, aspect)));
+  const k = ((radius + altitude) / radius) * Math.sin(corner);
+  // A corner ray past the limb sees out to the horizon.
+  const cap = k >= 1 ? Math.acos(radius / (radius + altitude)) : Math.asin(k) - corner;
+  return cap > DETAIL_MAX_RADIUS ? 0 : cap;
+}
+
 /** Log-space interpolation between two positive heights; `u` in 0..1. */
 export function lerpLog(a: number, b: number, u: number): number {
   return Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * clamp(u, 0, 1));

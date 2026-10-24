@@ -3167,3 +3167,25 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
 - Unit tests import `engine/dist`: run `npx tsc -b engine` after editing engine sources before running a single
   test file with `npx tsx tests/...`.
 - Anything that creates entities in `scene.world` from a `SceneObject` must destroy them in `dispose()`/`onDetach`.
+
+## 2026-10-24 — fe-41 orbit zoom quality, aerial-perspective dots, double-click the sky
+
+- **Halftone dots over low ground from orbit were the aerial perspective, not the terrain.** Samples under the reference sphere
+  (real terrain below the datum, and a flat globe triangle sagging ~250 m under it mid-cell) made `raySphereEntry(p, sun, R) > 0`
+  always true, so they lost their in-scattering — one darker disc per globe mesh cell. Shader + CPU twin now use the horizon test
+  from `max(|p|, R)` and start the light path from the lifted point. Bisect trick that found it: `settings.skyEnabled=false` killed
+  the dots; `sky.aerialPerspective=false` alone did too; sample counts did not move them.
+- **Blocky relief:** the globe's shade came from a bilinear grid's slope = one flat tone per 0.5° cell. Now `planetReliefShade`
+  computes the multiplier per node and each texel takes one bicubic lookup (`planetGridCubic`) — smoother *and* faster than the
+  old four bilinear taps (5.5 s vs 5.8 s for a medium bake in Node; the per-texel `detail()` fbm is still ~half the cost).
+- **Detail patch** (`PlanetGlobe.setDetailFocus`, `rendering/planetDetail.ts`): cells of the globe snapped to a lat/lon window, cut
+  from its index buffer, redrawn finer. Lessons: (1) exact-on-the-edge border vertices still crack — a T-junction drops pixels;
+  the fix is a sunk flange textured like the border. (2) The detail material must sample **clamp-to-edge** (`device.sampler("anisotropic")`);
+  the default repeat sampler drew the far edge into the border as a one-texel stripe that looked exactly like a crack.
+  (3) Re-bake when the view is < 55% of the baked cap, or a patch baked mid-zoom stays 2.5× too coarse.
+- Headless SwiftShader renders a zoomed-in globe at <1 fps (per-fragment aerial perspective on every pixel), so wall-clock bake
+  times in the browser are meaningless; time bakes in Node with the real atlas (`MarsHeightAtlasStreamer.open` + a disk `fetchImpl`).
+- `assertCloseTo(a, b, n)` takes **decimal digits**, not an epsilon: `1e-9` means ±0.5. `tests/environment/planetOrbit.test.ts`'s `close()`
+  helper and a few checks in `tests/examples/marsOrbitScene.test.ts` pass epsilons, so they are far looser than they read (not fixed).
+- Editing `engine/api-approvals.json` is (rightly) blocked for agents: the API review for these additions (`environment/3`) is the
+  maintainer's to record, together with `npm run api:reference` and the pinned surface counts in `runtimeApi.test.ts`.
