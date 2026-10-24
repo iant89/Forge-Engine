@@ -4,7 +4,8 @@
  * You start in orbit with Mars turning under you. **Drag** (mouse or touch) to spin it — it carries
  * inertia, and after ~4 s of rest the planet resumes its own rotation. **Double-click / double-tap** the
  * globe to fly down to that latitude/longitude and stand on the ground there (the same ported Mars
- * generator as the other Mars scenes); the **Return to orbit** button flies back up. The season runs
+ * generator as the other Mars scenes); the **Return to orbit** button, `Esc`, or double-clicking the sky
+ * flies back up. The season runs
  * (Ls 0–360, faster than real time) and the weather follows it: water-ice clouds, dust storms (local,
  * regional, planet-encircling), polar-cap frost, dust-devil fields. On the ground the same weather is
  * what you see overhead — a dust storm is a butterscotch sky and a dim sun, a dust-devil field is
@@ -41,6 +42,8 @@ import {
   PlanetSpinController,
   PlanetWeatherSystem,
   Quat,
+  Ray,
+  RayHit,
   Renderable,
   Scene,
   TerrainWorld,
@@ -85,6 +88,9 @@ import {
   orbitAltitudeRange,
   orbitClipPlanes,
   orbitFitAltitude,
+  detailFocusRadius,
+  groundPointerDirection,
+  isSkyPick,
   pixelRay,
   smoothstep,
 } from "./marsOrbitMath.js";
@@ -101,6 +107,8 @@ export interface MarsOrbitSceneOptions {
   diagnostics?: boolean;
   /** Milliseconds per frame the globe may spend baking (`?mobake=`); for slow or headless renderers. */
   bakeBudgetMs?: number;
+  /** `false` turns the zoomed-in detail patch off (`?modetail=0`, for A/B comparisons). Default on. */
+  detail?: boolean;
   /** Skip the descent animation (tests): `diveTo` lands immediately. */
   instantTransitions?: boolean;
   /**
@@ -129,6 +137,8 @@ export interface MarsOrbitState {
   globeReady: boolean;
   globeProgress: number;
   globeBakedColumns: number;
+  /** The zoomed-in detail patch: shown, baking, and the shown cap radius in degrees. */
+  globeDetail: { visible: boolean; busy: boolean; radiusDeg: number };
   autoSpin: number;
   spinPhase: string;
   inertia: number;
@@ -181,12 +191,15 @@ interface TierConfig {
   cascades: number;
   surfaceTexture: number;
   bakeBudgetMs: number;
+  /** Zoomed-in detail patch: texture size and mesh quads across it. */
+  detailTexture: number;
+  detailQuads: number;
 }
 
 const TIERS: Record<DeviceTier, TierConfig> = {
-  low: { mesh: [160, 80], texture: 512, passes: [60, 120, 240], realPasses: [60, 120, 240, 480], cloudTexture: 256, cloudMesh: [96, 48], viewDistance: 2048, visibleChunks: 120, devils: 2, shadowMap: 1024, cascades: 2, surfaceTexture: 128, bakeBudgetMs: 2 },
-  medium: { mesh: [256, 128], texture: 1024, passes: [90, 180, 360], realPasses: [90, 180, 360, 720], cloudTexture: 512, cloudMesh: [128, 64], viewDistance: 3072, visibleChunks: 180, devils: 3, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 3 },
-  high: { mesh: [384, 192], texture: 2048, passes: [90, 180, 360], realPasses: [90, 180, 360, 720, 1080], cloudTexture: 1024, cloudMesh: [192, 96], viewDistance: 5120, visibleChunks: 260, devils: 4, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 4 },
+  low: { mesh: [160, 80], texture: 512, passes: [60, 120, 240], realPasses: [60, 120, 240, 480], cloudTexture: 256, cloudMesh: [96, 48], viewDistance: 2048, visibleChunks: 120, devils: 2, shadowMap: 1024, cascades: 2, surfaceTexture: 128, bakeBudgetMs: 2, detailTexture: 512, detailQuads: 96 },
+  medium: { mesh: [256, 128], texture: 1024, passes: [90, 180, 360], realPasses: [90, 180, 360, 720], cloudTexture: 512, cloudMesh: [128, 64], viewDistance: 3072, visibleChunks: 180, devils: 3, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 3, detailTexture: 1024, detailQuads: 160 },
+  high: { mesh: [384, 192], texture: 2048, passes: [90, 180, 360], realPasses: [90, 180, 360, 720, 1080], cloudTexture: 1024, cloudMesh: [192, 96], viewDistance: 5120, visibleChunks: 260, devils: 4, shadowMap: 2048, cascades: 3, surfaceTexture: 256, bakeBudgetMs: 4, detailTexture: 1536, detailQuads: 192 },
 };
 
 /** The same four tints the other Mars scenes use, so one planet looks like one planet. */
@@ -291,6 +304,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   let globe: PlanetGlobe | null = null;
   let globeEntity: Entity | null = null;
   let cloudEntity: Entity | null = null;
+  let detailEntity: Entity | null = null;
+  let globeShown = true;
   function createGlobe(): void {
     if (!gpu || globe) return;
     const real = sampler.hasRealElevation;
@@ -308,6 +323,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       cloudTextureWidth: cfg.cloudTexture,
       cloudSegments: cfg.cloudMesh,
       cloudAltitude: 52e3,
+      detailTextureSize: options.detail === false ? 0 : cfg.detailTexture,
+      detailMeshQuads: cfg.detailQuads,
     });
     globe.setSurfaceOverlay(planet.caps.overlay(() => planet.ls));
     globe.setAtmosphereFill(planet.fillAtmosphere);
@@ -326,16 +343,50 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     cr.castShadow = false;
     cr.receiveShadow = false;
     scene.world.addComponent(cloudEntity.id, cr);
+    if (globe.detailGeometry && globe.detailMaterial) {
+      // The zoomed-in patch: same frame as the globe, shown while the globe has one baked.
+      detailEntity = scene.createTransformedEntity("mars-globe-detail", new Vec3(0, -R, 0));
+      const dr = new Renderable();
+      dr.geometry = globe.detailGeometry;
+      dr.material = globe.detailMaterial;
+      dr.castShadow = false;
+      dr.receiveShadow = false;
+      dr.visible = false;
+      scene.world.addComponent(detailEntity.id, dr);
+    }
     if (mode === "ground" || (mode === "dive" && phase !== "dive: approach")) setGlobeVisible(false);
   }
   let disposedScene = false;
   const setGlobeVisible = (visible: boolean): void => {
+    globeShown = visible;
+    syncDetailVisible();
     for (const e of [globeEntity, cloudEntity]) {
       if (!e) continue;
       const r = scene.world.getComponent(e.id, Renderable);
       if (r) r.visible = visible;
     }
   };
+
+  /** The detail patch shows with the globe, once one is baked. */
+  function syncDetailVisible(): void {
+    if (!detailEntity || !globe) return;
+    const r = scene.world.getComponent(detailEntity.id, Renderable);
+    if (r) r.visible = globeShown && globe.detailVisible;
+  }
+
+  /** Point the globe's detail patch at the ground under the orbit camera (off when zoomed out). */
+  const detailUp = new Vec3();
+  function focusGlobeDetail(): void {
+    if (!globe || !globe.ready) return;
+    const radius = detailFocusRadius(R, orbitAlt, ORBIT_FOV, aspect());
+    if (radius <= 0) {
+      globe.clearDetailFocus();
+      return;
+    }
+    // The camera looks down +Y onto the planet; the planet-fixed point under it is that axis un-spun.
+    rotateByQuatInverse(spin.orientation, detailUp.set(0, 1, 0), scratchA);
+    globe.setDetailFocus(scratchA.x, scratchA.y, scratchA.z, radius);
+  }
 
   // ------------------------------------------------------------------ camera
   const cameraEntity = scene.createTransformedEntity("camera", new Vec3(0, 12e6, 0));
@@ -423,6 +474,19 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     return pickPlanetDirection(pickOrigin, pickDir, centre, R, out);
   };
 
+  /** Ground view: true when the pointer is over the sky (no loaded terrain along the ray, above the horizon). */
+  const skyRay = new Ray();
+  const skyHit = new RayHit();
+  const pointerOnSky = (clientX: number, clientY: number): boolean => {
+    const rect = canvas.getBoundingClientRect();
+    const { w, h } = viewport();
+    const dir = groundPointerDirection(clientX - rect.left, clientY - rect.top, w, h, camera.fovY, yaw, pitch);
+    skyRay.setFrom(scratchA.set(camX, groundY + groundHeight, camZ), dir, camera.far);
+    skyHit.reset();
+    const hit = terrain !== null && terrain.raycast(skyRay, skyHit);
+    return isSkyPick(dir.y, hit);
+  };
+
   const pointerLatLon = (clientX: number, clientY: number): { latDeg: number; lonDeg: number } | null => {
     if (!pickWorldDirection(clientX, clientY, pickOut)) return null;
     rotateByQuatInverse(spin.orientation, pickOut, scratchA);
@@ -462,6 +526,11 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
         }
       },
       doubleTap: (x, y) => {
+        // On the ground, double-clicking the sky flies back up (the same as Return to orbit / Esc).
+        if (mode === "ground") {
+          if (pointerOnSky(x, y)) returnToOrbit();
+          return;
+        }
         if (mode !== "orbit") return;
         const hit = pointerLatLon(x, y);
         if (hit) diveTo(hit.latDeg, hit.lonDeg);
@@ -1028,7 +1097,10 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     simTime += dt;
     // The globe bakes progressively, a few ms per frame; faster while it is the only thing on screen.
     if (globe && mode !== "ground") {
-      const budget = globe.ready ? 1.5 : (options.bakeBudgetMs ?? cfg.bakeBudgetMs * (mode === "orbit" ? 1.6 : 0.8));
+      // Once baked, a detail patch bake gets the tier's budget; otherwise the globe only refreshes layers.
+      const budget = globe.ready
+        ? (globe.detailBusy ? (options.bakeBudgetMs ?? cfg.bakeBudgetMs * 2) : 1.5)
+        : (options.bakeBudgetMs ?? cfg.bakeBudgetMs * (mode === "orbit" ? 1.6 : 0.8));
       globe.update(budget);
     }
 
@@ -1066,7 +1138,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
 
     // Planet transforms: the globe turns with the spin controller.
     if (mode === "orbit" || (mode === "dive" && phase.endsWith("approach")) || (mode === "ascend" && phase.endsWith("orbit"))) {
-      for (const e of [globeEntity, cloudEntity]) if (e) e.transform.rotation = tmpQ.copyFrom(spin.orientation);
+      for (const e of [globeEntity, cloudEntity, detailEntity]) if (e) e.transform.rotation = tmpQ.copyFrom(spin.orientation);
+      focusGlobeDetail();
+      syncDetailVisible();
       applyOrbitLighting();
       // Cloud layer refresh: at most ~2/s, sliced across frames by the globe.
       if (globe && !globe.atmosphereBusy && simTime - lastAtmRefresh > 0.45 && planet.needsAtmosphereRefresh(0.25)) {
@@ -1246,6 +1320,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       globeReady: globe?.ready ?? false,
       globeProgress: globe?.progress ?? 0,
       globeBakedColumns: globe?.bakedColumns ?? 0,
+      globeDetail: { visible: globe?.detailVisible ?? false, busy: globe?.detailBusy ?? false, radiusDeg: globe?.detailRadiusDeg ?? 0 },
       atlas: { ...atlasInfo },
       autoSpin: spin.autoSpinBlend,
       spinPhase: spin.phase,
@@ -1288,7 +1363,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene,
     cameraEntity,
     camera: { pointerInput: false, keyboard: false, minDistance: 1, maxDistance: 1e9 },
-    controlsHint: "Drag: spin the planet · double-click / double-tap: land there · wheel / pinch: zoom · Esc: back to orbit · T: touch diagnostics",
+    controlsHint: "Drag: spin the planet · double-click / double-tap: land there (on the ground: the sky to fly back up) · wheel / pinch: zoom · Esc: back to orbit · T: touch diagnostics",
     cameraOverride,
     overlay: () => {
       const s = handleState();

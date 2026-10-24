@@ -47,6 +47,12 @@ export interface MarsGlobeSampler {
   sample(dx: number, dy: number, dz: number, out: MarsGlobeSample, footprintRad?: number): MarsGlobeSample;
   /** Cheap high-frequency albedo multiplier around 1 (≈ 0.86..1.14). */
   detail(dx: number, dy: number, dz: number): number;
+  /**
+   * Elevation only (metres) at a unit direction: the atlas height (band-limited over `footprintRad`
+   * like `sample`) where there is real data, else the procedural model's (as expensive as `sample`).
+   * Over real data it skips the albedo work, which is what makes a fine detail-patch grid affordable.
+   */
+  elevation(dx: number, dy: number, dz: number, footprintRad?: number): number;
 }
 
 // Linear-ish sRGB palette, chosen against orbital photography: dark basaltic sand, ferric dust,
@@ -250,6 +256,14 @@ export function createMarsGlobeSampler(
       out.b *= k;
       out.elevation = s.elevation;
       return out;
+    },
+    elevation(dx, dy, dz, footprintRad = 0) {
+      if (atlas) {
+        setFrame(dx, dy, dz);
+        const real = realHeight(atlas, dx, dy, dz, footprintRad);
+        if (real === real) return real;
+      }
+      return marsSampleAnalytic(dx, dy, dz, params, scanner).elevation;
     },
     detail(dx, dy, dz) {
       const n = marsFbm3(dx * 26, dy * 26, dz * 26, { octaves: 3, lacunarity: 2.2, gain: 0.5, frequency: 1, seed: detailSeed });

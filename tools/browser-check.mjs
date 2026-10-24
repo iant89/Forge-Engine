@@ -980,6 +980,24 @@ async function checkMarsOrbit() {
   const turned = Math.abs(((lon1 - lon0 + 540) % 360) - 180);
   if (!(turned > 3)) throw new Error(`dragging turned the planet by only ${turned.toFixed(2)}°`);
 
+  // Zoomed in, the globe bakes a detail patch under the camera; zoomed back out it is dropped.
+  await page.waitForFunction(() => window.__forge.marsOrbitState().globeReady, null, { polling: 500, timeout: 400000 });
+  await page.evaluate(() => window.__forge.marsOrbitZoom(0.12));
+  await page.waitForFunction(() => {
+    const s = window.__forge.marsOrbitState();
+    return s.globeDetail.visible && !s.globeDetail.busy && s.altitude < 1.3e6;
+  }, null, { polling: 500, timeout: 400000 }).catch(async () => {
+    throw new Error(`no detail patch when zoomed in: ${JSON.stringify((await page.evaluate(() => window.__forge.marsOrbitState())).globeDetail)}`);
+  });
+  const detailFrame = await sampleLitFrame();
+  const detailState = await page.evaluate(() => ({ detail: window.__forge.marsOrbitState().globeDetail, stats: window.__forge.stats() }));
+  if (detailState.stats.gpuErrors !== 0 || detailState.stats.lastError) throw new Error(`GPU error with the detail patch: ${detailState.stats.lastError}`);
+  if (!(detailFrame.distinct >= 8 && detailFrame.mean >= 6)) throw new Error(`zoomed-in frame is blank: ${JSON.stringify(detailFrame)}`);
+  await page.screenshot({ path: "tools/.browser-check-mars-orbit-detail.png", timeout: 60000 });
+  await page.evaluate(() => window.__forge.marsOrbitZoom(1 / 0.12));
+  await page.waitForFunction(() => !window.__forge.marsOrbitState().globeDetail.visible, null, { polling: 500, timeout: 120000 })
+    .catch(() => { throw new Error("the detail patch stayed after zooming back out"); });
+
   await page.evaluate(() => window.__forge.marsOrbitDiagnostics(true));
   const diag = await page.evaluate(() => window.__forge.marsOrbitState().diagnosticsVisible);
   if (diag !== true) throw new Error("the touch diagnostics overlay did not open");
@@ -997,13 +1015,34 @@ async function checkMarsOrbit() {
   await sleep(1500);
   await page.screenshot({ path: "tools/.browser-check-mars-orbit-ground.png", timeout: 60000 });
 
-  await page.evaluate(() => window.__forge.marsOrbitReturn());
-  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 250, timeout: 60000 });
+  // Return with a real double-click on the sky; a double-click on the ground first must not leave.
+  const canvasPoint = (fromY, toY) => page.evaluate(([a, b]) => {
+    const w = innerWidth;
+    const h = innerHeight;
+    for (let y = a * h; y <= b * h; y += 8) {
+      for (const fx of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+        const el = document.elementFromPoint(fx * w, y);
+        if (el && el.tagName === "CANVAS") return { x: fx * w, y };
+      }
+    }
+    return null;
+  }, [fromY, toY]);
+  const groundPoint = await canvasPoint(0.88, 0.97);
+  const skyPoint = await canvasPoint(0.04, 0.3);
+  if (!groundPoint || !skyPoint) throw new Error(`no free canvas point for the sky/ground double-clicks: ${JSON.stringify({ groundPoint, skyPoint })}`);
+  await page.mouse.dblclick(groundPoint.x, groundPoint.y);
+  await sleep(1500);
+  const stillGround = await page.evaluate(() => window.__forge.marsOrbitState().mode);
+  if (stillGround !== "ground") throw new Error(`double-clicking the ground left the ground (mode ${stillGround})`);
+  await page.mouse.dblclick(skyPoint.x, skyPoint.y);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 250, timeout: 60000 })
+    .catch(() => { throw new Error(`double-clicking the sky at ${JSON.stringify(skyPoint)} did not return to orbit`); });
   const end = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
   if (end.stats.gpuErrors !== 0 || end.stats.lastError) throw new Error(`Mars orbit GPU error: ${end.stats.lastError}`);
   const realtime = await checkMarsOrbitRealtimeReturn();
   console.log(
     `mars orbit: globe ${(first.globeProgress * 100).toFixed(0)}%→, drag turned ${turned.toFixed(1)}°, ` +
+      `detail patch ${detailState.detail.radiusDeg.toFixed(1)}° (frame mean=${detailFrame.mean.toFixed(1)}), ` +
       `ground dust=${ground.state.weather.dust.toFixed(2)} (${ground.state.weather.dominantId}), terrain ${ground.state.terrainReadyChunks}/${ground.state.terrainChunks} chunks, ` +
       `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}, atlas ${atlas0.size} ${(atlas0.bytesDownloaded / 1e6).toFixed(1)} MB; ` +
       `real-time return: frame mean=${realtime.mean.toFixed(1)}, distinct=${realtime.distinct}, GPU errors=${realtime.gpuErrors}`,

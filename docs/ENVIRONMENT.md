@@ -423,8 +423,12 @@ Lout = Lsurface · Tview + Lair
 part of the view ray inside the spherical atmosphere. `Lair` is the direct-sun Rayleigh/Mie source
 integrated along that same segment, plus the Phase 17.1 multiple-scattering source when its flag and
 LUT are enabled. The view ray is clipped to the atmosphere shell, and the sample spacing is biased
-toward its lower-altitude end; sun visibility uses the same ray/sphere and optical-depth helpers as
-the sky shader. The scene's `sky.seaLevel`, camera altitude, effective atmosphere, sun direction,
+toward its lower-altitude end; sun visibility is the horizon test from the sample's radius, clamped
+to at least the planet radius, and its light path starts from the sample lifted to that radius. A
+surface below the reference sphere (real terrain under the datum, or a flat mesh triangle sagging
+between its vertices) puts the last samples inside the sphere; a plain ray/sphere test then always
+reports the planet in the way, and those samples went dark — from orbit, a lattice of darker haze
+discs over low ground, one per globe mesh cell. The scene's `sky.seaLevel`, camera altitude, effective atmosphere, sun direction,
 scattering multipliers and `sky.exposure` all come from the same `SkyUniforms` written for the frame.
 The arithmetic stays in scene-linear radiance and runs before output exposure/tone mapping, so the
 HDR post path and the LDR forward path share it.

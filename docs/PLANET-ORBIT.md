@@ -5,7 +5,8 @@ Aliases: `?scene=orbit`, `?scene=planet`, `?scene=mars-orbital`.
 
 You start in orbit above a spinning Mars. Drag (mouse or touch) to turn it; let go and it coasts, then resumes
 turning by itself about four seconds after you stop. **Double-click / double-tap** the globe to fly down and stand on
-the ground at that latitude and longitude; **Return to orbit** (or `Esc`) flies back up. A season slider, a clock,
+the ground at that latitude and longitude; **Return to orbit**, `Esc`, or a **double-click / double-tap on the sky**
+(any point whose view ray hits no loaded terrain and is more than 0.5° above the horizon) flies back up. A season slider, a clock,
 a *Fly to…* list of weather sites and a touch-diagnostics toggle (`T`) sit in the bottom bar.
 
 ## The rule: the engine owns the systems, the demo owns the script
@@ -20,7 +21,8 @@ and its **camera policy** (`scenes/marsOrbitMath.ts`).
 | Spin controller | `engine/src/environment/planetSpin.ts` | `PlanetSpinController`: grab-point dragging, inertia, idle auto-spin with a ramp, `animateTo` |
 | Weather | `engine/src/environment/planetWeather.ts` | `PlanetWeatherSystem` (season-driven events with envelopes, drifting footprints, point `sample()`, orbit-scale `fillAtmosphere`), `PlanetPolarCaps`, `planetGroundWeather` (sample → `WeatherState`) |
 | Mars globe sampler | `engine/src/terrain/mars/globeSampler.ts` | the *same* generator as the ground terrain, evaluated per direction for elevation and albedo |
-| Globe | `engine/src/rendering/planetGlobe.ts` | `PlanetGlobe`: progressive, time-sliced bake of a textured, displaced sphere plus a cloud/dust shell and a surface overlay |
+| Globe | `engine/src/rendering/planetGlobe.ts` | `PlanetGlobe`: progressive, time-sliced bake of a textured, displaced sphere plus a cloud/dust shell and a surface overlay, and a zoomed-in detail patch |
+| Detail patch maths | `engine/src/rendering/planetDetail.ts` | bicubic grid lookups, the detail window snapped to globe cells, and the crack-free patch mesh |
 | Dust devils | `engine/src/particles/dustDevilField.ts` | `DustDevilField`: a few `VortexColumnParticles` columns spawned around the viewer, scaled by an `activity` dial |
 | External sun | `DayNightCycle.externalSunDirection` | the ground sky follows the planet's sun instead of the calendar |
 | Sunset aureole | `AtmosphereParams.mieAureole` | a tight per-channel forward Mie lobe; blue is strongest, so a low Mars sun gets a blue glow |
@@ -47,6 +49,32 @@ On the ground, drag to look, wheel/pinch to change eye height (1.7–700 m), WAS
 frost, clouds and devils are all read from the same `PlanetWeatherSystem` the orbit view draws from, sampled at the site
 and mapped by `planetGroundWeather`. Frost is `surface.snow` and burns off as the sun climbs; devil activity follows
 the sun elevation.
+
+## Zooming in: the detail patch
+
+One equirectangular texture for the whole planet is ≈10–20 km per texel, which the closest orbit zoom (900 km) magnifies to
+tens of screen pixels per texel. So once the visible cap is narrower than 24° (`detailFocusRadius` in `marsOrbitMath.ts`;
+roughly below 2,500 km), the scene points `PlanetGlobe.setDetailFocus` at the ground under the camera every frame, and the globe
+bakes a **detail patch** there in the background:
+
+* a latitude/longitude window snapped to the globe mesh's cells, about 1.45× the visible cap so small spins and zooms stay inside it;
+* a texture of `detailTexture` texels (tier: 512 / 1024 / 1536) — colour (and the sampler's low-frequency `detail`) from a grid of full
+  sampler calls at ⅛ of the texture's resolution, shaded relief from a grid of the sampler's cheap `elevation` path at ½ of it (over
+  MOLA: the atlas heights, ≈2.6–5 km nodes), the polar-cap overlay on top. The relief multiplier is computed once per node and
+  interpolated bicubically per texel (≈0.9 s of CPU for a 1024² patch over real data, spread over frames at twice the tier's bake budget);
+* sampled clamp-to-edge (a repeating sampler drew the patch's far edge into its border as a one-texel stripe);
+* a mesh `detailQuads` across, displaced by the same heights. The globe leaves the window's cells out of its index buffer while the
+  patch shows; the patch's border lies exactly on the globe's cell edges and its outermost cell fades into the globe's shape and
+  texture, so there is no step or colour seam. Lying on the edge still leaves a T-junction (one long globe edge against several short
+  patch edges) that the rasteriser drops pixels along, so each border also has a flange under the globe, textured like the border.
+
+The previous patch stays up until the next one is baked; a re-bake starts only when the view leaves the patch or zooms in to less than
+55% of it. It is dropped (and the full globe drawn again) when you zoom back out. `marsOrbitState().globeDetail` reports it.
+
+The globe's own relief is also smoother now: the relief multiplier is computed per grid node and interpolated bicubically per texel, so it
+no longer bakes one flat tone per grid cell (the blocky look of a close zoom); it bakes slightly faster than the bilinear version did.
+
+`?modetail=0` turns the patch off for A/B comparisons.
 
 ## Weather events (`marsOrbitEvents.ts`)
 
@@ -75,6 +103,7 @@ under every contact and a rolling event log — for working out why a device is 
 | `?mola=phone\|tablet\|desktop\|off` | real MOLA elevation atlas size (default: from the tier and the device); `off` = the procedural planet |
 | `?moinstant=1` | dives and returns land at once (tests, headless) |
 | `?mobake=<ms>` | per-frame globe bake budget (default is small so frames stay smooth) |
+| `?modetail=0` | turn the zoomed-in detail patch off (A/B comparisons) |
 
 ## Real elevation (fe-40)
 
@@ -91,11 +120,13 @@ generated once with the finest heights. The HUD overlay reads `elev <size> <res>
 * Unit: `tests/environment/planetOrbit.test.ts` (frames, calendar, spin, weather, aureole, external sun, sampler,
   globe on the mock device, devils) and `tests/examples/marsOrbitScene.test.ts` (gestures, diagnostics text, camera
   maths, the event script).
-* Browser: `npm run check:browser:mars-orbit` (globe renders and bakes, a mouse drag turns it, diagnostics toggle,
-  dive to a storm site with dust and terrain, return). It runs under headless SwiftShader at a few fps, so it uses
+* Browser: `npm run check:browser:mars-orbit` (globe renders and bakes, a mouse drag turns it, a zoom-in bakes and shows the detail
+  patch with a lit frame and no GPU errors and a zoom-out drops it, diagnostics toggle, dive to a storm site with dust and terrain,
+  a double-click on the ground stays, a double-click on the sky returns). It runs under headless SwiftShader at a few fps, so it uses
   `?moinstant=1`; it does **not** measure real-time easing or real-GPU / iOS performance.
 * The globe texture is ≈10–21 km per texel procedural, **≈5–20 km over real data** (final grid pass 0.33–0.75°, the atlas nodes
-  are 2.6–10 km); zooming blurs and there is no multi-resolution level of detail.
+  are 2.6–10 km). Zoomed in, the detail patch brings the view to ≈1–2 km per texel, but its relief can be no finer than the atlas
+  (tablet ≈5 km nodes; the desktop 2048² faces are only fetched for a dive). There is one patch level, not a full clipmap.
   The orbit and ground renderings of the same weather are separate (the orbit shows clouds/dust on a shell; the
   ground shows haze, devils and a sheet cloud layer).
 * See `docs/KNOWN-ISSUES.md` for the tracked limitations.

@@ -6,13 +6,13 @@
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "typescriptVersion": "5.9.3",
   "counts": {
-    "total": 2308,
-    "public": 2299,
+    "total": 2314,
+    "public": 2305,
     "experimental": 9,
     "deprecated": 0,
     "internal": 0,
-    "type": 857,
-    "value": 1058,
+    "type": 859,
+    "value": 1062,
     "typeAndValue": 393
   },
   "exports": [
@@ -4640,8 +4640,8 @@
       "name": "MarsGlobeSampler",
       "kind": "type",
       "stability": "public",
-      "declarationHash": "sha256:ad6b1860c66bad2cca3c5eb2a3fcf70fbea06751232747c135123ccd4f94b634",
-      "contractHash": "sha256:1eb110792104034ab24efc23e1dab644e24f899e371bc490e43a470c88f371bc"
+      "declarationHash": "sha256:6e7cb08081d597d054ac3086fc3e438269be9a7a160aa00aa4cb2c374a2c25ff",
+      "contractHash": "sha256:69793e74bca9fdf03fb24bd2bc08e578cc60e5d34f0ca41603bb215e2645d670"
     },
     {
       "name": "MarsHeightAtlas",
@@ -6163,18 +6163,32 @@
       "contractHash": "sha256:c1cea3a7d2b06a5b58317baf9eef8c9426603a9591fde8bac8bd7a3db14dedb8"
     },
     {
+      "name": "PlanetDetailMesh",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:826375ff944b4a25c97d04924fbf11dbd88151ff5bd67906ba6527259a6b3c60",
+      "contractHash": "sha256:b73242f2b86552244e54787a5b7a7aefde56a501c900bcd2de148d76a1fbd72e"
+    },
+    {
+      "name": "PlanetDetailWindow",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:47ebac9b1c6e50c3a9c26e0144af1d33e77fd5ffc818779097d85866701b0026",
+      "contractHash": "sha256:423ea338b925027697126c6803233ff6fea5b12a7da66e42c85746aa05caaaa2"
+    },
+    {
       "name": "PlanetGlobe",
       "kind": "type-and-value",
       "stability": "public",
-      "declarationHash": "sha256:f4443ec21770361c396b441af82ef5ea658684c1b156c74676bfd1ac1058b950",
-      "contractHash": "sha256:12a989631ef98c074a38bcf1b13fc5f858dc1f3594cb1ecb574916a157b9f27f"
+      "declarationHash": "sha256:8426725c4945d40631b87c42beddbd62649603a561c3340efed4da20893d3a36",
+      "contractHash": "sha256:5f518a5e4a755ab5d1f9b6b9428001388ac15ad53883d23c394b69bf39ad91d8"
     },
     {
       "name": "PlanetGlobeOptions",
       "kind": "type",
       "stability": "public",
-      "declarationHash": "sha256:be4f489d519fd23a30d7b33cbf31f671487f73c45173ea6519be3035cadfcab8",
-      "contractHash": "sha256:eccb8e68a7b850dfccf949327170d950ea49a5f362c7dfbb6c8f0f6b47a9b0c3"
+      "declarationHash": "sha256:fef58af1052b48131b27d1af130df82506b0a0d14e6085fea2e65665c585b7d6",
+      "contractHash": "sha256:12e9e267553f50c91813cd9ed827a390499f2daf13100672bc6d8d0a73eb7ca7"
     },
     {
       "name": "PlanetOrbit",
@@ -6257,8 +6271,8 @@
       "name": "PlanetSurfaceSampler",
       "kind": "type",
       "stability": "public",
-      "declarationHash": "sha256:bf218c675df79d13ef2047fecf3422ab37a00b4986c33655ec0994c5a8f8acd7",
-      "contractHash": "sha256:6acb70be657d42935f71237c45e4ad2a74a0a3cdecbd8ea297bfbb31e8574782"
+      "declarationHash": "sha256:5ab72beaca8783f2ca21b4ad92d727272fc92deea48628037c5a3236971a4122",
+      "contractHash": "sha256:e19c4ac7766aa26b5a6777bad5049dd1bacdc49c7feafa66951b351ec8e7a235"
     },
     {
       "name": "PlanetWeatherEventDef",
@@ -12243,7 +12257,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:98d3ab00814525b11a0e93ead1b3856149a7050a415044275bf6ba3c91f0739a",
-      "contractHash": "sha256:d97b1542773090504d71cde6e20bacf956951a244f49a60cadf3f74d9cb6c135"
+      "contractHash": "sha256:688be0914dd40e654e80a8438d6c98b8693d48e4c417c1aff73c4adfe2d0aed8"
     },
     {
       "name": "createMarsPipeline",
@@ -14472,11 +14486,39 @@
       "contractHash": "sha256:3a97081272b134ff788cc2733106fc03224051f228295736ef8c9b3cf64f65f6"
     },
     {
+      "name": "planetDetailMesh",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:3d20cba1c1090214272c0b0f012f6af85c3a72277a606866e4e8e39b5b511764",
+      "contractHash": "sha256:e75f729ad4a9a87a3b9d2f48ef33acede5af965b52836aec04aa974a08415700"
+    },
+    {
+      "name": "planetDetailWindow",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:c09b7cec9df5bfe4829170e47c06d9616eddec5fe7a344e3b2860ec1075576f6",
+      "contractHash": "sha256:bcb155a93ee14afacf4d758cf0a1d61f14f8d7cc450611b6514de775958b41a1"
+    },
+    {
+      "name": "planetDetailWindowContains",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:3e5b576390c5b2e43ad28f31c2d2013128b2655569debb65629f299f96c50220",
+      "contractHash": "sha256:5b2b48792c88a5042c12b02aed5bf5b43e670eb286b657a0ff55275887d197d3"
+    },
+    {
       "name": "planetEventEnvelope",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:046e201e4edd96ff465320b5e0f9a8f37adfca0d318a398772eec32212c9e378",
       "contractHash": "sha256:1560ef8819cc40641cb8cf6476331ab1b861a4c45ad0326e6303088f9e420d63"
+    },
+    {
+      "name": "planetGridCubic",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:c9cdd12c039e168e270ef43240135c2ea0ed8d21745eb72a598ab0380f854676",
+      "contractHash": "sha256:39049a65df01df415c99c9ac9939304d1dcb90e9b73c08c5ba09168ea56a4e45"
     },
     {
       "name": "planetGroundWeather",

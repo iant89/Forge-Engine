@@ -651,6 +651,41 @@ group("finite-path aerial perspective (Phase 17.2)", () => {
     assert.ok(scatterMs.every((value, c) => value >= scatterFar[c]! - 1e-12), `MS reduced in-scattering ${[...scatterMs]} below ${[...scatterFar]}`);
     assert.ok(scatterMs.some((value, c) => value > scatterFar[c]! + 1e-6), "the installed field never reached the finite path");
   });
+
+  test("haze over ground below the reference sphere grows with depth instead of going dark", () => {
+    // From orbit, real terrain (and a flat globe triangle sagging between its vertices) sits under
+    // the reference sphere. Samples there used to count as shadowed by the planet, so in-scattering
+    // fell as the ground got lower (about 20% at 9 km) and drew halftone discs of darker haze in a
+    // lattice of globe mesh cells.
+    const model = new AtmosphereModel({ ...MARS_ATMOSPHERE });
+    const height = 2_600_000;
+    const R = MARS_ATMOSPHERE.planetRadius;
+    const sun = dirFrom(40);
+    for (const view of [new Vec3(0, -1, 0), new Vec3(0.3, -1, 0)]) {
+      const d = view.clone().normalize();
+      const b = (R + height) * d.y;
+      const toSphere = -b - Math.sqrt(b * b - ((R + height) ** 2 - R * R));
+      let previous: Float64Array | null = null;
+      // 8 view samples is what the shader takes at medium quality.
+      for (const depth of [0, 1000, 3000, 6000, 9000]) {
+        const scatter = new Float64Array(3);
+        model.aerialPerspective(view, toSphere + depth / -d.y, height, sun, new Float64Array(3), scatter, 8, 8);
+        assert.ok(scatter.every((v) => v > 0 && Number.isFinite(v)), `depth ${depth}: ${[...scatter]}`);
+        if (previous) {
+          for (let c = 0; c < 3; c++) {
+            assert.ok(scatter[c]! >= previous[c]!, `view ${view.x}, depth ${depth}, channel ${c}: ${scatter[c]} fell below ${previous[c]}`);
+          }
+        }
+        previous = scatter;
+      }
+    }
+    // The planet still shadows the night side.
+    const lit = new Float64Array(3);
+    const night = new Float64Array(3);
+    model.aerialPerspective(new Vec3(0, -1, 0), height + 6000, height, sun, new Float64Array(3), lit, 8, 8);
+    model.aerialPerspective(new Vec3(0, -1, 0), height + 6000, height, dirFrom(-30), new Float64Array(3), night, 8, 8);
+    assert.ok(night.every((v, c) => v < 0.05 * lit[c]!), `night-side haze ${[...night]} vs ${[...lit]}`);
+  });
 });
 
 group("the frame's compute passes (mock device)", () => {

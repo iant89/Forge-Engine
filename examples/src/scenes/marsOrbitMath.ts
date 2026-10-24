@@ -38,6 +38,22 @@ export function orbitClipPlanes(radius: number, altitude: number): { near: numbe
   return { near, far };
 }
 
+/** Largest visible cap (radians) the globe's detail patch is used for; wider views use the whole-planet texture. */
+export const DETAIL_MAX_RADIUS = (24 * Math.PI) / 180;
+
+/**
+ * Angular radius (radians, at the planet centre) of the ground an orbit camera at `altitude`, looking
+ * straight down with vertical field `fovYRad`, can see out to its frame corners — or 0 when that is
+ * wider than {@link DETAIL_MAX_RADIUS} and the detail patch should be off.
+ */
+export function detailFocusRadius(radius: number, altitude: number, fovYRad: number, aspect: number): number {
+  const corner = Math.atan(Math.tan(fovYRad / 2) * Math.hypot(1, Math.max(0.1, aspect)));
+  const k = ((radius + altitude) / radius) * Math.sin(corner);
+  // A corner ray past the limb sees out to the horizon.
+  const cap = k >= 1 ? Math.acos(radius / (radius + altitude)) : Math.asin(k) - corner;
+  return cap > DETAIL_MAX_RADIUS ? 0 : cap;
+}
+
 /** Log-space interpolation between two positive heights; `u` in 0..1. */
 export function lerpLog(a: number, b: number, u: number): number {
   return Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * clamp(u, 0, 1));
@@ -69,6 +85,38 @@ export function groundViewQuaternion(yaw: number, pitch: number, out: [number, n
   out[2] = -sy * sx;
   out[3] = cy * cx;
   return out;
+}
+
+/**
+ * World direction under a pointer (CSS px) for the ground camera of {@link groundViewQuaternion}:
+ * the camera-space {@link pixelRay} rotated by the view. Unit length.
+ */
+export function groundPointerDirection(
+  px: number, py: number, width: number, height: number, fovYRad: number, yaw: number, pitch: number,
+): { x: number; y: number; z: number } {
+  const v = pixelRay(px, py, width, height, fovYRad);
+  const q = groundViewQuaternion(yaw, pitch, [0, 0, 0, 1]);
+  const [qx, qy, qz, qw] = q;
+  // v' = v + 2w(q × v) + 2 q × (q × v)
+  const tx = 2 * (qy * v.z - qz * v.y);
+  const ty = 2 * (qz * v.x - qx * v.z);
+  const tz = 2 * (qx * v.y - qy * v.x);
+  return {
+    x: v.x + qw * tx + (qy * tz - qz * ty),
+    y: v.y + qw * ty + (qz * tx - qx * tz),
+    z: v.z + qw * tz + (qx * ty - qy * tx),
+  };
+}
+
+/** Lowest elevation (radians) a ground double-tap that hits no loaded terrain still counts as the sky. */
+export const SKY_PICK_MIN_ELEVATION = (0.5 * Math.PI) / 180;
+
+/**
+ * Whether a ground-view double-tap landed on the sky: the view ray hit no loaded terrain and points
+ * above the horizon (so the unloaded distant ground just under it does not count).
+ */
+export function isSkyPick(directionY: number, hitTerrain: boolean): boolean {
+  return !hitTerrain && directionY > Math.sin(SKY_PICK_MIN_ELEVATION);
 }
 
 /** The orbit camera is the ground view with yaw 0 and pitch −90°: straight down, north up the screen. */

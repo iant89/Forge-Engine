@@ -33,8 +33,12 @@ import { PlanetWeatherSystem, createPlanetWeatherSample, solsForLocalHours } fro
 import { GestureRecogniser } from "../../examples/src/controls/gestures.js";
 import { formatDiagPointer } from "../../examples/src/diag/touchDiagnostics.js";
 import {
+  DETAIL_MAX_RADIUS,
+  detailFocusRadius,
   entryHaze,
+  groundPointerDirection,
   groundViewQuaternion,
+  isSkyPick,
   lerpLog,
   orbitAltitudeRange,
   orbitClipPlanes,
@@ -145,6 +149,45 @@ group("orbit camera maths", () => {
     assertCloseTo(mid.z, 1, 1e-9);
     const right = pixelRay(1280, 360, 1280, 720, 0.8);
     assert.ok(right.x > 0.3 && Math.abs(right.y) < 1e-9);
+  });
+
+  test("ground pointer rays and the double-click-the-sky rule", () => {
+    // Level view facing north (yaw 0): the screen centre looks along +Z, the top of the screen up.
+    const centre = groundPointerDirection(640, 360, 1280, 720, 1, 0, 0);
+    assertCloseTo(centre.z, 1, 9);
+    assertCloseTo(Math.hypot(centre.x, centre.y, centre.z), 1, 9);
+    const top = groundPointerDirection(640, 0, 1280, 720, 1, 0, 0);
+    assertCloseTo(top.y, Math.sin(0.5), 9, "the top edge is half the vertical FOV up");
+    const right = groundPointerDirection(1280, 360, 1280, 720, 1, 0, 0);
+    assert.ok(right.x > 0.5, "the right edge looks east");
+    // Facing east (yaw +90°) the centre looks along +X; pitching up raises it.
+    const east = groundPointerDirection(640, 360, 1280, 720, 1, Math.PI / 2, 0);
+    assertCloseTo(east.x, 1, 9);
+    const up = groundPointerDirection(640, 360, 1280, 720, 1, 0, 0.4);
+    assertCloseTo(up.y, Math.sin(0.4), 9);
+    assertCloseTo(up.z, Math.cos(0.4), 9);
+
+    assert.equal(isSkyPick(top.y, false), true, "above the horizon, no terrain: sky");
+    assert.equal(isSkyPick(top.y, true), false, "a crater rim against the sky is ground");
+    assert.equal(isSkyPick(0, false), false, "the horizon itself (unloaded distant ground) is not");
+    assert.equal(isSkyPick(-0.2, false), false);
+  });
+
+  test("the detail patch covers what a zoomed-in orbit camera sees, and is off when zoomed out", () => {
+    const R = 3389.5e3;
+    const fov = (40 * Math.PI) / 180;
+    // The fitted whole-planet view is far too wide for a patch.
+    assert.equal(detailFocusRadius(R, orbitFitAltitude(R, fov, 1.6), fov, 1.6), 0);
+    // The closest orbit zoom (900 km) sees ~11° of arc to its corners.
+    const close = detailFocusRadius(R, 900e3, fov, 1.6);
+    assert.ok(close > 0.15 && close < 0.25, `${close} rad at 900 km`);
+    // Lower is smaller, a wider screen is larger, and the cap never exceeds the limit or the horizon.
+    assert.ok(detailFocusRadius(R, 450e3, fov, 1.6) < close);
+    assert.ok(detailFocusRadius(R, 900e3, fov, 2.4) > close);
+    for (const alt of [200e3, 900e3, 1500e3, 2500e3, 4e6]) {
+      const r = detailFocusRadius(R, alt, fov, 1.6);
+      assert.ok(r <= DETAIL_MAX_RADIUS && r <= Math.acos(R / (R + alt)) + 1e-12, `${alt}: ${r}`);
+    }
   });
 
   test("the entry haze peaks near the swap and is gone in orbit and on the ground", () => {

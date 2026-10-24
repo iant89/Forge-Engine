@@ -473,6 +473,7 @@ async function main(): Promise<void> {
         // fe-40: `?mola=phone|tablet|desktop` picks the real-elevation atlas size, `?mola=off` the procedural planet.
         mola: query.get("mola"),
         bakeBudgetMs: query.get("mobake") !== null && Number(query.get("mobake")) > 0 ? Number(query.get("mobake")) : undefined,
+        detail: query.get("modetail") !== "0",
       });
     } else if (name === "ui") {
       // The engine-native UI framework (docs/UI.md): drawn by the WebGPU UI overlay pass.

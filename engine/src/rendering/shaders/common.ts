@@ -245,8 +245,14 @@ fn applyAerialPerspective(surfaceRadiance: vec3<f32>, surfacePosition: vec3<f32>
     let dO = ozoneDensity(h) * ds;
     let localOd = sky.rayleighScattering * dR + sky.mieExtinction * dM + sky.ozoneAbsorption * dO;
     let midOd = viewOd + 0.5 * localOd;
-    if (raySphereEntry(p, sunDir, R) <= 0.0) {
-      let lightOd = opticalDepthToSpace(p, sunDir, lightSamples);
+    // Sun visibility from the sample lifted to at least the reference sphere. Terrain below the
+    // sphere (or a flat mesh triangle sagging under it) puts the last samples inside it, where a
+    // ray-sphere test always "hits" and the sample went dark: halftone discs on low ground.
+    let pr = length(p);
+    let lifted = p * (max(pr, R) / max(pr, 1.0));
+    let ratio = R / max(pr, R);
+    if (dot(lifted, sunDir) >= -sqrt(max(0.0, 1.0 - ratio * ratio)) * max(pr, R)) {
+      let lightOd = opticalDepthToSpace(lifted, sunDir, lightSamples);
       let attenuation = exp(-(midOd + lightOd));
       sumR += attenuation * dR;
       sumM += attenuation * dM;
