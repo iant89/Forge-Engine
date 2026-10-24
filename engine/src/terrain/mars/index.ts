@@ -86,3 +86,5 @@ export {
   type MarsTileAdvice,
   type MarsTileDetailLevel,
 } from "./stage.js";
+
+export { createMarsGlobeSampler, type MarsGlobeSample, type MarsGlobeSampler } from "./globeSampler.js";
