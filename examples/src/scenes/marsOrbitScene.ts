@@ -930,6 +930,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     if (mode !== "ground" && mode !== "dive") return;
     if (mode === "dive" && diveDirection === "up") return;
     mode = "ascend";
+    // Leaving mid-dive cancels a pending wait for atlas faces (and ignores the fetch's late completion).
+    groundPending = false;
+    groundToken++;
     diveDirection = "up";
     phase = "ascend: climb";
     diveT = 0;
