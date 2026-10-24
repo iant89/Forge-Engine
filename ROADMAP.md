@@ -2603,13 +2603,14 @@ This is the primary validation environment for Forge.
     As built: the showcase uses the Mars atmosphere, exponential dust haze, and a fixed-step
     `DayNightCycle` that drives the sun direction/intensity, ambient, sky direction and horizon fog.
     The deterministic Mars clock is exposed in `marsState().solarCycle` and can be scrubbed through
-    `window.__forge.setMarsSolarTime(hours)`. Phase 23.2 now starts the dry Mars weather integration:
-    `WeatherSystem` owns deterministic clear/regional-dust/global-dust profiles, wind/advection,
-    storm haze and light attenuation; a thin high cloud/dust veil is driven by the same state, and
-    `window.__forge.setMarsWeather(mode)` plus `?marsweather=` expose it to diagnostics. The ground
-    deliberately keeps precipitation, wetness, snow, water and tyre-grip drives off. The remaining
-    gap is a sustained reference-weather acceptance gate and richer Mars-specific dust transport;
-    the reference slice still has no Stage A erosion cache (`23.1`).
+    `window.__forge.setMarsSolarTime(hours)`. The dry Mars weather integration owns deterministic
+    clear/regional-dust/global-dust profiles, wind/advection, storm haze and light attenuation; a
+    thin high cloud/dust veil is driven by the same state, and `window.__forge.setMarsWeather(mode)`
+    plus `?marsweather=` expose it to diagnostics. A scene-owned acceptance monitor and the Mars
+    browser section now assert all profiles keep precipitation, wetness, puddles and snow at zero;
+    the real-browser gate is implemented but was not runnable in this checkout because Chromium was
+    not provisioned. Richer Mars-specific dust transport remains separate, and the reference slice
+    still has no Stage A erosion cache (`23.1`).
 
 
 23.3 Rover
@@ -2634,7 +2635,9 @@ This is the primary validation environment for Forge.
 
 23.4 Rover Environment Interaction
 
-    [ ] crater traversal (present in terrain, but no reference-route/soak acceptance gate yet)
+    [~] crater traversal (the deterministic `forge.mars-crater-route/1` crosses a real seed-1337
+        crater and is joined to the rover soak acceptance contract; the real-browser gate is
+        implemented but remains unverified here because Chromium was not provisioned)
     [x] slope traversal
     [x] rock collisions
     [x] wheel slip
@@ -2651,27 +2654,31 @@ This is the primary validation environment for Forge.
 
 23.6 Streaming
 
-    [~] continuous terrain traversal (distance, visited chunks and moving-time terrain gaps are now
-        measured; a sustained route/soak acceptance gate remains)
+    [~] continuous terrain traversal (the `forge.mars-acceptance/1` monitor now evaluates moving
+        time, path distance, visited chunks, discontinuities and moving-time terrain gaps; the real
+        browser gate holds throttle until the threshold result is live, but Chromium was not
+        provisioned for verification here)
     [x] object streaming
-    [~] asset streaming (live GLB progress and engine asset counters are visible; continuous-run
-        recovery/budget validation remains)
+    [~] asset streaming (live GLB progress, resident bytes and engine asset counters are included in
+        the acceptance snapshot; the browser recovery/budget arm is implemented but unverified here)
 
 
 23.7 Camera
 
-    [x] chase
-    [ ] cockpit
-    [ ] free
-    [ ] cinematic
+    [~] chase (default and acceptance-covered)
+    [~] cockpit (deterministic rover-relative pose; browser gate implemented, Chromium unavailable here)
+    [~] free (explicit diagnostic eye/target pose; browser gate implemented, Chromium unavailable here)
+    [~] cinematic (deterministic simulation-time orbit; browser gate implemented, Chromium unavailable here)
 
 
 23.8 Telemetry HUD
 
     [~] The Mars HUD and `window.__forge.marsReferenceState()` expose schema
-        `forge.mars-reference/1`; focused tests pin aggregation and unavailable-data semantics. A
-        real-browser assertion and sustained-run thresholds/logging remain before telemetry is a
-        completed validation gate.
+        `forge.mars-reference/1`; focused tests pin aggregation and unavailable-data semantics. The
+        HUD now also shows the live acceptance result, path/gap counters, dry-environment invariant,
+        camera coverage, asset peaks and analytic crater-route result. The Mars browser section
+        asserts the versioned snapshot and sustained thresholds, but the gate is unverified here
+        because Chromium was not provisioned.
 
     Show:
 
@@ -2694,12 +2701,15 @@ This is the primary validation environment for Forge.
 
 23.9 Deterministic Replay
 
-    [ ] record input
-    [ ] replay
-    [ ] state hashes
+    [~] record input (Mars exposes the generic `ReplayRecorder` through `window.__forge`)
+    [~] replay (Mars exposes the generic `ReplayPlayer` and portable recording document)
+    [~] state hashes (vehicle-part hashes and divergence results are surfaced by the Mars handle)
 
-    The engine already owns generic recording/session/hash infrastructure, but none of these checks
-    are complete until the Mars reference route is wired to and verified through that infrastructure.
+    The Mars handle is now wired to the generic recording/session/hash infrastructure and the browser
+    section records a fresh short route, rebuilds the deterministic scene and checks a zero-divergence
+    playback. This remains `[~]` until that real-browser check is observed; the current checkout has
+    no provisioned Chromium. The explicit no-exhaust disposition remains unchanged in 23.5 because
+    the reference rover is battery-electric.
 
 
 EXIT CRITERIA:

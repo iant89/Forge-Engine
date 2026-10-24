@@ -115,6 +115,11 @@ import {
   MechanicalRigComponent,
   MechanicalSystem,
   type MechanicalChannelSource,
+  ReplayPlayer,
+  ReplayRecorder,
+  vehicleInputChannel,
+  type ReplayRecording,
+  type ReplayResult,
 } from "@forge/engine";
 import { attachVehicleTouch } from "../controls/vehicleTouch.js";
 import { attachArmTouch } from "../controls/armTouch.js";
@@ -139,6 +144,10 @@ import {
   MarsReferenceTraversalMonitor,
   type MarsReferenceState,
 } from "./marsReferenceTelemetry.js";
+import {
+  MarsReferenceAcceptanceMonitor,
+  MARS_REFERENCE_CRATER_ROUTE,
+} from "./marsReferenceAcceptance.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { marsWeatherProfile, type MarsWeatherMode } from "./marsWeather.js";
 import {
@@ -154,6 +163,8 @@ import {
   marsChaseFollow,
   readMarsDriveInput,
 } from "./marsShared.js";
+
+export type MarsCameraMode = "chase" | "cockpit" | "free" | "cinematic";
 
 export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   /** Gate-facing snapshot: model load state, dust counts and rover pose. */
@@ -195,6 +206,10 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
       gust: number;
       dust01: number;
       cloudCoverage: number;
+      precipitation01: number;
+      surfaceWetness: number;
+      surfacePuddles: number;
+      surfaceSnow: number;
       fogDensity: number;
       skyTurbidity: number;
       simulatedSeconds: number;
@@ -274,6 +289,7 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
     x: number;
     y: number;
     z: number;
+    cameraMode: MarsCameraMode;
   };
   /**
    * Phase 23 validation snapshot: frame/subsystem telemetry, streaming state and cumulative
@@ -284,8 +300,20 @@ export interface MarsShowcaseSceneHandle extends DemoSceneHandle {
   setMarsSolarTime(hours: number): void;
   /** Snap to a dry, deterministic Mars weather profile (clear, regional dust or global dust). */
   setMarsWeather(mode: MarsWeatherMode): void;
+  /** Switch the reference camera between chase, cockpit, free and deterministic cinematic modes. */
+  setMarsCameraMode(mode: MarsCameraMode): void;
+  /** Set the fixed free-camera eye and target used by the browser gate and tooling. */
+  setMarsCameraLookAt(eye: [number, number, number], target: [number, number, number]): void;
   /** Reset traversal counters at the rover's current position (for a fresh soak/run). */
   resetMarsReferenceTraversal(): void;
+  /** Start generic Forge replay recording for the Mars rover input channel. */
+  startMarsReplay(): void;
+  /** Stop recording and return a versioned input/hash recording. */
+  stopMarsReplay(): ReplayRecording | null;
+  /** Start generic Forge replay playback; state hashes are checked at every recorded checkpoint. */
+  playMarsReplay(recording: ReplayRecording): ReplayResult;
+  /** Replay status for diagnostics and browser acceptance. */
+  marsReplayState(): { recording: boolean; playing: boolean; finished: boolean; result: ReplayResult | null };
   /** Re-run the GLB fetch after a failure (the loading screen's Retry button). */
   retryModelLoad(): void;
   /** Raise (true) or stow (false) the Remote Sensing Mast; the spring animates it smoothly. */
@@ -1093,6 +1121,17 @@ export function buildMarsShowcaseScene(
   camera.near = 0.35;
   camera.far = 8000;
   scene.world.addComponent(cameraEntity.id, camera);
+
+  // Phase 23.7 camera modes. Chase remains the default; cockpit and cinematic are deterministic
+  // vehicle-relative poses, while free is an explicit fixed eye/target for browser captures.
+  let marsCameraMode: MarsCameraMode = "chase";
+  const freeCameraEye = new Vec3(SPAWN_X - 8, groundY + 5, SPAWN_Z - 10);
+  const freeCameraTarget = new Vec3(SPAWN_X, groundY + 0.8, SPAWN_Z);
+  const cameraRotation = new Quat();
+  const cameraOffset = new Vec3();
+  const cameraForward = new Vec3();
+  let cinematicSeconds = 0;
+
   // ---------------------------------------------------------------- rover (six wheels)
   const deformation = new TerrainDeformationField({ resolution: 33, maxChunks: 128 });
   const deformedGroundHeight = (x: number, z: number): number => {
@@ -1102,7 +1141,21 @@ export function buildMarsShowcaseScene(
   };
   const ground = heightFunctionGround(deformedGroundHeight);
   const vehicle = createMarsRoverVehicle(ground, SPAWN_X, SPAWN_Z);
+  const marsReplayChannel = vehicleInputChannel("mars-rover", vehicle);
+  let marsReplayRecorder: ReplayRecorder | null = null;
+  let marsReplayPlayer: ReplayPlayer | null = null;
+  let marsReplayResult: ReplayResult | null = null;
   const referenceTraversal = new MarsReferenceTraversalMonitor(vehicle.position.x, vehicle.position.z, terrain.chunkSize);
+  const referenceAcceptance = new MarsReferenceAcceptanceMonitor(vehicle.position.x, vehicle.position.z, {
+    movingSeconds: 8,
+    distanceMeters: 4,
+    visitedChunks: 1,
+    maxTerrainGapSeconds: 0.5,
+    environmentSamples: 30,
+    cameraModes: ["chase", "cockpit", "free", "cinematic"],
+    craterSamples: 3,
+    craterReliefMeters: 100,
+  });
   const roverChunkReady = (): boolean => {
     const key = chunkCoordKey(
       Math.floor(vehicle.position.x / terrain.chunkSize),
@@ -2589,6 +2642,64 @@ export function buildMarsShowcaseScene(
     }
   };
 
+  const setMarsCameraMode = (mode: MarsCameraMode): void => {
+    if (mode !== "chase" && mode !== "cockpit" && mode !== "free" && mode !== "cinematic") {
+      throw new RangeError(`unknown Mars camera mode: ${String(mode)}`);
+    }
+    marsCameraMode = mode;
+    if (mode === "free") {
+      freeCameraEye.set(vehicle.position.x - 8, vehicle.position.y + 5, vehicle.position.z - 10);
+      freeCameraTarget.set(vehicle.position.x, vehicle.position.y + 0.8, vehicle.position.z);
+    }
+    if (mode === "cinematic") cinematicSeconds = 0;
+  };
+
+  const setMarsCameraLookAt = (eye: [number, number, number], target: [number, number, number]): void => {
+    freeCameraEye.set(eye[0], eye[1], eye[2]);
+    freeCameraTarget.set(target[0], target[1], target[2]);
+    marsCameraMode = "free";
+  };
+
+  const cycleMarsCamera = (): void => {
+    const next: MarsCameraMode = marsCameraMode === "chase"
+      ? "cockpit"
+      : marsCameraMode === "cockpit"
+        ? "cinematic"
+        : "chase";
+    setMarsCameraMode(next);
+  };
+
+  const cameraOverride = (): { eye: [number, number, number]; target: [number, number, number] } | null => {
+    if (marsCameraMode === "chase") return null;
+    if (marsCameraMode === "free") {
+      return {
+        eye: [freeCameraEye.x, freeCameraEye.y, freeCameraEye.z],
+        target: [freeCameraTarget.x, freeCameraTarget.y, freeCameraTarget.z],
+      };
+    }
+    if (marsCameraMode === "cockpit") {
+      vehicle.writeRotation(cameraRotation);
+      cameraRotation.rotateVector(cameraOffset.set(-0.2, 0.92, 0.22), cameraOffset);
+      cameraRotation.rotateVector(cameraForward.set(0, -0.03, 10), cameraForward);
+      const ex = vehicle.position.x + cameraOffset.x;
+      const ey = vehicle.position.y + cameraOffset.y;
+      const ez = vehicle.position.z + cameraOffset.z;
+      return { eye: [ex, ey, ez], target: [ex + cameraForward.x, ey + cameraForward.y, ez + cameraForward.z] };
+    }
+
+    // Cinematic is a deterministic, slow orbit around the moving rover. It deliberately uses only
+    // simulation time and vehicle pose, never wall time or random input, so screenshots and replays
+    // can reproduce the same camera path.
+    const angle = vehicle.yaw + 0.85 + Math.sin(cinematicSeconds * 0.35) * 0.55;
+    const distance = 8.5 + Math.sin(cinematicSeconds * 0.21) * 0.8;
+    const ex = vehicle.position.x - Math.sin(angle) * distance;
+    const ez = vehicle.position.z - Math.cos(angle) * distance;
+    const ey = Math.max(vehicle.position.y + 3.2, deformedGroundHeight(ex, ez) + 1.8);
+    const tx = vehicle.position.x + Math.sin(angle) * 1.8;
+    const tz = vehicle.position.z + Math.cos(angle) * 1.8;
+    return { eye: [ex, ey, ez], target: [tx, vehicle.position.y + 0.8, tz] };
+  };
+
   const modelUrl = new URL("../../assets/Perseverance.glb", import.meta.url).href;
   /** Fetch+build with progress; a retry bumps the attempt so a stale fetch cannot win. */
   const startModelLoad = (): void => {
@@ -2624,6 +2735,9 @@ export function buildMarsShowcaseScene(
     if (event.code === "Space" || event.code.startsWith("Arrow")) event.preventDefault();
     // M toggles the mast (keydown, not hold; ignore auto-repeat so it flips once per press).
     if (event.code === "KeyM" && !event.repeat) setMast(mastTarget < 0.5);
+    // C cycles the reference camera through the driving views. Free mode is intentionally explicit
+    // through the diagnostic handle so a key press cannot strand a player in a fixed pose.
+    if (event.code === "KeyC" && !event.repeat) cycleMarsCamera();
     // R toggles the robotic arm, same rule.
     if (event.code === "KeyR" && !event.repeat) setArm(!arm.deployed);
     // E/Q/V are keyboard shortcuts for the same proximity-gated turret tools as the buttons.
@@ -3215,6 +3329,8 @@ export function buildMarsShowcaseScene(
           objectCulling,
           indirectDraws,
         },
+        acceptance: referenceAcceptance.snapshot(MARS_REFERENCE_CRATER_ROUTE),
+        craterRoute: MARS_REFERENCE_CRATER_ROUTE,
       },
       stats,
       breakdown,
@@ -3224,20 +3340,48 @@ export function buildMarsShowcaseScene(
   return {
     scene,
     cameraEntity,
-    controlsHint: "WASD / arrows drive · Space handbrake · M mast · R arm · E drill / Q abrade / V PIXL when in reach · HGA auto-tracks Earth · Drag to orbit · Scroll zoom",
+    controlsHint: "WASD / arrows drive · Space handbrake · C camera (chase, cockpit, cinematic) · M mast · R arm · E drill / Q abrade / V PIXL · Drag to orbit · Scroll zoom",
     // Match followTarget from frame 0: vehicle CG + mid-chassis offset (not groundY + mast height).
     camera: marsChaseCamera(new Vec3(SPAWN_X, chaseLookY, SPAWN_Z), deformedGroundHeight),
     followTarget: marsChaseFollow(vehicle),
+    cameraOverride,
     update(dt: number): void {
+      cinematicSeconds += Math.max(0, Math.min(0.05, dt));
       // Keep the atmosphere's observer reference on the local rover terrain as it drives, rather than
       // leaving the spawn height in place while the camera follows across a changing landscape.
       scene.settings.sky.seaLevel = deformedGroundHeight(vehicle.position.x, vehicle.position.z);
+      const currentRoverChunkReady = roverChunkReady();
       referenceTraversal.sample({
         dt,
         x: vehicle.position.x,
         z: vehicle.position.z,
         speed: vehicle.speed,
-        roverChunkReady: roverChunkReady(),
+        roverChunkReady: currentRoverChunkReady,
+      });
+      // One acceptance sample per simulation update (not per HUD read), keeping browser and replay
+      // diagnostics honest even when the host asks for the state several times in one frame.
+      const diagnostics = engine as unknown as { stats?: () => { streaming?: { queued?: number; inFlight?: number } } };
+      const liveStats = typeof diagnostics.stats === "function" ? diagnostics.stats() : null;
+      const liveTerrainStats = terrain.stats();
+      referenceAcceptance.sample({
+        dt,
+        x: vehicle.position.x,
+        z: vehicle.position.z,
+        speed: vehicle.speed,
+        chunkSize: terrain.chunkSize,
+        roverChunkReady: currentRoverChunkReady,
+        terrainReadyChunks: readyTerrainChunks(),
+        terrainResidentBytes: Number(liveTerrainStats.residentBytes ?? 0),
+        assetQueued: liveStats?.streaming?.queued ?? null,
+        assetInFlight: liveStats?.streaming?.inFlight ?? null,
+        modelLoaded,
+        modelError,
+        weatherMode: marsWeatherMode,
+        precipitation01: marsWeather.state.precipitation01,
+        wetness: scene.settings.surface.wetness,
+        puddles: scene.settings.surface.puddles,
+        snow: scene.settings.surface.snow,
+        cameraMode: marsCameraMode,
       });
       stepInteractiveRocks(dt);
       stepToolMarks(dt);
@@ -3489,6 +3633,10 @@ export function buildMarsShowcaseScene(
           gust: marsWeather.state.gust,
           dust01: marsWeather.state.storm01,
           cloudCoverage: marsWeather.state.cloudCoverage,
+          precipitation01: marsWeather.state.precipitation01,
+          surfaceWetness: scene.settings.surface.wetness,
+          surfacePuddles: scene.settings.surface.puddles,
+          surfaceSnow: scene.settings.surface.snow,
           fogDensity: scene.settings.fog.density,
           skyTurbidity: scene.settings.sky.turbidity,
           simulatedSeconds: marsWeather.simulatedSeconds,
@@ -3557,6 +3705,7 @@ export function buildMarsShowcaseScene(
         x: vehicle.position.x,
         y: vehicle.position.y,
         z: vehicle.position.z,
+        cameraMode: marsCameraMode,
       };
     },
     marsReferenceState: referenceState,
@@ -3571,8 +3720,55 @@ export function buildMarsShowcaseScene(
     setMarsWeather(mode: MarsWeatherMode): void {
       setMarsWeather(mode);
     },
+    setMarsCameraMode(mode: MarsCameraMode): void {
+      setMarsCameraMode(mode);
+    },
+    setMarsCameraLookAt(eye: [number, number, number], target: [number, number, number]): void {
+      setMarsCameraLookAt(eye, target);
+    },
     resetMarsReferenceTraversal(): void {
       referenceTraversal.reset(vehicle.position.x, vehicle.position.z);
+      referenceAcceptance.reset(vehicle.position.x, vehicle.position.z);
+    },
+    startMarsReplay(): void {
+      marsReplayPlayer?.stop();
+      marsReplayPlayer = null;
+      marsReplayResult = null;
+      marsReplayRecorder?.dispose();
+      marsReplayRecorder = new ReplayRecorder(scene, {
+        channels: [marsReplayChannel],
+        parts: ["vehicles"],
+        hashEvery: 30,
+        meta: { scene: "mars-showcase", route: "reference-rover" },
+      });
+      marsReplayRecorder.start();
+    },
+    stopMarsReplay(): ReplayRecording | null {
+      if (!marsReplayRecorder?.recording) return null;
+      const recording = marsReplayRecorder.stop();
+      marsReplayRecorder = null;
+      return recording;
+    },
+    playMarsReplay(recording: ReplayRecording): ReplayResult {
+      marsReplayRecorder?.dispose();
+      marsReplayRecorder = null;
+      marsReplayPlayer?.stop();
+      marsReplayPlayer = new ReplayPlayer(scene, recording, {
+        channels: [marsReplayChannel],
+        clock: engine.clock,
+      });
+      marsReplayPlayer.start();
+      marsReplayResult = marsReplayPlayer.result();
+      return marsReplayResult;
+    },
+    marsReplayState(): { recording: boolean; playing: boolean; finished: boolean; result: ReplayResult | null } {
+      if (marsReplayPlayer) marsReplayResult = marsReplayPlayer.result();
+      return {
+        recording: marsReplayRecorder?.recording === true,
+        playing: marsReplayPlayer !== null && !marsReplayPlayer.finished,
+        finished: marsReplayPlayer?.finished === true,
+        result: marsReplayResult,
+      };
     },
     retryModelLoad(): void {
       if (!disposed) startModelLoad();
@@ -3622,6 +3818,10 @@ export function buildMarsShowcaseScene(
     },
     dispose(): void {
       disposed = true;
+      marsReplayRecorder?.dispose();
+      marsReplayRecorder = null;
+      marsReplayPlayer?.stop();
+      marsReplayPlayer = null;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       touch.dispose();

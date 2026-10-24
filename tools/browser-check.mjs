@@ -3332,6 +3332,46 @@ async function checkMarsSection() {
   );
   await verifyMarsWorkers(page);
   await checkShowcaseLayers();
+
+  // Phase 23.2/23.4/23.8: the acceptance contract is live state, not a unit-only inventory. Verify
+  // the dry profiles, deterministic crater route and versioned telemetry on the real browser before
+  // the drive soak below. The surface drives remain disabled for every Mars profile: storms are dust,
+  // never rain, wetness, puddles or snow.
+  const craterRoute = await page.evaluate(() => window.__forge.marsReferenceState()?.craterRoute);
+  if (!craterRoute || craterRoute.schema !== "forge.mars-crater-route/1" || !craterRoute.passed || !craterRoute.enteredCrater || craterRoute.points.length < 3) {
+    throw new Error(`mars crater route: analytic route gate failed (${JSON.stringify(craterRoute)})`);
+  }
+  if (!(craterRoute.reliefMeters > 100)) throw new Error(`mars crater route: relief too small (${craterRoute.reliefMeters})`);
+  const referenceInitial = await page.evaluate(() => window.__forge.marsReferenceState());
+  if (!referenceInitial || referenceInitial.schema !== "forge.mars-reference/1" || referenceInitial.phase !== 23) {
+    throw new Error(`mars reference: missing versioned telemetry snapshot (${JSON.stringify(referenceInitial)})`);
+  }
+  if (referenceInitial.acceptance?.dryEnvironmentViolations !== 0 || referenceInitial.craterRoute.passed !== true) {
+    throw new Error(`mars reference: initial acceptance invariants failed (${JSON.stringify(referenceInitial.acceptance)})`);
+  }
+  const marsWeatherModes = ["clear", "dust", "global-dust"];
+  for (const mode of marsWeatherModes) {
+    await page.evaluate((nextMode) => window.__forge.setMarsWeather(nextMode), mode);
+    await waitPresentedFrames(2);
+    const weatherState = await page.evaluate(() => window.__forge.marsState()?.weather);
+    if (!weatherState || weatherState.mode !== mode || weatherState.precipitation01 !== 0 || weatherState.surfaceWetness !== 0 || weatherState.surfacePuddles !== 0 || weatherState.surfaceSnow !== 0) {
+      throw new Error(`mars weather: ${mode} is not dry/deterministic (${JSON.stringify(weatherState)})`);
+    }
+  }
+  await page.evaluate(() => window.__forge.setMarsWeather("clear"));
+  const cameraModes = ["cockpit", "free", "cinematic", "chase"];
+  for (const mode of cameraModes) {
+    if (mode === "free") {
+      await page.evaluate(() => window.__forge.setMarsCameraLookAt([-172, 8, -10], [-164, 1, 4]));
+    } else {
+      await page.evaluate((nextMode) => window.__forge.setMarsCameraMode(nextMode), mode);
+    }
+    await waitPresentedFrames(2);
+    const cameraState = await page.evaluate(() => window.__forge.marsState());
+    if (!cameraState || cameraState.cameraMode !== mode) throw new Error(`mars camera: ${mode} did not become active (${JSON.stringify(cameraState)})`);
+  }
+  await page.evaluate(() => window.__forge.setMarsCameraMode("chase"));
+  console.log(`mars acceptance route: crater ${craterRoute.craterId} · ${craterRoute.reliefMeters.toFixed(1)}m relief; weather clear/dust/global-dust dry; cameras ${cameraModes.join("/")}`);
   const checkMarsSurface = (state) => {
     const clearance = state.y - state.terrainGroundHeight;
     if (!state.terrainRoverChunkReady || !Number.isFinite(clearance) || clearance < 0.2 || clearance > 1.2) {
@@ -3411,6 +3451,61 @@ async function checkMarsSection() {
   if (!(maxSpeed > 0.3)) throw new Error(`mars showcase: rover never got rolling under W (max speed ${maxSpeed.toFixed(3)} m/s)`);
   if (!(maxKick > 0)) throw new Error("mars showcase: driving produced no kick dust");
   if (!(maxChips > 0)) throw new Error("mars showcase: driving produced no ballistic rock chips");
+
+  // Sustained Phase 23.6 soak: keep the rover under throttle until the scene-owned acceptance
+  // monitor has integrated real moving time and path length. This is deliberately simulation-state
+  // driven rather than a fixed presented-frame count, so software WebGPU cannot turn a slow frame
+  // rate into a false streaming pass or fail.
+  await page.keyboard.down("KeyW");
+  let acceptanceState = null;
+  try {
+    const acceptanceDeadline = Date.now() + 240000;
+    while (Date.now() < acceptanceDeadline) {
+      const reference = await page.evaluate(() => window.__forge.marsReferenceState());
+      acceptanceState = reference?.acceptance ?? null;
+      if (acceptanceState?.passed) break;
+      await page.waitForTimeout(500);
+    }
+  } finally {
+    await page.keyboard.up("KeyW");
+  }
+  if (!acceptanceState?.passed) {
+    throw new Error(`mars acceptance: sustained traversal did not pass (${JSON.stringify(acceptanceState)})`);
+  }
+  if (acceptanceState.terrainGapSeconds > acceptanceState.thresholds.maxTerrainGapSeconds || acceptanceState.discontinuities !== 0) {
+    throw new Error(`mars acceptance: streaming continuity failed (${JSON.stringify(acceptanceState)})`);
+  }
+  console.log(
+    `mars acceptance: PASS moving=${acceptanceState.movingSeconds.toFixed(1)}s distance=${acceptanceState.distanceMeters.toFixed(1)}m ` +
+      `chunks=${acceptanceState.visitedChunks} resident=${acceptanceState.peakResidentBytes}B ` +
+      `asset=${acceptanceState.peakAssetQueued}/${acceptanceState.peakAssetInFlight}`,
+  );
+
+  // Phase 23.9: record a short Mars input route on a fresh scene, rebuild the same deterministic
+  // starting state, then let Forge's generic ReplayPlayer apply the channel and compare vehicle
+  // state hashes. The fresh-scene boundary is important: replay hashes are exact, so a player must
+  // start before the first simulation step rather than after an arbitrary number of idle frames.
+  await page.evaluate(() => {
+    window.__forge.loadScene("mars-showcase");
+    window.__forge.startMarsReplay();
+  });
+  await page.keyboard.down("KeyW");
+  await waitPresentedFrames(4);
+  await page.keyboard.up("KeyW");
+  const marsRecording = await page.evaluate(() => window.__forge.stopMarsReplay());
+  if (!marsRecording || marsRecording.format !== "forge.replay" || marsRecording.frames.length < 2 || marsRecording.channels[0]?.name !== "mars-rover") {
+    throw new Error(`mars replay: recorder did not produce a portable input recording (${JSON.stringify(marsRecording)})`);
+  }
+  const replayStart = await page.evaluate((recording) => {
+    window.__forge.loadScene("mars-showcase");
+    return window.__forge.playMarsReplay(recording);
+  }, marsRecording);
+  await page.waitForFunction(() => window.__forge.marsReplayState()?.finished === true, null, { polling: 100, timeout: 30000 });
+  const marsReplay = await page.evaluate(() => window.__forge.marsReplayState());
+  if (!marsReplay?.finished || !marsReplay.result?.ok || marsReplay.result.divergences.length !== 0) {
+    throw new Error(`mars replay: deterministic playback diverged (${JSON.stringify({ replayStart, result: marsReplay })})`);
+  }
+  console.log(`mars replay: ${marsRecording.frames.length} frames, ${marsReplay.result.framesPlayed} played, hashes=${marsReplay.result.checkpointsCompared}`);
   // High-gain antenna: it arms when the GLB lands and unfurls five seconds of the demo loop's dt
   // later — ~100 presented frames on this rasteriser, since main.ts clamps that dt to 0.05 s — so
   // "deploying" on the real device proves the countdown + pivots are wired. Convergence onto the

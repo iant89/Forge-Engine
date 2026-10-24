@@ -455,13 +455,16 @@ function sampleCanyonSegment(
  * young northern lowlands vs. ancient cratered southern highlands), plus very low-frequency
  * regional fbm, plus any canyon segments. `dir` must be a unit direction.
  *
- * The generator's signature also takes `radius`; it never reads it, so it is dropped here rather
- * than suppressed (`noUnusedParameters`).
+ * The generator's point argument is in planet-space metres because the canyon segment endpoints
+ * are stored in metres. Keep that conversion explicit in the radius-aware internal helper below so
+ * the analytic sampler uses the same coordinate system. The exported helper retains its historical
+ * unit-radius signature for callers that use it directly.
  */
-export function marsSampleRegionalBase(
+function sampleMarsRegionalBaseAtRadius(
   dirX: number,
   dirY: number,
   dirZ: number,
+  radius: number,
   cfg: MarsDichotomyConfig,
   canyon: readonly MarsCanyonSegment[],
 ): number {
@@ -488,11 +491,22 @@ export function marsSampleRegionalBase(
     cfg.amplitude *
     0.2;
 
-  const px = dx;
-  const py = dy;
-  const pz = dz;
+  const px = dx * radius;
+  const py = dy * radius;
+  const pz = dz * radius;
   for (const seg of canyon) base += sampleCanyonSegment(px, py, pz, seg, cfg.seed);
   return base;
+}
+
+/** Public regional sampler retained for direct callers; use a unit-radius point-space canyon. */
+export function marsSampleRegionalBase(
+  dirX: number,
+  dirY: number,
+  dirZ: number,
+  cfg: MarsDichotomyConfig,
+  canyon: readonly MarsCanyonSegment[],
+): number {
+  return sampleMarsRegionalBaseAtRadius(dirX, dirY, dirZ, 1, cfg, canyon);
 }
 
 // ------------------------------------------------------------------ analytic base
@@ -523,7 +537,7 @@ export function marsSampleAnalytic(
   const py = dirY * radius;
   const pz = dirZ * radius;
 
-  const regional = marsSampleRegionalBase(dirX, dirY, dirZ, params.dichotomy, params.canyon);
+  const regional = sampleMarsRegionalBaseAtRadius(dirX, dirY, dirZ, radius, params.dichotomy, params.canyon);
   const craters = craterScanner
     ? craterScanner.deltaAt(px, py, pz)
     : marsSampleCraterDelta(px, py, pz, params.seed);

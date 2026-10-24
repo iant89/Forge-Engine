@@ -4,11 +4,13 @@
  * The showcase already exercises many individual Forge systems. This module turns that collection
  * into one versioned, machine-readable reference-slice snapshot and tracks whether the rover is
  * actually traversing streamed terrain over time. It deliberately does not declare the full phase
- * complete: erosion, the wider environment/camera matrix and deterministic mission replay remain
- * separate roadmap work.
+ * complete: the Stage A erosion cache remains blocked and the real-browser acceptance result is
+ * environment-dependent. The acceptance monitor, deterministic crater route and replay handles are
+ * nested by the showcase when those checks are live; the erosion cache remains intentionally absent.
  */
 
 import type { EngineStats, FrameBreakdown } from "@forge/engine";
+import type { MarsCraterRoute, MarsReferenceAcceptance } from "./marsReferenceAcceptance.js";
 
 export const MARS_REFERENCE_SCHEMA = "forge.mars-reference/1" as const;
 /** Additive Phase 24 workload diagnostics nested in the Mars reference snapshot. */
@@ -155,6 +157,10 @@ export interface MarsReferenceSceneSample {
     objectCulling: "cpu" | "gpu";
     indirectDraws: boolean;
   };
+  /** Optional long-running acceptance counters; null until the scene samples them. */
+  acceptance?: MarsReferenceAcceptance;
+  /** Deterministic analytic crater cross-section used by the Phase 23.4 route gate. */
+  craterRoute?: MarsCraterRoute;
 }
 
 export interface MarsReferenceTelemetry {
@@ -221,6 +227,8 @@ export interface MarsReferenceState {
     speed: number;
   };
   traversal: MarsReferenceTraversal;
+  acceptance: MarsReferenceAcceptance | null;
+  craterRoute: MarsCraterRoute;
   streaming: {
     assetQueued: number | null;
     assetInFlight: number | null;
@@ -309,6 +317,16 @@ export function captureMarsReferenceState(
       speed: sample.speed,
     },
     traversal: { ...sample.traversal },
+    acceptance: sample.acceptance ?? null,
+    craterRoute: sample.craterRoute ?? {
+      schema: "forge.mars-crater-route/1",
+      seed: 1337,
+      points: [],
+      craterId: 0,
+      reliefMeters: 0,
+      enteredCrater: false,
+      passed: false,
+    },
     streaming: {
       assetQueued: numberOrNull(stats?.streaming.queued),
       assetInFlight: numberOrNull(stats?.streaming.inFlight),
