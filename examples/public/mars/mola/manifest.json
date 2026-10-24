@@ -1,0 +1,150 @@
+{
+  "format": "forge-mars-height-atlas",
+  "version": 1,
+  "source": {
+    "name": "Mars MGS MOLA DEM 463m (USGS Astrogeology Science Center / NASA MGS MOLA Science Team)",
+    "resolutionM": 463,
+    "datum": "MOLA areoid (elevation in metres above the reference sphere, as in the GeoTIFF; sphere radius 3396190 m)",
+    "file": "Mars_MGS_MOLA_DEM_mosaic_global_463m.tif",
+    "license": "Public domain (NASA/USGS)"
+  },
+  "range": {
+    "minM": -8200,
+    "maxM": 21200
+  },
+  "apron": 1,
+  "encoding": "gzip-grad16",
+  "cubeSphere": {
+    "faceOrder": [
+      "+X",
+      "-X",
+      "+Y",
+      "-Y",
+      "+Z",
+      "-Z"
+    ],
+    "warp": "spherified-cube (cubeSphere.ts)",
+    "registration": "node (u = -1 + 2i/(res-1))",
+    "latLon": "lat = asin(y), lon = atan2(z, x), east-positive"
+  },
+  "sizes": {
+    "phone": {
+      "res": 512,
+      "stored": 514,
+      "nodeSpacingM": 10440,
+      "faces": [
+        {
+          "file": "phone/face0.bin",
+          "bytes": 353375,
+          "sha256": "869ae341099e0af36692e3d6b2c664bed3699ac9bdb8287ac45ce9d81a9e8a58"
+        },
+        {
+          "file": "phone/face1.bin",
+          "bytes": 333021,
+          "sha256": "664fdc4fd10a143f30cb201755566361b3e12aacdb7540e7be9777c1bd832bd1"
+        },
+        {
+          "file": "phone/face2.bin",
+          "bytes": 302902,
+          "sha256": "f3e3030c54b29cbd9e16b62fb330842d2f671432d7aae0a5904eaad2ccd0a73c"
+        },
+        {
+          "file": "phone/face3.bin",
+          "bytes": 353635,
+          "sha256": "a1e89b489525a2e975fa59783ec0bc443f9e0acd469485f71b1a87f262aad10a"
+        },
+        {
+          "file": "phone/face4.bin",
+          "bytes": 345917,
+          "sha256": "a99ce44e466e7b2b148688c998c3f884c086b9403fe8eef0275a678a8c61fdc8"
+        },
+        {
+          "file": "phone/face5.bin",
+          "bytes": 333149,
+          "sha256": "39748b41f518302f3ecacd40976c92e3d27d0c5db7b8d869f47146e193eccc16"
+        }
+      ],
+      "totalBytes": 2021999
+    },
+    "tablet": {
+      "res": 1024,
+      "stored": 1026,
+      "nodeSpacingM": 5215,
+      "faces": [
+        {
+          "file": "tablet/face0.bin",
+          "bytes": 1321193,
+          "sha256": "1a79e631949cb82d71b3d91ac8a917e6da013e46cc961db9bd299ab5253abd54"
+        },
+        {
+          "file": "tablet/face1.bin",
+          "bytes": 1247170,
+          "sha256": "9e4ee69905668e8241dc1dd71d01fa0d628cda985b5429e256f8f4bf05f03f39"
+        },
+        {
+          "file": "tablet/face2.bin",
+          "bytes": 1146415,
+          "sha256": "81881aff283d39db58d79293b894339f5de39afb4305db0beb3d8eab6082144e"
+        },
+        {
+          "file": "tablet/face3.bin",
+          "bytes": 1309633,
+          "sha256": "c52a01d790cf33d71e628dffd283bbff9ed0378dcaf7986c414bbf2b68b18db8"
+        },
+        {
+          "file": "tablet/face4.bin",
+          "bytes": 1298079,
+          "sha256": "c10faae86fc088049ef6748b274cd7bb3ce61a5de7351b5d075e3058c95fa02d"
+        },
+        {
+          "file": "tablet/face5.bin",
+          "bytes": 1244231,
+          "sha256": "4ad2944e113425922e006dc0bd35ba0bf601a509cb9ddfec833ef583c930403c"
+        }
+      ],
+      "totalBytes": 7566721
+    },
+    "desktop": {
+      "res": 2048,
+      "stored": 2050,
+      "nodeSpacingM": 2606,
+      "faces": [
+        {
+          "file": "desktop/face0.bin",
+          "bytes": 4874179,
+          "sha256": "aadca417044e646470a41283bf7a791971728e84f449a89acdc3c15c48637772"
+        },
+        {
+          "file": "desktop/face1.bin",
+          "bytes": 4602525,
+          "sha256": "178411d68c7e4018235082a7623f75791b4d05e79b29349cb6f739f0a3d21b8f"
+        },
+        {
+          "file": "desktop/face2.bin",
+          "bytes": 4251713,
+          "sha256": "23d50e177796e0420f7b0c5d89a7008b87694f37ec7230f9d3e2b9b340511697"
+        },
+        {
+          "file": "desktop/face3.bin",
+          "bytes": 4777272,
+          "sha256": "7a074f95e8f185621929579b2cf070a65a80d94e46d78040fef6265ee8cb41e1"
+        },
+        {
+          "file": "desktop/face4.bin",
+          "bytes": 4790603,
+          "sha256": "6c9022cf4ce25801b287e9a889e1ae5b956cec6bb1ef0fb884037cf8cce8b872"
+        },
+        {
+          "file": "desktop/face5.bin",
+          "bytes": 4572464,
+          "sha256": "06dd8235de637ea344afdb6e4edf65d6503011d8fbedad1803563c453476480d"
+        }
+      ],
+      "totalBytes": 27868756
+    }
+  },
+  "generated": {
+    "tool": "tools/bake-mola-atlas.mjs",
+    "note": "Offline bake; not run in CI."
+  }
+}

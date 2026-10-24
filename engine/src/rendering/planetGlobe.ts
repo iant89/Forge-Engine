@@ -47,7 +47,11 @@ export interface PlanetSurfaceSample {
 /** Anything that can say what a planet looks like at a unit direction (planet-fixed frame). */
 export interface PlanetSurfaceSampler {
   readonly radius: number;
-  sample(dx: number, dy: number, dz: number, out: PlanetSurfaceSample): PlanetSurfaceSample;
+  /**
+   * `footprintRad` is the angular size of the grid cell the sample will be interpolated over (the current
+   * sampling pass's spacing); samplers over real data average across it to avoid aliasing. Optional.
+   */
+  sample(dx: number, dy: number, dz: number, out: PlanetSurfaceSample, footprintRad?: number): PlanetSurfaceSample;
   /** Cheap albedo multiplier around 1 for texel-level variation; omitted = none. */
   detail?(dx: number, dy: number, dz: number): number;
 }
@@ -66,6 +70,12 @@ export interface PlanetGlobeOptions {
   elevationExaggeration?: number;
   /** Slope multiplier of the baked shaded relief. Default 24. */
   reliefStrength?: number;
+  /**
+   * How strongly the baked relief modulates the albedo (the `1.15` in `1 + gain·(shade − flat)`).
+   * Raise it where the real relief is subtle at orbit scale so the lit side keeps visible form even at
+   * noon (default 1.15).
+   */
+  reliefGain?: number;
   /** Cloud layer: texture width (height half) and shell height above the sphere, metres. Default 512 / 18 km. */
   cloudTextureWidth?: number;
   cloudAltitude?: number;
@@ -92,6 +102,7 @@ export class PlanetGlobe {
   private readonly passes: readonly number[];
   private readonly exaggeration: number;
   private readonly relief: number;
+  private readonly reliefGain: number;
   private readonly cloudW: number;
   private readonly cloudH: number;
 
@@ -143,6 +154,7 @@ export class PlanetGlobe {
     this.passes = (options.gridPasses ?? [90, 180, 360]).map((c) => Math.max(8, Math.floor(c)));
     this.exaggeration = options.elevationExaggeration ?? 3;
     this.relief = options.reliefStrength ?? 24;
+    this.reliefGain = options.reliefGain ?? 1.15;
     this.cloudW = Math.max(64, Math.floor(options.cloudTextureWidth ?? 512));
     this.cloudH = this.cloudW >> 1;
     this.atmosphereRowsPerSlice = Math.max(8, this.cloudH >> 3);
@@ -285,6 +297,7 @@ export class PlanetGlobe {
     const rows = this.gridRows;
     const total = cols * rows;
     const out = this.sampleOut;
+    const cellRad = (Math.PI * 2) / cols;
     let n = 0;
     while (this.cursor < total) {
       const j = (this.cursor / cols) | 0;
@@ -292,7 +305,7 @@ export class PlanetGlobe {
       const lat = (90 - ((j + 0.5) / rows) * 180) * DEG;
       const lon = (((i + 0.5) / cols) * 360) * DEG;
       const c = Math.cos(lat);
-      this.sampler.sample(c * Math.cos(lon), Math.sin(lat), c * Math.sin(lon), out);
+      this.sampler.sample(c * Math.cos(lon), Math.sin(lat), c * Math.sin(lon), out, cellRad);
       this.gridElevation[this.cursor] = out.elevation;
       const o = this.cursor * 3;
       this.gridColor[o] = clampByte(out.r);
@@ -385,7 +398,7 @@ export class PlanetGlobe {
         // Surface normal in (east, north, up): (-dEast, -dNorth, 1).
         const nl = Math.hypot(dEast, dNorth, 1);
         const shade = (-dEast * lx - dNorth * ly + lz) / (nl * lnorm);
-        let k = 1 + 1.15 * (shade - flat);
+        let k = 1 + this.reliefGain * (shade - flat);
         if (detail) {
           const cl = cosLat;
           const lonR = lon * DEG;

@@ -35,14 +35,29 @@ import {
 } from "./cubeSphere.js";
 import { MARS_GEN_PARAMS, MARS_RADIUS_M, type MarsGenParams, type MarsGenParamsOverrides, createMarsGenParams } from "./config.js";
 import {
-  MARS_MATERIAL_HARDNESS,
   MarsCraterScanner,
   MarsMaterial,
   marsFineDetail,
   marsSampleAnalytic,
+  marsSampleOverRealBase,
 } from "./geology.js";
 import { marsFbm3, type MarsFbm3Options } from "./noise3.js";
 import { MarsGlobalFieldSet, type MarsGlobalSample } from "./globalFields.js";
+import type { MarsHeightAtlas } from "./heightAtlas.js";
+
+/**
+ * Over real elevation data the procedural detail (small craters, the fine-detail band) is weighted by
+ * how fine the tile is: full weight at <= 150 m between vertices, none at >= 900 m, smoothstepped.
+ * Coarse tiles then show the real shapes alone instead of aliased procedural speckle, and a tile never
+ * buries a real feature under invented relief. Every tile the demos use (4-32 m spacing) is at 1.
+ */
+export const MARS_REAL_DETAIL_FULL_STEP_M = 150;
+export const MARS_REAL_DETAIL_ZERO_STEP_M = 900;
+
+function realDetailWeight(step: number): number {
+  const t = clamp((step - MARS_REAL_DETAIL_FULL_STEP_M) / (MARS_REAL_DETAIL_ZERO_STEP_M - MARS_REAL_DETAIL_FULL_STEP_M), 0, 1);
+  return 1 - t * t * (3 - 2 * t);
+}
 
 // A 3-octave, planet-space material field spans roughly 42–167 m per octave. It adds local
 // weathering/veneer within the much larger geology regions without reading mesh-derived slopes.
@@ -258,6 +273,15 @@ export interface MarsTerrainStageOptions {
   site?: MarsSiteOptions | MarsSitePreset;
   /** Stage A fields; without them the terrain is analytic only (no simulated erosion). */
   globalFields?: MarsGlobalFieldSet | null;
+  /**
+   * Real MOLA elevation (see `heightAtlas.ts`). When given — and the face under a vertex is loaded —
+   * the real height is the base relief; the procedural craters/volcanoes/dichotomy/canyon and the Stage A
+   * erosion correction (which belong to the procedural base) are replaced, and only the small-crater band
+   * and the fine-detail band are layered on top, fading in as tiles get finer. Vertices on a face that
+   * is not loaded fall back to the procedural surface. Cache-backed like `globalFields`: a stage with an
+   * atlas runs inline (not in a worker).
+   */
+  heightAtlas?: MarsHeightAtlas | null;
   /** Include the Stage B fine-detail bands (default true). */
   detail?: boolean;
   /**
@@ -282,6 +306,7 @@ export class MarsTerrainStage implements TerrainStage {
   readonly params: MarsGenParams;
   readonly site: MarsSite;
   readonly globalFields: MarsGlobalFieldSet | null;
+  readonly heightAtlas: MarsHeightAtlas | null;
   readonly detail: boolean;
   readonly curvatureCompensation: boolean;
 
@@ -308,6 +333,7 @@ export class MarsTerrainStage implements TerrainStage {
     const site = options.site ?? MARS_SITE_PRESETS.olympusMons!;
     this.site = new MarsSite({ radiusM: this.params.radius, ...site });
     this.globalFields = options.globalFields ?? null;
+    this.heightAtlas = options.heightAtlas ?? null;
     this.detail = options.detail ?? true;
     this.curvatureCompensation = options.curvatureCompensation ?? true;
   }
@@ -342,6 +368,11 @@ export class MarsTerrainStage implements TerrainStage {
    * stages on the live-instance fallback instead of silently dropping their erosion correction.
    */
   get identity(): string {
+    // The atlas key is only present with an atlas, so atlas-less stages keep their historical identity
+    // (and cache keys); a non-null marker keeps atlas-backed stages inline like `globalFields`.
+    const atlas = this.heightAtlas
+      ? { heightAtlas: { resolutions: this.heightAtlas.resolutions, faces: this.heightAtlas.facesLoaded() } }
+      : {};
     return JSON.stringify({
       seed: this.params.seed,
       radius: this.params.radius,
@@ -352,7 +383,44 @@ export class MarsTerrainStage implements TerrainStage {
       detail: this.detail,
       curvatureCompensation: this.curvatureCompensation,
       globalFields: this.globalFields ? this.globalFields.availableFaces : null,
+      ...atlas,
     });
+  }
+
+  /** True when a height atlas with at least one face is attached (real elevation drives the base relief). */
+  get hasRealElevation(): boolean {
+    return !!this.heightAtlas && this.heightAtlas.facesLoaded().length > 0;
+  }
+
+  /**
+   * Surface at a direction: `{ elevation, material, hardness }` plus the erosion/flow fields the detail
+   * band reads. Real atlas heights when available at this direction, otherwise the procedural model.
+   * `detailWeight` (0..1) scales the layered procedural detail over real heights.
+   */
+  private evaluate(
+    dir: { x: number; y: number; z: number },
+    craters: MarsCraterScanner | undefined,
+    detailWeight: number,
+  ): { elevation: number; material: MarsMaterial } {
+    const atlas = this.heightAtlas;
+    if (atlas) {
+      const real = atlas.sample(dir.x, dir.y, dir.z);
+      if (real === real) {
+        const base = marsSampleOverRealBase(dir.x, dir.y, dir.z, this.params, real, detailWeight, craters ?? new MarsCraterScanner(this.params.seed));
+        const detail = this.detail && detailWeight > 0
+          ? detailWeight * marsFineDetail(dir.x, dir.y, dir.z, this.params.radius, base.hardness, 0, this.params.seed)
+          : 0;
+        return { elevation: base.elevation + detail, material: base.material };
+      }
+    }
+    const analytic = marsSampleAnalytic(dir.x, dir.y, dir.z, this.params, craters);
+    const global = this.globalFields
+      ? this.globalFields.sample(dir.x, dir.y, dir.z, this.scratchSample)
+      : this.scratchSample;
+    const detail = this.detail
+      ? marsFineDetail(dir.x, dir.y, dir.z, this.params.radius, analytic.hardness, global.flowAccum, this.params.seed)
+      : 0;
+    return { elevation: analytic.elevation + global.erosionDelta + detail, material: analytic.material };
   }
 
   /** True when the Stage A erosion correction is available for every face the patch touches. */
@@ -366,7 +434,7 @@ export class MarsTerrainStage implements TerrainStage {
     const step = size / (res - 1);
     const originX = cell.cx * size;
     const originZ = cell.cz * size;
-    const fields = this.globalFields;
+    const weight = realDetailWeight(step);
     const dir = { x: 0, y: 0, z: 0 };
     // One scan per chunk: its vertices share a handful of crater cells, so the cell hashes are done
     // once instead of per vertex (see `MarsCraterScanner`). A scan is not reused across chunks, so
@@ -380,18 +448,12 @@ export class MarsTerrainStage implements TerrainStage {
         const idx = j * res + i;
 
         this.site.directionFor(wx, wz, dir);
-        const analytic = marsSampleAnalytic(dir.x, dir.y, dir.z, this.params, craters);
-        const global = fields ? fields.sample(dir.x, dir.y, dir.z, this.scratchSample) : this.scratchSample;
-        const detail = this.detail
-          ? marsFineDetail(dir.x, dir.y, dir.z, this.params.radius, analytic.hardness, global.flowAccum, this.params.seed)
-          : 0;
-
-        const elevation = analytic.elevation + global.erosionDelta + detail;
-        cell.heights[idx] = this.site.planeHeight(elevation, wx, wz, this.curvatureCompensation);
+        const surface = this.evaluate(dir, craters, weight);
+        cell.heights[idx] = this.site.planeHeight(surface.elevation, wx, wz, this.curvatureCompensation);
         this.writeMaterialWeights(
           cell,
           idx,
-          analytic.material,
+          surface.material,
           dir.x * this.params.radius,
           dir.y * this.params.radius,
           dir.z * this.params.radius,
@@ -515,14 +577,8 @@ export class MarsTerrainStage implements TerrainStage {
   /** Sample the assembled surface (analytic + correction + detail) at one world position. */
   sampleElevation(worldX: number, worldZ: number): number {
     const dir = this.site.directionFor(worldX, worldZ);
-    const analytic = marsSampleAnalytic(dir.x, dir.y, dir.z, this.params);
-    const global = this.globalFields
-      ? this.globalFields.sample(dir.x, dir.y, dir.z)
-      : { erosionDelta: 0, hardness: MARS_MATERIAL_HARDNESS[analytic.material], material: analytic.material, flowAccum: 0 };
-    const detail = this.detail
-      ? marsFineDetail(dir.x, dir.y, dir.z, this.params.radius, analytic.hardness, global.flowAccum, this.params.seed)
-      : 0;
-    return this.site.planeHeight(analytic.elevation + global.erosionDelta + detail, worldX, worldZ, this.curvatureCompensation);
+    const surface = this.evaluate(dir, undefined, 1);
+    return this.site.planeHeight(surface.elevation, worldX, worldZ, this.curvatureCompensation);
   }
 }
 

@@ -242,11 +242,13 @@ export class MarsCraterScanner {
    * Summed crater relief at a planet-space point, in metres (negative inside a bowl). Same sampled
    * set as `marsSampleCraterDelta`: the +-1 cell window is applied with the vertex's own cell triple.
    */
-  deltaAt(px: number, py: number, pz: number): { delta: number; inCrater: boolean; craterId: number } {
+  deltaAt(px: number, py: number, pz: number, firstBand = 0): { delta: number; inCrater: boolean; craterId: number } {
     let delta = 0;
     let inCrater = false;
     let craterId = 0;
-    for (let band = 0; band < MARS_CRATER_SCALES.length; band++) {
+    // `firstBand` skips the large bands: over real elevation data the basins and big craters are already
+    // in the heights, so only the small band (below a real-data node's size) is layered on top.
+    for (let band = firstBand; band < MARS_CRATER_SCALES.length; band++) {
       const cs = MARS_CRATER_SCALES[band]!.cellSizeMeters;
       const candidates = this.candidatesFor(band, Math.floor(px / cs), Math.floor(py / cs), Math.floor(pz / cs));
       for (let i = 0; i < candidates.length; i++) {
@@ -564,6 +566,61 @@ export function marsSampleAnalytic(
     material = patch > 0.3 ? MarsMaterial.Regolith : MarsMaterial.ExposedBedrock;
   }
 
+  return { elevation, material, hardness: MARS_MATERIAL_HARDNESS[material] };
+}
+
+// ------------------------------------------------------------------ over real elevation
+
+/** First crater band layered over real elevation data (the small one: radii 150 m – 1.8 km). */
+export const MARS_REAL_BASE_FIRST_CRATER_BAND = 2;
+
+/** Real elevation (metres) below which a spot is classed as deep basin/canyon sediment. */
+const REAL_SEDIMENT_BELOW_M = -5500;
+/** Real elevation above which a spot is classed as volcanic flank (Tharsis / Olympus / Elysium). */
+const REAL_VOLCANIC_ABOVE_M = 10000;
+
+/**
+ * The surface when the base relief is **real elevation data** (the MOLA height atlas) instead of the
+ * procedural dichotomy/canyon/volcano/crater model.
+ *
+ * `elevation = realElevation + craterWeight * (small craters)`: the geology the procedural model
+ * invents at kilometre scale is *replaced* by the real thing, and only the small crater band — features
+ * smaller than the atlas can resolve — is layered on top, weighted by `craterWeight` (0..1) so a caller
+ * can fade it out where the sampling is too coarse to carry it. Material is classified from the real
+ * heights (deep basins, volcanic highs) and the crater floor; hardness follows from the material.
+ */
+export function marsSampleOverRealBase(
+  dirX: number,
+  dirY: number,
+  dirZ: number,
+  params: MarsGenParamsLike,
+  realElevation: number,
+  craterWeight: number,
+  craterScanner: MarsCraterScanner,
+): MarsAnalyticSample {
+  const radius = params.radius;
+  const px = dirX * radius;
+  const py = dirY * radius;
+  const pz = dirZ * radius;
+  const craters = craterWeight > 0 ? craterScanner.deltaAt(px, py, pz, MARS_REAL_BASE_FIRST_CRATER_BAND) : null;
+  const elevation = realElevation + (craters ? craters.delta * craterWeight : 0);
+  let material: MarsMaterial;
+  if (craters?.inCrater && craterWeight > 0.5) {
+    material = MarsMaterial.CraterFloor;
+  } else if (realElevation > REAL_VOLCANIC_ABOVE_M) {
+    material = MarsMaterial.VolcanicFlank;
+  } else if (realElevation < REAL_SEDIMENT_BELOW_M) {
+    material = MarsMaterial.LayeredSediment;
+  } else {
+    const patch = marsFbm3(px * 0.00003, py * 0.00003, pz * 0.00003, {
+      octaves: 3,
+      lacunarity: 2,
+      gain: 0.5,
+      frequency: 1,
+      seed: params.seed + 77,
+    });
+    material = patch > 0.3 ? MarsMaterial.Regolith : MarsMaterial.ExposedBedrock;
+  }
   return { elevation, material, hardness: MARS_MATERIAL_HARDNESS[material] };
 }
 
