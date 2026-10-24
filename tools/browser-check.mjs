@@ -926,6 +926,21 @@ async function checkAmazonRiver() {
 }
 
 /**
+ * `samplePixels` copies the canvas in an animation frame, and a headless SwiftShader frame that has not been
+ * presented yet reads back as one flat colour. Sample until a frame shows the scene (up to `timeoutMs`): a
+ * view that is really blank still fails, after the wait, with the last reading.
+ */
+async function sampleLitFrame(timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  let pixels = await samplePixels();
+  while (!(pixels.distinct >= 8 && pixels.mean >= 6) && Date.now() < deadline) {
+    await sleep(500);
+    pixels = await samplePixels();
+  }
+  return pixels;
+}
+
+/**
  * Focused Mars Orbit Explorer smoke (fe-39): the planet is on screen and bakes, a mouse drag turns it,
  * the touch diagnostics toggle, a dive lands on the ground with the region's weather and terrain,
  * and the return button flies back to orbit. `?moinstant=1` lands transitions at once and `?mobake=`
@@ -945,7 +960,7 @@ async function checkMarsOrbit() {
     throw new Error(`mars-orbit low tier did not load the phone MOLA atlas: ${JSON.stringify(atlas0)}`);
   }
   await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
-  const cover = await samplePixels();
+  const cover = await sampleLitFrame();
   if (!(cover.distinct >= 8)) throw new Error(`only ${cover.distinct} distinct colours; the globe is not rendering`);
   if (!(cover.mean >= 6)) throw new Error(`frame is almost black (mean luminance ${cover.mean.toFixed(1)})`);
   await page.screenshot({ path: "tools/.browser-check-mars-orbit.png", timeout: 60000 });
@@ -986,10 +1001,12 @@ async function checkMarsOrbit() {
   await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 250, timeout: 60000 });
   const end = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
   if (end.stats.gpuErrors !== 0 || end.stats.lastError) throw new Error(`Mars orbit GPU error: ${end.stats.lastError}`);
+  const realtime = await checkMarsOrbitRealtimeReturn();
   console.log(
     `mars orbit: globe ${(first.globeProgress * 100).toFixed(0)}%→, drag turned ${turned.toFixed(1)}°, ` +
       `ground dust=${ground.state.weather.dust.toFixed(2)} (${ground.state.weather.dominantId}), terrain ${ground.state.terrainReadyChunks}/${ground.state.terrainChunks} chunks, ` +
-      `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}, atlas ${atlas0.size} ${(atlas0.bytesDownloaded / 1e6).toFixed(1)} MB`,
+      `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}, atlas ${atlas0.size} ${(atlas0.bytesDownloaded / 1e6).toFixed(1)} MB; ` +
+      `real-time return: frame mean=${realtime.mean.toFixed(1)}, distinct=${realtime.distinct}, GPU errors=${realtime.gpuErrors}`,
   );
   await checkMarsOrbitAtlasSize("tablet");
   await checkMarsOrbitAtlasSize("desktop");
@@ -1036,6 +1053,40 @@ async function checkMarsOrbitAtlasSize(size) {
     `mars orbit atlas ${size}: ${loaded.resolution}² base, ${ground.state.atlas.facesDetail} detail face(s), ` +
       `${(ground.state.atlas.bytesDownloaded / 1e6).toFixed(1)} MB fetched (${ground.state.atlas.cacheHits} cache hits), terrain ${ground.state.terrainReadyChunks} chunks, GPU errors=${ground.stats.gpuErrors}`,
   );
+}
+
+/**
+ * Real-time (not instant) dive and return. `?moinstant=1` swaps the worlds in one call, which hides every
+ * bug that needs the ground world to be torn down while the frame loop keeps running: the return flies
+ * out of the ground world, destroys it between two frames and must keep drawing the globe. The page is
+ * reloaded without `moinstant`; headless SwiftShader only renders a few frames a second and the scene
+ * clamps dt, so the transitions simply take a little longer in wall time.
+ */
+async function checkMarsOrbitRealtimeReturn() {
+  await page.goto(`${URL}?scene=mars-orbit&tier=low&mobake=40`, { waitUntil: "load", timeout: 60000 });
+  await page.waitForFunction(() => window.__forge?.marsOrbitState?.() != null, null, { polling: 250, timeout: 90000 });
+  await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
+  await page.evaluate(() => window.__forge.marsOrbitDive(-42, 70, { hours: 13, ls: 225 }));
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 100, timeout: 600000 });
+  await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
+  await sleep(1000);
+  await page.evaluate(() => window.__forge.marsOrbitReturn());
+  // The return must fly through the ascend phases (the instant path never does) and tear the ground world
+  // down between two frames of the running loop.
+  const left = await page.evaluate(() => window.__forge.marsOrbitState().mode);
+  if (left !== "ascend") throw new Error(`the return did not start a real-time ascent (mode ${left})`);
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "orbit", null, { polling: 100, timeout: 600000 });
+  // Let several frames render after the ground world is gone: the failure shows on the frames after teardown.
+  await waitPresentedFrames(6);
+  await sleep(1500);
+  const pixels = await sampleLitFrame();
+  const stats = await page.evaluate(() => window.__forge.stats());
+  await page.screenshot({ path: "tools/.browser-check-mars-orbit-return.png", timeout: 60000 });
+  if (stats.gpuErrors !== 0 || stats.lastError) throw new Error(`Mars orbit GPU error after a real-time return: ${stats.lastError}`);
+  if (!(pixels.distinct >= 8) || !(pixels.mean >= 6)) {
+    throw new Error(`orbit view is blank after a real-time return (mean ${pixels.mean.toFixed(1)}, ${pixels.distinct} distinct colours)`);
+  }
+  return { mean: pixels.mean, distinct: pixels.distinct, gpuErrors: stats.gpuErrors };
 }
 
 /** Focused Alpine rescue smoke: selector wiring, dynamic physics, cargo mission, storm, and drive. */

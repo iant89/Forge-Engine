@@ -30971,5 +30971,78 @@ JSON array below; agents maintain it by hand until then.
       "tools/browser-check.mjs",
       "change-log.md"
     ]
+  },
+  {
+    "id": "2488",
+    "date": "2026-10-24T10:27:01Z",
+    "type": "change",
+    "pr": 160,
+    "branch": "mars-orbit-explorer",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/terrain/world.ts",
+    "what": "TerrainWorld.dispose() now destroys the chunk and horizon-skirt entities it created in the scene world before releasing their geometry",
+    "why": "Removing a TerrainWorld from a live scene (Mars Orbit return-to-orbit) left Renderables pointing at released geometry; the renderer drew them with vertex slot 0 unset, which invalidated every frame (black screen)"
+  },
+  {
+    "id": "2489",
+    "date": "2026-10-24T10:27:01Z",
+    "type": "change",
+    "pr": 160,
+    "branch": "mars-orbit-explorer",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "Renderable collection skips renderables whose Geometry has been released",
+    "why": "Defence in depth: a released geometry has no buffers, and drawing it fails the whole command buffer instead of dropping one batch"
+  },
+  {
+    "id": "2490",
+    "date": "2026-10-24T10:27:01Z",
+    "type": "change",
+    "pr": 160,
+    "branch": "mars-orbit-explorer",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/terrain/terrain.test.ts",
+    "what": "Two regression tests: removing a TerrainWorld from a live scene leaves no terrain renderables or released geometry, and a world can be rebuilt without ghosts",
+    "why": "Pins the return-to-orbit black-screen root cause"
+  },
+  {
+    "id": "2491",
+    "date": "2026-10-24T10:27:01Z",
+    "type": "change",
+    "pr": 160,
+    "branch": "mars-orbit-explorer",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tests/rendering/frame.test.ts",
+    "what": "Regression test: a renderable with released geometry is skipped (cpu and gpu object culling) with no validation error",
+    "why": "Pins the renderer guard; fails with the exact 'vertex buffer slot 0' error without it"
+  },
+  {
+    "id": "2492",
+    "date": "2026-10-24T10:27:01Z",
+    "type": "change",
+    "pr": 160,
+    "branch": "mars-orbit-explorer",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "tools/browser-check.mjs",
+    "what": "check:browser --mars-orbit now also reloads without moinstant, dives and returns in real time, then requires 0 GPU errors and a non-blank orbit frame (screenshot tools/.browser-check-mars-orbit-return.png)",
+    "why": "?moinstant=1 swaps worlds in one call and cannot catch bugs that need a frame between teardown and the next draw"
+  },
+  {
+    "id": "2493",
+    "date": "2026-10-24T10:27:01Z",
+    "type": "change",
+    "pr": 160,
+    "branch": "mars-orbit-explorer",
+    "model": "Arena Agent Mode",
+    "modelVersion": null,
+    "file": "mnemosyne.md",
+    "what": "Root cause, fix and gate gap of the return-to-orbit black screen",
+    "why": "Lessons for the next agent"
   }
 ]
+```

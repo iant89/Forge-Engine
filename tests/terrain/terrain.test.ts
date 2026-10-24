@@ -83,6 +83,7 @@ import {
   Camera,
   Transform,
   Renderable,
+  GraphicsDevice,
   EntityWorld,
   Clock,
   Logger,
@@ -1222,6 +1223,75 @@ group("Terrain - adversarial auto-fix (geomorph/memory/LOD cancel)", () => {
     world.dispose();
   });
 
+});
+
+group("Terrain - removal from a live scene (return-to-orbit regression)", () => {
+  /** The scene holds nothing but terrain, so every Renderable is one the renderer would batch and draw. */
+  const terrainRenderables = (scene: Scene) => scene.world.store(Renderable).liveValues();
+
+  test("removing a TerrainWorld destroys its chunk and horizon entities and leaves none holding released geometry", async () => {
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const scene = new Scene({ name: "terrain-removal" });
+    scene.attachToEngine({ gpu: device });
+    const terrain = new TerrainWorld({
+      chunkSize: 64,
+      chunkResolution: 9,
+      viewDistance: 200,
+      maxChunksLoaded: 25,
+      maxGenerationsPerFrame: 32,
+      warmUpChunks: 25,
+      syncGeneration: true,
+    });
+    scene.add(terrain);
+    const cameraEntity = scene.world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+    terrain.focusPosition.set(0, 20, 0);
+    const ctx = createMockContext(scene.world);
+    terrain.update(ctx, 0.016);
+    terrain.update(ctx, 0.016);
+
+    const before = terrainRenderables(scene);
+    assert.ok(before.length > 1, `streamed ${before.length} terrain entities`);
+    assert.ok(before.every((r) => r.geometry !== null && !r.geometry.released), "live terrain draws live geometry");
+    const geometries = before.map((r) => r.geometry!);
+
+    // The frame loop keeps running after this call: it must find nothing of the terrain left to draw.
+    scene.removeObject(terrain);
+    assert.ok(geometries.every((g) => g.released), "the GPU buffers were released");
+    assert.equal(terrainRenderables(scene).length, 0, "no terrain entity outlives the world that owns it");
+    assert.equal(terrain.chunks.size, 0);
+
+    // Removing it twice (a demo that also calls dispose itself) stays harmless.
+    terrain.dispose();
+    scene.dispose();
+    await device.dispose();
+    assert.equal(device.mock!.outstanding.buffers.length, 0);
+  });
+
+  test("a disposed TerrainWorld can be rebuilt in the same scene without ghosts from the first one", async () => {
+    const scene = new Scene({ name: "terrain-rebuild" });
+    const make = () =>
+      new TerrainWorld({ chunkSize: 64, chunkResolution: 9, viewDistance: 120, maxChunksLoaded: 9, maxGenerationsPerFrame: 16, warmUpChunks: 9, syncGeneration: true });
+    const cameraEntity = scene.world.createEntity("camera");
+    cameraEntity.add(new Camera());
+    cameraEntity.add(new Transform());
+    const ctx = createMockContext(scene.world);
+
+    const first = make();
+    scene.add(first);
+    first.update(ctx, 0.016);
+    const firstCount = terrainRenderables(scene).length;
+    assert.ok(firstCount > 0);
+    scene.removeObject(first);
+    assert.equal(terrainRenderables(scene).length, 0);
+
+    const second = make();
+    scene.add(second);
+    second.update(ctx, 0.016);
+    assert.equal(terrainRenderables(scene).length, firstCount, "only the second world's entities exist");
+    scene.dispose();
+  });
 });
 
 await finish();
