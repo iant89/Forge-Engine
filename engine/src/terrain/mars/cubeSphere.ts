@@ -114,6 +114,109 @@ export function marsDirectionToFaceUV(dir: { x: number; y: number; z: number }):
   return { face, u, v };
 }
 
+/**
+ * Exact inverse of `marsFaceUVToDirection` on a given face (closed form, no iteration).
+ *
+ * The spherified-cube warp maps a cube point with free coordinates `(p, q)` to a *unit* vector whose
+ * two non-axis components are `P = p·sqrt(1/2 - q²/6)` and `Q = q·sqrt(1/2 - p²/6)`. Squaring and
+ * substituting `A = p²`, `B = q²` gives `A - B = 2(P² - Q²)` and a quadratic in `B`, so `(p, q)` come
+ * back exactly (to double precision). That is what lets a baked height atlas, written by evaluating
+ * `marsFaceUVToDirection` at every grid node, be read back at *the same place* from an arbitrary
+ * direction: `marsDirectionToFaceUV` is only the approximate gnomonic inverse and is off by up to
+ * ~0.1 of a face-local unit near the edges (hundreds of kilometres), so it must not be used for
+ * this.
+ *
+ * `face` defaults to the face the direction lies on. Passing another face evaluates that face's
+ * (extended) chart, which stays valid slightly beyond `|u|, |v| <= 1`; the atlas uses that to bake
+ * and read its one-texel apron without any cross-face lookup.
+ */
+export function marsDirectionToFaceUVExact(
+  dir: { x: number; y: number; z: number },
+  face?: number,
+  out?: MarsFaceUV,
+): MarsFaceUV {
+  const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+  const x = dir.x / len;
+  const y = dir.y / len;
+  const z = dir.z / len;
+  let f = face;
+  if (f === undefined) {
+    const ax = Math.abs(x);
+    const ay = Math.abs(y);
+    const az = Math.abs(z);
+    if (ax >= ay && ax >= az) f = x > 0 ? MARS_FACE_PX : MARS_FACE_NX;
+    else if (ay >= ax && ay >= az) f = y > 0 ? MARS_FACE_PY : MARS_FACE_NY;
+    else f = z > 0 ? MARS_FACE_PZ : MARS_FACE_NZ;
+  }
+  // The two components of the unit direction that are *not* along the face's axis, in the order the
+  // face maps them to (p, q) — see `marsFaceUVToDirection`.
+  let P: number;
+  let Q: number;
+  switch (f) {
+    case MARS_FACE_PX:
+    case MARS_FACE_NX:
+      P = y;
+      Q = z;
+      break;
+    case MARS_FACE_PY:
+    case MARS_FACE_NY:
+      P = x;
+      Q = z;
+      break;
+    case MARS_FACE_PZ:
+    case MARS_FACE_NZ:
+      P = x;
+      Q = y;
+      break;
+    default:
+      throw new Error(`marsDirectionToFaceUVExact: bad face ${f}`);
+  }
+  const P2 = P * P;
+  const Q2 = Q * Q;
+  const D = P2 - Q2;
+  // Smaller root of B² + (2D - 3)B + 6Q² = 0 in its cancellation-free form (and A by symmetry), then
+  // p = P / sqrt(1/2 - B/6), q = Q / sqrt(1/2 - A/6): exact to rounding even where p or q is ~0.
+  const bB = 3 - 2 * D;
+  const B = (12 * Q2) / (bB + Math.sqrt(Math.max(0, bB * bB - 24 * Q2)));
+  const bA = 3 + 2 * D;
+  const A = (12 * P2) / (bA + Math.sqrt(Math.max(0, bA * bA - 24 * P2)));
+  const p = P / Math.sqrt(Math.max(1e-12, 0.5 - B / 6));
+  const q = Q / Math.sqrt(Math.max(1e-12, 0.5 - A / 6));
+  let u: number;
+  let v: number;
+  switch (f) {
+    case MARS_FACE_PX:
+      v = p;
+      u = -q;
+      break;
+    case MARS_FACE_NX:
+      v = p;
+      u = q;
+      break;
+    case MARS_FACE_PY:
+      u = p;
+      v = -q;
+      break;
+    case MARS_FACE_NY:
+      u = p;
+      v = q;
+      break;
+    case MARS_FACE_PZ:
+      u = p;
+      v = q;
+      break;
+    default:
+      u = -p;
+      v = q;
+      break;
+  }
+  const result = out ?? { face: f, u, v };
+  result.face = f;
+  result.u = u;
+  result.v = v;
+  return result;
+}
+
 /** Normalise a direction in place-safe form (returns a fresh object; exact `1 / hypot` scaling). */
 export function marsNormalize(v: { x: number; y: number; z: number }): { x: number; y: number; z: number } {
   const inv = 1 / Math.hypot(v.x, v.y, v.z);
