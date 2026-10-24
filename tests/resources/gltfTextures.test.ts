@@ -356,7 +356,15 @@ group("material features", () => {
     const tex = (await loadGltfTextures(d, await decodeGltfMesh(features), { decodeImage: fakeDecoder() }));
     cleanups.push(() => tex.dispose());
     const s = d.samplerFromDescriptor({ magFilter: "nearest" });
-    const m = new Material({ emissiveMap: tex.get(0, "srgb"), occlusionMap: tex.get(1, "linear"), occlusionStrength: 0.25 });
+    const m = new Material({
+      emissiveMap: tex.get(0, "srgb"),
+      occlusionMap: tex.get(1, "linear"),
+      occlusionStrength: 0.25,
+      uvTransforms: {
+        albedo: { scale: [2, 3], offset: [0.25, -0.5], rotation: Math.PI / 2 },
+        occlusion: { scale: [0.5, 0.75] },
+      },
+    });
     m.alphaTest = 0.4;
     m.setSamplers({ emissive: s });
     const entries = (m as unknown as { gpuBindings(x: unknown): GPUBindGroupEntry[] }).gpuBindings({ white: tex.get(0, "srgb"), normal: tex.get(0, "srgb"), mr: tex.get(0, "srgb"), sampler: "DEFAULT" });
@@ -373,6 +381,12 @@ group("material features", () => {
     const f32 = (name: string) => priv.cpu.f32[MaterialUniforms.field(name, "uniform").offset >> 2]!;
     const flags = new Uint32Array(priv.cpu.f32.buffer)[MaterialUniforms.field("flags", "uniform").offset >> 2]!;
     assert.equal(f32("occlusionStrength"), 0.25);
+    const uvScaleOffset = MaterialUniforms.field("uvScaleOffset", "uniform").offset >> 2;
+    const uvRotation = MaterialUniforms.field("uvRotation", "uniform").offset >> 2;
+    assert.deepEqual([...priv.cpu.f32.slice(uvScaleOffset, uvScaleOffset + 4)], [2, 3, 0.25, -0.5]);
+    assert.ok(Math.abs(priv.cpu.f32[uvRotation]! - 0) < 1e-6);
+    assert.ok(Math.abs(priv.cpu.f32[uvRotation + 1]! - 1) < 1e-6);
+    assert.deepEqual([...priv.cpu.f32.slice(uvScaleOffset + 4 * 4 + 0, uvScaleOffset + 4 * 4 + 4)], [0.5, 0.75, 0, 0]);
     assert.ok(Math.abs(f32("alphaCutoff") - 0.4) < 1e-6);
     assert.equal(flags & (64 | 128 | 256), 64 | 128 | 256);
     const c = m.clone();
@@ -380,6 +394,10 @@ group("material features", () => {
     assert.equal(c.occlusionStrength, 0.25);
     assert.equal(c.alphaTest, 0.4);
     assert.equal(c.samplers.emissive, s);
+    assert.deepEqual(c.uvTransforms.albedo, m.uvTransforms.albedo);
+    const changed = m.clone({ uvTransforms: { normal: { rotation: 0.25 } } });
+    assert.equal(changed.uvTransforms.normal.rotation, 0.25);
+    assert.deepEqual(changed.uvTransforms.albedo, m.uvTransforms.albedo, "a partial clone override preserves other texture transforms");
   });
 
   test("TEXCOORD_1 emissive/occlusion maps retain their UV-set selection", async () => {

@@ -5,9 +5,11 @@ designed as a reusable technology platform (an engine), not as a single demo. Th
 rover application in `examples/mars` exists to prove the engine works.
 
 This document records the *structure* and the *reasoning*. Individual subsystem contracts
-live in `docs/` (`RENDERING.md`, `PHYSICS.md`, `TERRAIN.md`, `VEHICLES.md`,
-`PARTICLES.md`, `SCRIPTING.md`, `ASSETS.md`, `PERFORMANCE.md`, `EDITOR.md`, `API.md`).
-Decision records for every major technology choice are in `docs/decisions/`.
+live in the documents that are present in this checkout: `docs/RENDERING.md`,
+`docs/MARS-TERRAIN.md`, `docs/TERRAIN-REALISTIC.md`, `docs/VEHICLES.md`,
+`docs/PARTICLES.md`, `docs/SCRIPTING.md`, `docs/EDITOR.md`, `docs/API.md`,
+`docs/VERIFICATION.md`, and the root `PERFORMANCE.md`. Design decisions are summarized inline here and in the
+subsystem documents; this checkout does not contain a separate `docs/decisions/` ADR directory.
 
 ---
 
@@ -67,7 +69,7 @@ examples/               vite apps: spinning-cube (P1), pbr-scene (P2), terrain (
                         Mars (P14) is not built.
 tests/                  cross-subsystem integration tests + real-WebGPU browser tests
 benchmarks/             measured performance suites (math, ECS, terrain, physics, particles)
-docs/                   documentation + ADRs in docs/decisions/
+docs/                   subsystem contracts, verification notes, screenshots, and work notes
 tools/                  asset importer CLI, format converters, validation scripts
 ```
 
@@ -114,7 +116,7 @@ on top of terrain + rendering types, and neither gains a sibling import.
 | Work | Thread | Notes |
 |---|---|---|
 | Scripting, gameplay, rendering submission | main | Browser forbids DOM/GPU-encodable work off-main in practice; keep logic here |
-| Fixed-step simulation (physics, vehicles, weather) | main (worker **optional**) | Determinism + tight coupling to transforms wins over raw parallelism. `EngineConfig.simulation.worker` can move the *whole* sim step to a worker with double-buffered state snapshots (implemented, off by default; see ADR-008). |
+| Fixed-step simulation (physics, vehicles, weather) | main (worker **optional**) | Determinism + tight coupling to transforms wins over raw parallelism. `EngineConfig.simulation.worker` can move the *whole* sim step to a worker with double-buffered state snapshots (implemented, off by default). |
 | Terrain generation, erosion, scatter, BVH/LBVH build, mesh decode, texture decode | worker pool | Pure functions, prioritized, cancel-on-invalidate |
 | Culling | main + GPU | GPU occlusion queries where `occlusion-query` style timestamp support exists; otherwise CPU frustum + HiZ from previous frame's depth |
 | Audio graph | audio thread (browser-managed) | We only schedule; never block |
@@ -192,7 +194,7 @@ Typed pass description: each pass declares `read`/`write` resources (transient o
    (when available) timestamp queries.
 
 Chosen over a per-frame barrier model because WebGPU infers barriers, so the graph's job is
-memory planning and pass ordering, not synchronization. See ADR-004.
+memory planning and pass ordering, not synchronization.
 
 As built (`engine/src/rendering/renderGraph.ts`): producers are tracked per subresource
 (mip/array layer) so one cascade array can be written by N passes and sampled by one; dead
@@ -263,7 +265,7 @@ cascade blending and distance fade (`engine/src/rendering/shadows.ts`, `docs/REN
   applied at defined safe points (system boundaries), so iteration is allocation-free and
   cannot observe mutation mid-pass.
 
-See ADR-005 for "why not a full archetype store".
+The chosen component-store model keeps hot data dense without imposing an archetype migration cost on every structural change.
 
 ---
 
@@ -296,7 +298,7 @@ is pure, worker results are idempotent and cacheable to disk by key.
 
 Terrain *collision* and *vehicle contact* sample the cached heightmap with bicubic
 interpolation, guaranteeing that what you see is what you drive on (a real correctness
-requirement, see ADR-006).
+requirement).
 
 ---
 
@@ -346,7 +348,7 @@ Asset side: `AssetManager` gives `AssetHandle<T>` with priorities, cancellation,
 | Unit/integration suites (math, ECS, terrain, physics, vehicles, particles, assets, serialization) | repository-local selrun on Node; native `node:assert` plus suite helpers | 1,025 passing cases in 71 linked suites covering determinism, edge cases, and known-good analytic values |
 | GPU-logic without a GPU | in-repo **mock WebGPU** (`engine/src/testing/mockGpu.ts`) that validates descriptors, tracks object lifetime, records command streams | pipeline cache reuse, render-graph validation/aliasing, leak checks, bind-group layout, particle buffer math |
 | Real WebGPU and end-to-end smokes | separate Playwright + headless Chromium (`--enable-unsafe-webgpu`, SwiftShader) checks, outside `tests/*.test.ts` | adapter init, first-frame no validation errors, non-empty framebuffer (readback variance), demo page runs with 0 console errors |
-| Benchmarks | custom harness in `benchmarks/` | reported in `docs/PERFORMANCE.md` with the exact host spec and date; never fabricated |
+| Benchmarks | custom harness in `benchmarks/` | reported in the root `PERFORMANCE.md` with the exact host spec and date; never fabricated |
 | Architecture | selrun suite plus `npm run lint:arch` | import boundaries, no cycles, public API surface snapshot, "no TODO-stub systems" scan |
 
 Every phase ends with: build → typecheck → tests → demo run (headless WebGPU) → benchmarks
@@ -393,9 +395,9 @@ evidence and limits.
 
 ## 13. Where the design deliberately chose less
 
-Documented in `docs/decisions/ADR-010-deferred-techniques.md`: real-time GI (uses SSAO +
-probe IBL instead), virtual texturing (needs sparse binding, not widely exposable —
-streamed clipmap tiles instead), full trimesh dynamics for terrain (heightfield is exact
-and cheaper), Unreal-style Nanite meshlet pipeline (geomorphing quadtree + GPU instancing
-chosen; geometry shader-free), networked replication (out of scope; deterministic sim and
-snapshot APIs make it possible later).
+Deferred techniques: real-time GI uses SSAO + probe IBL instead; virtual texturing needs sparse
+binding that is not widely exposable, so the engine uses streamed clipmap tiles; full trimesh
+dynamics for terrain is replaced by the exact, cheaper heightfield path; the Unreal-style Nanite
+meshlet pipeline is replaced by a geometry-shader-free geomorphing quadtree + GPU instancing;
+networked replication is out of scope while deterministic simulation and snapshot APIs keep it
+possible later.

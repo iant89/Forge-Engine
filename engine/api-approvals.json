@@ -5,7 +5,7 @@
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "policy": "forge.api-approval-policy/2",
   "counts": {
-    "approved": 2211,
+    "approved": 2219,
     "pendingPublic": 0,
     "experimental": 9,
     "deprecated": 0
@@ -113,7 +113,7 @@
     {
       "id": "debug/1",
       "decision": "approved-1.0-candidate",
-      "summary": "Approve the developer console, frame profiler/timeline, and ECS, environment, GPU-resource, particle, physics, render-graph, streaming, and terrain inspection contracts; capture limits, filtering, aggregation, formatting, and debug geometry are exercised by the focused inspector suites.",
+      "summary": "Approve the developer console, frame profiler/timeline, and ECS, environment, GPU-resource, particle, physics, render-graph, streaming, terrain, and GPU-particle diagnostic inspection contracts; capture limits, filtering, aggregation, formatting, asynchronous samples, and debug geometry are exercised by the cited inspector suites.",
       "evidence": [
         "docs/API-REVIEW.md",
         "tests/core/runtimeApi.test.ts",
@@ -209,7 +209,7 @@
     {
       "id": "particles/1",
       "decision": "approved-1.0-candidate",
-      "summary": "Approve particle layouts, components, emitters, modules, CPU/GPU worlds and systems, shader contracts, precipitation, trails, and lightning/vortex/waterspout/wind-blown visual helpers; spawn, simulation, packing, limits, and weather coupling are exercised by the cited suites.",
+      "summary": "Approve particle layouts, components, emitters, modules, CPU/GPU worlds and systems, shader contracts, precipitation, trails, lightning/vortex/waterspout/wind-blown visual helpers, and opt-in GPU diagnostic snapshots; spawn, simulation, packing, limits, asynchronous readback, and weather coupling are exercised by the cited suites.",
       "evidence": [
         "docs/API-REVIEW.md",
         "tests/core/runtimeApi.test.ts",
@@ -261,7 +261,7 @@
     {
       "id": "rendering/1",
       "decision": "approved-1.0-candidate",
-      "summary": "Approve public geometry, material, mesh, cluster/light/object/population culling, pipeline, render-graph, renderer, primitive, shadow, skinning, scattering, splat, uniform, and shader contracts; graph ordering, frame execution, layouts, culling, shadows, pipelines, and WGSL are exercised by the cited suites.",
+      "summary": "Approve public geometry, material, mesh, cluster/light/object/population culling, pipeline, render-graph, renderer, primitive, shadow, skinning, scattering, splat, uniform, shader, MASK coverage, and material texture-transform contracts; graph ordering, frame execution, layouts, culling, shadows, transformed bindings, pipelines, and WGSL are exercised by the cited suites.",
       "evidence": [
         "docs/API-REVIEW.md",
         "tests/core/runtimeApi.test.ts",
@@ -329,7 +329,7 @@
     {
       "id": "resources/2",
       "decision": "approved-1.0-candidate",
-      "summary": "Review the extended glTF public decode contracts for morph targets, instancing, Draco and meshopt host seams.",
+      "summary": "Review the glTF morph/instancing metadata, injectable Draco/meshopt decoder, and KHR_texture_transform contracts used by the resource and scene importers.",
       "evidence": [
         "docs/API-REVIEW.md",
         "tests/core/runtimeApi.test.ts",
@@ -1140,7 +1140,7 @@
       "name": "BuiltinHandlerTable",
       "kind": "type",
       "declarationHash": "sha256:d7275a39c45add6aebff5573dfe4f2a95d1587045c07a61477d22793881a7881",
-      "contractHash": "sha256:e514e91c73dda92a8a49bf86c8b7dd467142254a98f2af8040cfd167baef6097",
+      "contractHash": "sha256:51f3a47f7b6ab24e536ba7a65b6dd7b878437e0ea47541e9db2a5b79d1615b30",
       "review": "core-tasks/1"
     },
     {
@@ -2232,7 +2232,7 @@
       "name": "DecodedGltfAsset",
       "kind": "type",
       "declarationHash": "sha256:20aceb9563ab5130aee4d0155905c8d82bff133d7708deb76438c786c5b8f831",
-      "contractHash": "sha256:12b38616d31420cd92830102185c81821aa811fa909a4f179c9f4b40b145a92e",
+      "contractHash": "sha256:490a6b25698e20dbef05ba1332603e1124f7ea45e91cb6e86b0310286b959680",
       "review": "core-tasks/1"
     },
     {
@@ -2252,8 +2252,8 @@
     {
       "name": "DecodedGltfMaterial",
       "kind": "type",
-      "declarationHash": "sha256:03a2ae523f0616e3c3d49311a2c4309b17604e6ba4d139bd176a550b3d2cd009",
-      "contractHash": "sha256:7d20b5d01ef6a1af599261284839ec9ea0d611da763f9eb5e98117b1bd3deb9c",
+      "declarationHash": "sha256:69f96bd1b2722cbd7c98a5693f03860c029a84c2580093cb6a3371e88080c3e1",
+      "contractHash": "sha256:290179e249d3d679e6d8310018f857930ed05952a300202420561a18c82d4440",
       "review": "core-tasks/1"
     },
     {
@@ -2320,6 +2320,13 @@
       "review": "core-tasks/1"
     },
     {
+      "name": "DecodedGltfTextureTransform",
+      "kind": "type",
+      "declarationHash": "sha256:c58a047787f4eab38a60be4e349db9982e466c6bd5674d9645d5dba2f51b8af8",
+      "contractHash": "sha256:a188dcb36d4040cde47904f82d2aa91acd94b27afec0b960450b5662059ad59b",
+      "review": "resources/2"
+    },
+    {
       "name": "DeformationStamp",
       "kind": "type",
       "declarationHash": "sha256:74c1c20745b8b0fdb035e78322fcc8c920fa2548f439f42f85ffa9a50c46709a",
@@ -2372,21 +2379,21 @@
       "name": "DeveloperConsole",
       "kind": "type-and-value",
       "declarationHash": "sha256:66237f53044e3e25815e950aad291d9444aec685c3a75a75a87815a5a2fccbcb",
-      "contractHash": "sha256:b3c3e6ff9aedec69714b034fc8fccde5044dd5a9ed014abbc80a4aa7a789d0d4",
+      "contractHash": "sha256:cd26bfe5693a2958a4c32307fc3be689e535ae72361ba23f9bc2b98577b2bb44",
       "review": "debug/1"
     },
     {
       "name": "DeveloperConsoleCommand",
       "kind": "type",
       "declarationHash": "sha256:7800f94d34f92c78537e568cdcf35432887d2bde150f244663c7d8e7eb08eefd",
-      "contractHash": "sha256:a3d3ac5b14597aab8677083c0dfabb8ff0ef74b4cc5714ef1b0348739d7b77f1",
+      "contractHash": "sha256:468fa9a3f7779a3c196592fbf936934489a5a54e558fe1cf666afbf78cbc21f3",
       "review": "debug/1"
     },
     {
       "name": "DeveloperConsoleCommandContext",
       "kind": "type",
       "declarationHash": "sha256:df1713924d340938d50cf106f1aca3b827b4cc75207b79165d0c10345cecf25a",
-      "contractHash": "sha256:13e5e2629c344e1ac743f1dc415fe1884a5efc9b857e26035549326e9a44985b",
+      "contractHash": "sha256:181991c8940cad0b438a87e120a15e2f2bc1b0cfc390511b259a161d5a0cda29",
       "review": "debug/1"
     },
     {
@@ -2400,7 +2407,7 @@
       "name": "DeveloperConsoleHost",
       "kind": "type",
       "declarationHash": "sha256:e5ce67ea5ffd53c6cd741a690dee3b43c8e21dbe8144ffb90fe123b7c00426db",
-      "contractHash": "sha256:caa2723ccb1a3976380f7c9704d2fce86fde54066636e98aaf3111c2d64946bb",
+      "contractHash": "sha256:eb378f3e8d424657fbcdc94abff660d43e0e48bc7fd020f31b1cd735ca2ea451",
       "review": "debug/1"
     },
     {
@@ -2680,7 +2687,7 @@
       "name": "Engine",
       "kind": "type-and-value",
       "declarationHash": "sha256:4ffb19284cacf6c21dc15aed5e3b1b1c55b63449ff3663f37c6c7f9c3308119c",
-      "contractHash": "sha256:760664ee946687a50c013ac2f20ca193a0cdbada8c233bdcca3fb9b97fca37f4",
+      "contractHash": "sha256:f7764957e0c5c6428321bf02adfd6f844cfcdb45e3e11799d50f9c42a492897f",
       "review": "core-runtime/1"
     },
     {
@@ -3037,7 +3044,7 @@
       "name": "ForgeExtension",
       "kind": "type",
       "declarationHash": "sha256:2162588386e986ebbc8d04075d2d55a600c5983367ff1ac03f3c0824367a315f",
-      "contractHash": "sha256:65423b99505f72372416131e30889c727032757666828fc68510e5b4db3b8895",
+      "contractHash": "sha256:2d474735f3a1f76cb5569a1c17fcfc4a1791f870a3e19afd354fb94eb0544cdb",
       "review": "extensions/1"
     },
     {
@@ -3051,7 +3058,7 @@
       "name": "ForgeExtensionContext",
       "kind": "type",
       "declarationHash": "sha256:280f629fee436ca7933dec29b4d22683ee4c4d5a81ce0b869c9f0a630fea0fb3",
-      "contractHash": "sha256:be2c63fd5aa88fb82640b28318b24d38bf5c7bc8cb7a7c420f290bb34573d79f",
+      "contractHash": "sha256:25498956721f657a842edc5daf947564b42dbc75f64f53acbfdaaeb4ab8d3b48",
       "review": "extensions/1"
     },
     {
@@ -3086,7 +3093,7 @@
       "name": "ForgeExtensionMaterialFactory",
       "kind": "type",
       "declarationHash": "sha256:1d71149e7fe601bdfcb361f1fccc7aebd3e40895c42906d2f326cc0d9deea946",
-      "contractHash": "sha256:3fdbfa134260ed18c476885c80fc7e53d302bf1ce39d818ec6009ab65d05a033",
+      "contractHash": "sha256:cdf0adb371441c58b63ff9d689b4a1c5c17296526f768d31100f1f4a14f5c4b1",
       "review": "extensions/1"
     },
     {
@@ -3107,7 +3114,7 @@
       "name": "ForgeExtensionRegistry",
       "kind": "type-and-value",
       "declarationHash": "sha256:035e13abb64b4e5cef1535177f9cf6ed379c151c31433c61ed3df29928f31b2f",
-      "contractHash": "sha256:e3f3b62c3bd8e457b8447534601223014611fb95c5117597fdf1e593a6d79997",
+      "contractHash": "sha256:31ed2f9667958715a9b2a737ec990ebca7e5cbcc8e9600bcdd190302987d2609",
       "review": "extensions/1"
     },
     {
@@ -3121,14 +3128,14 @@
       "name": "ForgeExtensionRuntimeContext",
       "kind": "type",
       "declarationHash": "sha256:a2b8e129bedf714e906e44e9150278968e87b5bc9a677feb8b86722759de571f",
-      "contractHash": "sha256:8f9d928033bdb7d62bbdfd5575b786e9869a0101bda537d6ba0d145f742058d0",
+      "contractHash": "sha256:778b436bd10e5fbbde9c284e236a7974d22ce85400e3b47487a9e953a8c5fc0b",
       "review": "extensions/1"
     },
     {
       "name": "ForgeExtensionSystemFactory",
       "kind": "type",
       "declarationHash": "sha256:c05a0a60b0026240425a8ac30f0776c1188fe906957a2bf95e9c8364b4b00059",
-      "contractHash": "sha256:0a0a1979cbc8591ee3bd060b12ec481f38d733c453977d6bc516f616cbaf82dc",
+      "contractHash": "sha256:645f14b6a715af25ee2d98add9e0f273e0d5dd7a9949d795fc501c1286cffad1",
       "review": "extensions/1"
     },
     {
@@ -3359,7 +3366,7 @@
       "name": "GpuLightCuller",
       "kind": "type-and-value",
       "declarationHash": "sha256:f05dc555c34c337531d0ce8bd64bf704d0ddc30c312600f036ea32b5beb382ed",
-      "contractHash": "sha256:e9b9db5c6dc32ac2e0f00fca0a25743e098ba76ae7340a01b003bc82fcabf0c5",
+      "contractHash": "sha256:9bd58afd2f30e73ac7ef19b4f97dce41c1d0cd59ae5130af6c1793483d625cc7",
       "review": "rendering/1"
     },
     {
@@ -3373,15 +3380,36 @@
       "name": "GpuMultiScattering",
       "kind": "type-and-value",
       "declarationHash": "sha256:b78fc0aaf5ef4100674bee198ddd0167a30501ca496d677d4fcb9466191dddcd",
-      "contractHash": "sha256:51f1d84af4a4ee2fdcb5e45e146e298cb0c1ee8e6e8271d2dfad68ef2e37c164",
+      "contractHash": "sha256:575d510229599b0600df21eec83a8a77941b9e236970c0a49573fd1156b939f7",
       "review": "rendering/1"
     },
     {
       "name": "GpuObjectCuller",
       "kind": "type-and-value",
       "declarationHash": "sha256:f2b5f51c653e711d204f3b6f046e36a4223aa480d64f2229c3c96267764f3b6d",
-      "contractHash": "sha256:163e8a8d77d813249d80a587a3b1a7f0cef2de036e42354889887c35128461c9",
+      "contractHash": "sha256:683da32199869dc60d7d5665cf27ef53fe46d15a868f7c84645a0d99d425b96c",
       "review": "rendering/1"
+    },
+    {
+      "name": "GpuParticleDiagnosticRequest",
+      "kind": "type",
+      "declarationHash": "sha256:98cb206d752b2193048137ff25dd18074992d40691697e6c65baf6687aa5a07d",
+      "contractHash": "sha256:5b8e6ab4bf66af92e8400eb60785249dbcf087f1c3adbc02db5706c6ec7c061c",
+      "review": "particles/1"
+    },
+    {
+      "name": "GpuParticleDiagnosticSample",
+      "kind": "type",
+      "declarationHash": "sha256:e6b6b1ba6c89f39e54fef863d371a4476227891ff652d4000ee2ea8181744449",
+      "contractHash": "sha256:3d9670280ee9407b49d472448b3e9bd4b0c43ecaf71e5080637baade21dd27eb",
+      "review": "particles/1"
+    },
+    {
+      "name": "GpuParticleDiagnosticSnapshot",
+      "kind": "type",
+      "declarationHash": "sha256:470c6c3af8496d74eabfdbb13b0c09a054d9cda2984f64dba3000a7806559d77",
+      "contractHash": "sha256:130c1b9af9d10433f41941f249570c48460a6c5d9843c9504590bf2039d9003b",
+      "review": "particles/1"
     },
     {
       "name": "GpuParticleEmitterConfig",
@@ -3407,8 +3435,8 @@
     {
       "name": "GpuParticleSystem",
       "kind": "type-and-value",
-      "declarationHash": "sha256:6a574a85ef04ab6445f5c56aceef06e7fc3f59451bc5571c6e9f5f424dd017d4",
-      "contractHash": "sha256:1ed7115a5d7bda6d1efafe040333bdb84bf0342e47bd25e9fd208c10c9feb08d",
+      "declarationHash": "sha256:0cb87a703bd70fb837c69796b8c6890ff393f3340e0cd6574e1f8631bd36debc",
+      "contractHash": "sha256:a61b5b9a3c7c4047ed9cd2f573f6f5d48ea6cf852cd2e2485ad5afb330fb9df6",
       "review": "particles/1"
     },
     {
@@ -3421,8 +3449,8 @@
     {
       "name": "GpuParticleWorld",
       "kind": "type-and-value",
-      "declarationHash": "sha256:b52cd89fb46e4b6d425c730218a1bcb668f709d0beb329ef566ed5167c688762",
-      "contractHash": "sha256:51c8b846da9fd76a091d2ed08cb5acef1e97387a553671687a5c2e8e2b699846",
+      "declarationHash": "sha256:ee4c67246716d376d71de4564abaddfa0a81e10e747a98cbf8eb098c1c1d14a6",
+      "contractHash": "sha256:b989daf5274c7e4a56db6b3384976f3df224fbb0e80a590180ccc8185c8c10ae",
       "review": "particles/1"
     },
     {
@@ -3450,7 +3478,7 @@
       "name": "GpuPopulationCuller",
       "kind": "type-and-value",
       "declarationHash": "sha256:2fd4d4557888fe0d11b90c1f0a351da073cb0085f4e525e1401ee45faa5e4957",
-      "contractHash": "sha256:5c77c2a9416a011483f0c61809235e66302db73b74910b129ebc697fb4e00da4",
+      "contractHash": "sha256:a6871452070c140e3db47fd97f9de4f48b6c37b8dc19143a140d6dda6e57719b",
       "review": "rendering/1"
     },
     {
@@ -3996,7 +4024,7 @@
       "name": "InstantiateGltfSceneOptions",
       "kind": "type",
       "declarationHash": "sha256:04762b12e833fa6322caebe57c8d7584db0ddfc01f10d0932f7fa3cfc93612b4",
-      "contractHash": "sha256:124fd0aebe3f4ac9bd4ccf6bb883f6970e7cf17245da10f24ca0c0684060a8c4",
+      "contractHash": "sha256:364c19b67cd119dee8f9d4b9f041b26ac07bd0560726d025d431a3d579a38161",
       "review": "resources/1"
     },
     {
@@ -4227,7 +4255,7 @@
       "name": "LayeredTerrainMaterial",
       "kind": "type-and-value",
       "declarationHash": "sha256:fd6059ef0de6f600a7ba4fc9906055a017d4bdfe97e0bb35daf75dead47d3526",
-      "contractHash": "sha256:512251085627aa0dfda69308109ba52eb0bcd1271e1ff0b3d269e971af8fb0a1",
+      "contractHash": "sha256:eab88f683a922e9203f0a71644a1bceecd0c4ed389bb65025ea634c5e7321d9d",
       "review": "terrain/1"
     },
     {
@@ -4996,22 +5024,22 @@
     {
       "name": "Material",
       "kind": "type-and-value",
-      "declarationHash": "sha256:d8019a946992d21702f2fae254dd6810911f0aba6cb22cb65256ddd59c7666a0",
-      "contractHash": "sha256:a4e01bbd2b2fec2d264c28c0f425af14e744f1c6523c010669f0caf12a6db038",
+      "declarationHash": "sha256:7602ea25456e01894ee41d73da8f02f1041f9d8bdd32e8b58cd8ad75a193c24a",
+      "contractHash": "sha256:bda4575df7da90b399e63a482f43d2a7d2a088c16c21e33eb255440fd650385d",
       "review": "rendering/1"
     },
     {
       "name": "MaterialLibrary",
       "kind": "type-and-value",
       "declarationHash": "sha256:bb9bfd7cac1575c203aab222fbb29f6799bb06f00b05c6b4f3cf6548b9aea859",
-      "contractHash": "sha256:b3f283b2c26f383cbc72bbe446dddc5a361f274ae54b670d37731acc97c4e719",
+      "contractHash": "sha256:7159b086991253ac4a6e43c6aab8284a27b3ff020cd1dea46409e7948325ed72",
       "review": "rendering/1"
     },
     {
       "name": "MaterialOptions",
       "kind": "type",
-      "declarationHash": "sha256:6fa8257edf239edfc4ad17f1ee55a7aa59b93334558b73d39422822619f0e939",
-      "contractHash": "sha256:a1284250e7e6a690fb11cfa1ee270204b0fedd9440df88b866a5f50ef3779bc1",
+      "declarationHash": "sha256:d0a6fba37d64985bad21b2bdc4af513273aff0a2378147116e9c8abb8c4ad5db",
+      "contractHash": "sha256:8b619b87e2382bbb293c7758962221a4cbe1a3100b335df43f29ac0cd269acc1",
       "review": "rendering/1"
     },
     {
@@ -5019,6 +5047,20 @@
       "kind": "type",
       "declarationHash": "sha256:a09f54dd475b595ba4f72f5f5784209151df88ff6e0b999efdb9b4990d88e454",
       "contractHash": "sha256:8ce79889e3ec390d6728f67f08b9b85da55fcde116f62faa14515e65f451abab",
+      "review": "rendering/1"
+    },
+    {
+      "name": "MaterialTextureSlot",
+      "kind": "type",
+      "declarationHash": "sha256:08cf2f7df0e37997eaa40f8853a45476d9ef9f2f1a88a2b94fd95a5a8297416e",
+      "contractHash": "sha256:c9b79fe06ff06a07b25221376fa4a779c0f03bd57d3550d0825114bcb51eae8b",
+      "review": "rendering/1"
+    },
+    {
+      "name": "MaterialTextureTransform",
+      "kind": "type",
+      "declarationHash": "sha256:257894bb048fd98b51b3364e5c9eab82e24a29702972e2f237acb0ecf3e3dffb",
+      "contractHash": "sha256:319d2ce2f7a0b57c5e4aa9fa66f2b52f4e616550c3f5c813a5e9a71eba39c8f9",
       "review": "rendering/1"
     },
     {
@@ -5305,14 +5347,14 @@
       "name": "MoistureGroundMaps",
       "kind": "type-and-value",
       "declarationHash": "sha256:2567d194be5b7dce173154702c0d87d9295fc93422bbc185d354d03f4447aa3e",
-      "contractHash": "sha256:30af73abf37f1b0f0011c202463e7d244f5b20908c0965684f8e8f2036656b7e",
+      "contractHash": "sha256:f8ac759c6896fb69b47ac5339ddfb00e8dcb00f2759aecddcebcb71c3ad6e929",
       "review": "rendering/1"
     },
     {
       "name": "MoistureOverlayMaps",
       "kind": "type-and-value",
       "declarationHash": "sha256:51f161816e2fbc301b26f238e15383eae628807208853b5aafaab45c71b99970",
-      "contractHash": "sha256:d61924406362e322cfbc07625c6e434e92e3ddaef3db4bb26ff144af221c120b",
+      "contractHash": "sha256:6a7f7e97c5dd875d8b0d0001035d5204adeb0ef4f4884ee15f26c0f27347351e",
       "review": "rendering/1"
     },
     {
@@ -6046,8 +6088,8 @@
     {
       "name": "ParticleDebugOptions",
       "kind": "type",
-      "declarationHash": "sha256:664b87fcbabbca5a790dd27fc99159bff05881c07934fc236823cd84e87d7985",
-      "contractHash": "sha256:f0bd4d063aa9bfaa6b830aae23eba259d90fcda5eab77c1d4268241cb840e9b2",
+      "declarationHash": "sha256:bd0741f12683804e794bb71fd786326969ca63e527b6dd14f0d9f1964da31dac",
+      "contractHash": "sha256:ef289ed295bead4b3c76675156d2fb5c370d4b53b75bbec79c77fde70bf814bd",
       "review": "debug/1"
     },
     {
@@ -6061,7 +6103,7 @@
       "name": "ParticleDebugSnapshot",
       "kind": "type",
       "declarationHash": "sha256:d62a3f8b9b88cd17277e643cb51fd547a7c2742755afb55e49c6ca346466eefd",
-      "contractHash": "sha256:693b10a9550676f715e3e2d7232f9dfb8edbaba92722cf355b2548c8b1fc12bb",
+      "contractHash": "sha256:c33970db851d243e8bb9ead7182bc3893078cadf0dae016f58e504102326a0ea",
       "review": "debug/1"
     },
     {
@@ -6076,6 +6118,13 @@
       "kind": "type",
       "declarationHash": "sha256:4a07be976b62f42e8cf23eb5f50e8be9b473e968af4420268d2d5af9e9bd0d53",
       "contractHash": "sha256:595ccc25d31d959f2911885a31e9e947a7b248bd676ccc86b410038a3fbb0f50",
+      "review": "debug/1"
+    },
+    {
+      "name": "ParticleGpuDiagnosticInfo",
+      "kind": "type",
+      "declarationHash": "sha256:019cab8698390fbec144b2308c1a34439fb7d9bb18684af115d1d613ead02c94",
+      "contractHash": "sha256:af5087937ad2cc9243eacdace097c4f8af6315f372ab8fa96d884462000d399c",
       "review": "debug/1"
     },
     {
@@ -6214,8 +6263,8 @@
     {
       "name": "ParticleWorldDebugInfo",
       "kind": "type",
-      "declarationHash": "sha256:55cd5c3c1d1095684cb3d8f99e129cd3d63eeb478308778deb4f2e4a96226a11",
-      "contractHash": "sha256:208d014edb4c521b3e953fa65432fb2f46e8966bc6771eff31eba834182595df",
+      "declarationHash": "sha256:4b1a00c8bf628c8fdf6d88c0f16c71abc2a9d2ee06192b4f3819e36605c43a7c",
+      "contractHash": "sha256:e8a8caeded429211add64133d07db9c4cd73d1be1bd2346f937c85c7bede52c1",
       "review": "debug/1"
     },
     {
@@ -6312,8 +6361,8 @@
     {
       "name": "PipelineFactory",
       "kind": "type-and-value",
-      "declarationHash": "sha256:eef4e322e0eef67ee07cac5b31dd8efcde2169094cb930bf1498f348be44ace4",
-      "contractHash": "sha256:8899821f584f989aab29bf0c7947a980194dea628f7a8ba3fcf3a2773beaf7b3",
+      "declarationHash": "sha256:18445f925db5179a83f164be2c749b9642d2a06a20eb7ce8f3fda0eae53d1813",
+      "contractHash": "sha256:e5708dd63db03e5bda7f3219511568d513ffc1464d69bd9d607ddf604e04357d",
       "review": "rendering/1"
     },
     {
@@ -6460,7 +6509,7 @@
       "name": "PopulationCollector",
       "kind": "type",
       "declarationHash": "sha256:244f655e95b3950b53f1b73a9dc1063c073b04acbfabdc09ec583f5119ca0c8c",
-      "contractHash": "sha256:a25326b47d1adabe21598ae139251849b8f1ea9acf34368f5b216330e23ed956",
+      "contractHash": "sha256:7f482875b105cfe23fec96e9d80b1762833d9ebb47562bb08b82dcad51eb385c",
       "review": "scene/1"
     },
     {
@@ -6537,14 +6586,14 @@
       "name": "PopulationSource",
       "kind": "type",
       "declarationHash": "sha256:ed6683be68fc24df6317c429909ef2995cb934adac1725734f798d69b6f03965",
-      "contractHash": "sha256:cb0e2f0690a600dce11a803c651d1227131ba2d6cfc631d9f538fb24bd415823",
+      "contractHash": "sha256:0cc4087b7043b8390c11cabd84b6ed0b18f19030196106c6805323a89e7ba8dc",
       "review": "scene/1"
     },
     {
       "name": "PopulationSubmission",
       "kind": "type",
       "declarationHash": "sha256:785861e03f709226096919981c0a9e8f06b6dd8b557a9bdda83f44144b79aded",
-      "contractHash": "sha256:4cbc5a49c5502923673403a9646b01acd7fea19555c8337a30779a9e8999f9f2",
+      "contractHash": "sha256:4be28723eecfdef361699d3dd01adf917258127d1ccfe2367f96308251deea41",
       "review": "scene/1"
     },
     {
@@ -6565,7 +6614,7 @@
       "name": "PopulationType",
       "kind": "type",
       "declarationHash": "sha256:e6d1e52e50c4078e0a4fcdaf5aec44896e56e391bfd81428fceeb1c47da719c0",
-      "contractHash": "sha256:3d2f8b78f4e3a3609bf1be304a060c892a65b4f4522fb1e4f05084f4c11c082e",
+      "contractHash": "sha256:c932a61e7c8f9ed845e020beca3ed6b295adb6fdeac2845a5b38b7a1df99af56",
       "review": "population/1"
     },
     {
@@ -6579,14 +6628,14 @@
       "name": "PopulationWorld",
       "kind": "type-and-value",
       "declarationHash": "sha256:26ba3d8c5b44b394a165cd1d2f0a097e831427d0b8eab0b8dda5671f429b5d9b",
-      "contractHash": "sha256:7ba8b82a59d447672c88edbcdb6f8e9b370ce870425d3b820c465d16bcefdfef",
+      "contractHash": "sha256:b55936f880080bfe2f25d5f357acf7b81d889f557ed019b73afdc2638d5d0bd7",
       "review": "population/1"
     },
     {
       "name": "PopulationWorldOptions",
       "kind": "type",
       "declarationHash": "sha256:12ebfae32e8559e737a9877c0a67a3339438511fbc3e57fe3335e314408fdc0e",
-      "contractHash": "sha256:9284257518485b5b52fe2f608ffda701b519fa4b0f15547ebcd400cda686ae09",
+      "contractHash": "sha256:0b2a2c67436a9eb2bfde55b3c5e25d2d07adb4c848cc1f85df7ce3a01f0c4568",
       "review": "population/1"
     },
     {
@@ -6614,7 +6663,7 @@
       "name": "PrecipitationField",
       "kind": "type-and-value",
       "declarationHash": "sha256:4260ece92b22774a41f7fa07d5c4ba6c939eb1240feec9145956355d83e7a9a6",
-      "contractHash": "sha256:3e43b8f5328de0b12f081392e136a93e22b9ce7fce43a0c3473ae0c776a4b7f4",
+      "contractHash": "sha256:5ed558e95a9e5cfc172040b94d51c785db545c4a2140d44be1c2290c99bb7ec0",
       "review": "particles/1"
     },
     {
@@ -6992,7 +7041,7 @@
       "name": "RenderGraph",
       "kind": "type-and-value",
       "declarationHash": "sha256:0ed07aba56294a9ed7a87caae542ec798c269c30dbbcaa90ec7be070d86776ae",
-      "contractHash": "sha256:0a048e039602d36e07501678897f514b79676961ef30e69cb2d86f0fdaa0bb68",
+      "contractHash": "sha256:050e7fbbf67f9d774b58fb042e2ef178839da90cc015e048b5e813a60ad1bfd6",
       "review": "rendering/1"
     },
     {
@@ -7033,15 +7082,15 @@
     {
       "name": "RenderGraphPassContext",
       "kind": "type",
-      "declarationHash": "sha256:4f16defc3d42a0de6ad10b77e65362d397c1f987dabd399ed1dcc9c49caeab03",
-      "contractHash": "sha256:997bcacccca71ec9f7f1303c343fddfcdaf34f567f6c8dfdeb0b64be50de8eb7",
+      "declarationHash": "sha256:6669edb87d28a29afda9e8ba1c034cefa735df430d228be75f99f948b18666d3",
+      "contractHash": "sha256:f2c2f7eb2096e60c1ca77a44ff5152443d1ab7a7ad21c8db666a517bcac7fe01",
       "review": "rendering/1"
     },
     {
       "name": "RenderGraphPassDesc",
       "kind": "type",
       "declarationHash": "sha256:9912e08ff19d1bba4d6429fc7f236d7f1b88a0614e756f6fa693ee6ff59766c1",
-      "contractHash": "sha256:25852efc7e74b7b8d61993ddddfc1d9504ecd09f1c1e138f7b6e264a19e3aeec",
+      "contractHash": "sha256:f66f89bb24b8732dd0a985c7c2404f473633fcec1f9784ada5b980906af6ecef",
       "review": "rendering/1"
     },
     {
@@ -7104,7 +7153,7 @@
       "name": "RenderOverlay",
       "kind": "type",
       "declarationHash": "sha256:1964744ac47a7063766ce5b27f4672f18fcde26318aff090cd2272b77bcb1346",
-      "contractHash": "sha256:f36c9fb0f895563d8a1975c8ff0c75588a49582af304dc5bc4f774c0d23f3d89",
+      "contractHash": "sha256:e278202c71d263b8c79c6634c8ce9ba5a56ca2a07c03af71e21a7c41c98cc7a3",
       "review": "rendering/1"
     },
     {
@@ -7139,14 +7188,14 @@
       "name": "Renderable",
       "kind": "type-and-value",
       "declarationHash": "sha256:6116a096266e6b0196366e24edf853f0f74189442cd84b86894d0d8a5a679a8b",
-      "contractHash": "sha256:a71a814bf9fd030e01a1c0496272d08f8374d2bb2fa96720fe960eaca9ed246b",
+      "contractHash": "sha256:e8eb97b41bacc3a8b50d4a1de13000b240966ddee09c9007ac686b06daf25fe1",
       "review": "scene/1"
     },
     {
       "name": "Renderer",
       "kind": "type-and-value",
-      "declarationHash": "sha256:a5d1df6e6fc9c264c1d839c5a1b4ee8254b45319369099f8575e3774914c8250",
-      "contractHash": "sha256:507459bbaadd8434b10a51e5934a38b8d2023aaf3d72e9dccd477f271b1b4a82",
+      "declarationHash": "sha256:918ee3b956cae11a359a97991391b30448252989a2529439e8dda4889dfeba5b",
+      "contractHash": "sha256:00196b321a1966cc5edf14b27aac6a952ffd49685ad5f7e7026208008aa93af3",
       "review": "rendering/1"
     },
     {
@@ -8371,7 +8420,7 @@
       "name": "SplatMaterial",
       "kind": "type-and-value",
       "declarationHash": "sha256:dec06d88f4639564470b9160191d99a13db7d4a55006f24efb88365fba115e30",
-      "contractHash": "sha256:10d79012195ce0974db629273d5c4c3fab05902ade71e9d28d79ac9f3f093630",
+      "contractHash": "sha256:bf1d5e4aa728dbbb3c8f3efea85b058624c36ac2ed8649583b98950cc3467705",
       "review": "rendering/1"
     },
     {
@@ -9008,7 +9057,7 @@
       "name": "TerrainChunk",
       "kind": "type-and-value",
       "declarationHash": "sha256:e27c95c03c87cc1c088db92d6e343272711739c61f4b99a9723eac882e76bb4d",
-      "contractHash": "sha256:ce2115677de12e2c540def4c9f863a2cfda185da862cd94eb54653483f4075bb",
+      "contractHash": "sha256:cb12855e30123cf7eb086199684d68565cf090c8ee0511010c23b4f9a06b9f02",
       "review": "terrain/1"
     },
     {
@@ -9092,7 +9141,7 @@
       "name": "TerrainMaterial",
       "kind": "type-and-value",
       "declarationHash": "sha256:f5c923be75ec4bd3216a57bbfddb5bc0a785210b06ea840fecce948d9444f17a",
-      "contractHash": "sha256:217c6e180d7aa69d9cc5e36800f035c46c8ffbfd37597c72ccac8f588298d19c",
+      "contractHash": "sha256:286aca40d9dc7582bb85bd660db83f27c0f80529d9ed4bede85ca35c1527bce5",
       "review": "terrain/1"
     },
     {
@@ -9155,7 +9204,7 @@
       "name": "TerrainTile",
       "kind": "type-and-value",
       "declarationHash": "sha256:b5ac075da292b711e5a5ca91981256541b822883dd16a33203889fa0ee2b3aff",
-      "contractHash": "sha256:80bd7c8efdb8db1550cd8446222a6dd9d75f2542785b8d2446224f73a0360ffb",
+      "contractHash": "sha256:7e669a783da0046d6a2daa530984b5120ad4be2b29984e1c1427f3d79c669b29",
       "review": "terrain/1"
     },
     {
@@ -9169,14 +9218,14 @@
       "name": "TerrainWorld",
       "kind": "type-and-value",
       "declarationHash": "sha256:38f5cfd4998d52fbce7b92ad23b1df7ba4fa8ee659a1fe09167e9a5ac1282372",
-      "contractHash": "sha256:0fa9e7410c400b584171095f6e6d8daa18d5f8ca4b5e6ad3fe975865827c1291",
+      "contractHash": "sha256:8e567a2e1e012e619cd849e588d3d9ce6ff83f1939567a61002e6cf66f83c821",
       "review": "terrain/1"
     },
     {
       "name": "TerrainWorldOptions",
       "kind": "type",
       "declarationHash": "sha256:8efedd12bdd9a66d5e769523dfa0a45ea5c6b668d013ced6d02538ab342a9877",
-      "contractHash": "sha256:a79a4cd879886306eea9036c0b1e54b9dd94c5a5b1f8026b789dec701fd06f7f",
+      "contractHash": "sha256:339c1ffd9e3b32e275d53031e743f764c3b98670ae449018a308989912b79ccc",
       "review": "terrain/1"
     },
     {
@@ -10030,7 +10079,7 @@
       "name": "UIGpuRenderer",
       "kind": "type-and-value",
       "declarationHash": "sha256:776d4f1278b1637e82fda4f8b10e90a4e9b2c25dcc34bc153cc1140f1441f0fd",
-      "contractHash": "sha256:8bed25790156c69eb500fcfe458c6872f72b537338c0e9cd1733b784d35e369e",
+      "contractHash": "sha256:860403812e105f5f7d0b8b6ddbac46df7642e16279c94fb99b9b8eb0c427f58c",
       "review": "ui/1"
     },
     {
@@ -10366,28 +10415,28 @@
       "name": "VegetationField",
       "kind": "type-and-value",
       "declarationHash": "sha256:920bb558d69823cefc3e9f3019867973ca50e96218590b78296cd3d49bc0a301",
-      "contractHash": "sha256:8662ef15da0e5d3ff6ca48be5d4c8467ff83a6f45b21d4b860a3f7b7fde88a3c",
+      "contractHash": "sha256:23c55c228f808150a65b63723ba5a956c9d2d0ebb41015e6cee18a6f9dc9d1b6",
       "review": "population/1"
     },
     {
       "name": "VegetationFieldOptions",
       "kind": "type",
       "declarationHash": "sha256:25962d0f5bfa8428ccf46fa2887fdf60a291a2090914832da886257c7d2f5c76",
-      "contractHash": "sha256:b846cbadcb037d77a52761e7283145c345bac2e0419188c5373077e713f3700b",
+      "contractHash": "sha256:9508012e0cf677fe9054233ae5e3329e6b972b17d6f472879d481839cd1e1167",
       "review": "population/1"
     },
     {
       "name": "VegetationModel",
       "kind": "type",
       "declarationHash": "sha256:2233a959b65c10eb3afad117b1dace1ddf5cb7940a261006414444b3543e03ec",
-      "contractHash": "sha256:3246b378b52beae7dca677f2db32708a8264f6f941dd299ddee9e8c99c4b694b",
+      "contractHash": "sha256:9e6023cc340d3c49c2180f49dd726fffb6903e06b8a73fc4443d05345724e9b1",
       "review": "population/1"
     },
     {
       "name": "VegetationPart",
       "kind": "type",
       "declarationHash": "sha256:9e3a822deba17b15e618294133a87d9662a4a6b8340737f89503897bb1789584",
-      "contractHash": "sha256:ce9af8e415731edf9bcd7048c2d53d9db9ffec899a28602c9c6245d11fb1f0f5",
+      "contractHash": "sha256:c49152e4270864fbc1d2d10a26c4df250e014776f3c13b0b0d54a7574be67549",
       "review": "population/1"
     },
     {
@@ -10611,7 +10660,7 @@
       "name": "VortexColumnParticles",
       "kind": "type-and-value",
       "declarationHash": "sha256:f4f1dd3ef6ccaf48a21728fc1cc84d2e1a0927291ce56ad7e12e7256e3b007c2",
-      "contractHash": "sha256:32c10d54f9474da27db04f98c7a0db6975d7642b83ae676cfae78e4c2a9b64ad",
+      "contractHash": "sha256:0bc60f6ab8c43968f34851e31427d1f1dc5b8d12a959eaf7008492d5a6f1932e",
       "review": "particles/1"
     },
     {
@@ -10779,7 +10828,7 @@
       "name": "WaterSurface",
       "kind": "type-and-value",
       "declarationHash": "sha256:81a16ba6624df7b816e0ce90e88da599d6a18d602dfd3c786dfff6c70d8a378f",
-      "contractHash": "sha256:452a6ac8e8ef19f0e83805191136df6969be2bfb13bab3a3bbdccc1fb474e216",
+      "contractHash": "sha256:87a02d6bd7f3382966f27bdeff9be09cb5a41f8062f8e4f4b4a764f0b8ed4809",
       "review": "environment/1"
     },
     {
@@ -10961,7 +11010,7 @@
       "name": "WindBlownField",
       "kind": "type-and-value",
       "declarationHash": "sha256:3e150388dd2c8fe7b56d04abb29fd31c129c4e35be7bcd245d93baeaf3e7a785",
-      "contractHash": "sha256:e77b831d6af0448125ae48f9610a3c480fd4e71b6f14c88dec3c8d4e24529025",
+      "contractHash": "sha256:495f01d75410066a86fea3b02934eaa05d6a976d6acd7c6bb59b6f6ef256a13d",
       "review": "particles/1"
     },
     {
@@ -12207,7 +12256,7 @@
       "name": "createDeveloperConsole",
       "kind": "value",
       "declarationHash": "sha256:9c0d13402d4cd63a62e0fef82253c46dfdbc3682ff804256ef98b7441738fbb5",
-      "contractHash": "sha256:386355d39198ffb349989cbb4ca58e8ec57be3165f11225f8017f6fc553b2344",
+      "contractHash": "sha256:30a3b32f261b9154412d9037348ca5260d67e9dd6db9bcc63f780d31bbf7ea34",
       "review": "debug/1"
     },
     {
@@ -12340,7 +12389,7 @@
       "name": "createRealisticTerrainMaterial",
       "kind": "value",
       "declarationHash": "sha256:50a1610a4f712eab16bec510ee0e1f9c0192cdf9bc1b663fbfb74b3d3dabb983",
-      "contractHash": "sha256:c6cd19a4d5da7a423564a77be33e22e5fbbd339335abc75722690faaec55d502",
+      "contractHash": "sha256:2b038c74d6da2b018cce445cf8148477bb29f8b1a75c4a99e409dcd949968070",
       "review": "terrain/1"
     },
     {
@@ -12627,7 +12676,7 @@
       "name": "decodeGltfMesh",
       "kind": "value",
       "declarationHash": "sha256:6a5260a410bd71864affbf8e57b5f70c96796e90a60e274e57ac2cc73c7c5ec2",
-      "contractHash": "sha256:f82777a526b7a426f6ee2800d7a3f175ca90ce832ca19b3060c18ad0ea5fa095",
+      "contractHash": "sha256:90e950e1896d9bc5d93b5bdcd071348b744fff1ce31b7affa74e2df8266182a4",
       "review": "resources/1"
     },
     {
@@ -12879,7 +12928,7 @@
       "name": "drawParticleDebug",
       "kind": "value",
       "declarationHash": "sha256:dc652b2db7a4246abf3c7e44640f3dca0860d1ccbeb0c253c7fbf5ee0bf060af",
-      "contractHash": "sha256:025a6e3cf445f5341613664453130e5682712c14db2ae1528cdc1edda367181d",
+      "contractHash": "sha256:820d36eb7d060d3f01edc795aac925e64015813e9f7b24c814188855dc54f641",
       "review": "debug/1"
     },
     {
@@ -12893,7 +12942,7 @@
       "name": "drawTerrainDebug",
       "kind": "value",
       "declarationHash": "sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33",
-      "contractHash": "sha256:48b0e8a2a15f361c51e38303904b39b36b2de8c822e22bac9e2b04ad81ceaa2a",
+      "contractHash": "sha256:69bdbf3a598b75a9cf9431b4fd1e86bb6dc96834c38fd27d82eb0eb56089cfe2",
       "review": "debug/1"
     },
     {
@@ -13033,14 +13082,14 @@
       "name": "findGpuParticleWorld",
       "kind": "value",
       "declarationHash": "sha256:de5aac682512aa1557276be4e5c158d97d13a6ef45dc137f19c4e9f9c6cd61af",
-      "contractHash": "sha256:6e4a27066f25bf56aa8ad9572ae578a8a947ecb16a4d744be17f522ec201cc8f",
+      "contractHash": "sha256:0b9571a27397e6aa8f3ed449358ef32f1eae29e1fd61f740538f7e4918522c66",
       "review": "particles/1"
     },
     {
       "name": "findGpuParticleWorlds",
       "kind": "value",
       "declarationHash": "sha256:26dec10cf42bb557eb9ecc25c695439744cdacbffec29b5ab4199017dc3f60fc",
-      "contractHash": "sha256:b12d83af34d107d50edd8e5b27f1ebd41581749849c9f98bae850513378d7fc2",
+      "contractHash": "sha256:4b06faefdb2160743c74457b2bafb0ecdb62cea9054216ce74ff4ce846b2f806",
       "review": "particles/1"
     },
     {
@@ -13558,14 +13607,14 @@
       "name": "inspectParticles",
       "kind": "value",
       "declarationHash": "sha256:ef746321a58c440c1c1507267e645d1bec4eb00800ebce810ec65f9b6417291c",
-      "contractHash": "sha256:cc5af793af0f2609b33177aa0043338d823fb9cdb135779a6529b151d0779ad3",
+      "contractHash": "sha256:49699b4c00b6cafb3dd5857f3fd1d51c75c224ef648dce85f09c80de9d63f697",
       "review": "debug/1"
     },
     {
       "name": "inspectRenderGraph",
       "kind": "value",
       "declarationHash": "sha256:c7f40b94b207070ac4919325e4dd13b9c7772bfe0dbe5c8691d2c59ba6db10b5",
-      "contractHash": "sha256:bdd062ed677a8b03fde0d5434299923bfd720fc4c0e185f9275fb4242897d516",
+      "contractHash": "sha256:4d3281cae6f360a5292ab77bc757523a2aed55c143e7f38fa38a62ffbda862c8",
       "review": "debug/1"
     },
     {
@@ -13579,7 +13628,7 @@
       "name": "inspectTerrain",
       "kind": "value",
       "declarationHash": "sha256:f3889d83e02ecb31d144f06744450b624dcf5b6306ddfe6b8bdb7eaccc53a777",
-      "contractHash": "sha256:0c99fa34e048afc68e74a224d3f200300b489c6a438fe3d78f49ecdd6a30db94",
+      "contractHash": "sha256:0a8413f54a29c1208ef4556c508770e3d81ab6445c44f6dc2d2ab23c0ed70960",
       "review": "debug/1"
     },
     {
@@ -13614,7 +13663,7 @@
       "name": "instantiateGltfScene",
       "kind": "value",
       "declarationHash": "sha256:990ebe6ac634de8eb13e4816909a0da0af02021aa8f46fba5f98950d22282ecf",
-      "contractHash": "sha256:72730498cd369b784ee591491c18588ca40910238d2b54c9c510f9ae1ec06198",
+      "contractHash": "sha256:a192afc431d911e19325e1779623205a21358dc76033329d7c63ed142a12f4bc",
       "review": "resources/1"
     },
     {
@@ -13684,7 +13733,7 @@
       "name": "isPopulationSource",
       "kind": "value",
       "declarationHash": "sha256:c51ea8a899ff5b69e7c086f6984e5fa358bdc3df5f18d977ac426f03b0f45a59",
-      "contractHash": "sha256:2983ccaac8c9142985fc243d9fb72f6503231efbe0491416ea6d96725910cf06",
+      "contractHash": "sha256:410d2e4361873f7ea9d0034a82316c8909a4663511422b5da6d924fd745616da",
       "review": "scene/1"
     },
     {
@@ -13845,14 +13894,14 @@
       "name": "loadGltfMesh",
       "kind": "value",
       "declarationHash": "sha256:ab1c9d9f36559e497d51aa85f7ff1a3d179a18edc50957d340b1dc8f526f8cca",
-      "contractHash": "sha256:edbbb2b371a27b7a3632d9d54b54839b83eb94c0f552ac75822523616371c4ec",
+      "contractHash": "sha256:f2dec88ec958641cbe9e944592189ba95eb9ecb6308342d361f878263d9413d4",
       "review": "resources/1"
     },
     {
       "name": "loadGltfTextures",
       "kind": "value",
       "declarationHash": "sha256:706e04b7e177611253b6a8d9db1e8b6d7fbfe714caba95518e1ab5d3db54cf5e",
-      "contractHash": "sha256:ae86a2cb5751ad2ea8213f55b4c04af0cccb3a8d7ce9cc94dca0da1d0e2b5f26",
+      "contractHash": "sha256:8bc8df821b316c2eae9cc7071a194cce40adbba89b18900f087f099806b38a17",
       "review": "resources/1"
     },
     {
@@ -14293,7 +14342,7 @@
       "name": "particleDebugLines",
       "kind": "value",
       "declarationHash": "sha256:28cd22552c75552a2489f54336d820674d42b0ff518db4a8174eaeaf40682b34",
-      "contractHash": "sha256:2f455cfe947c24d8af65bb133b9f13b7090ccac2ae6de74a07ddb539e8c48e08",
+      "contractHash": "sha256:ca12809a4bd41d51a7ba86de6ee00f42bf3b43e22ed9b2ee2f07310b578b5865",
       "review": "debug/1"
     },
     {
@@ -14631,6 +14680,13 @@
       "declarationHash": "sha256:d1f990fe3535140705f2c42a491afeb5ae599fe0fa0cfdd062068aaad024b5b9",
       "contractHash": "sha256:178f51196b5e1ced7c07fdfa70cf5382f76d92a73332030f6f7811461899a944",
       "review": "scene/1"
+    },
+    {
+      "name": "requestGpuParticleDiagnostics",
+      "kind": "value",
+      "declarationHash": "sha256:a852ba065a75d2daa12ebf0faf4ab41c6e1cbf85ed374569bccf74f952277cf5",
+      "contractHash": "sha256:f23d98cbf7ca02d5660e0cc451db996fd12c8a31fb4dfc9c4347017a5475a9f4",
+      "review": "debug/1"
     },
     {
       "name": "reservedWordIssues",
@@ -15315,14 +15371,14 @@
       "name": "terrainDebugLines",
       "kind": "value",
       "declarationHash": "sha256:679c98d3af049ad03fd47a202d29595fcf022e29ecd8593245145625d872e837",
-      "contractHash": "sha256:eaa537bd47051f87a8a7f34f08bf5980e4bbfed1cbdca541efab7d153476451a",
+      "contractHash": "sha256:2753df614f40a894d7b754b42a35da5c5263bf11dcc96add7f29c256d70a3574",
       "review": "debug/1"
     },
     {
       "name": "terrainOptionsFromState",
       "kind": "value",
       "declarationHash": "sha256:a2eaa0a8bd0fe5935402ce9b32dbbc9ccac88d0e6cdb6397872ff7541d613763",
-      "contractHash": "sha256:02f95582988a3c94bb3b9fc006be200f0cbc13e1ec593b1dfe4a5f7678a72f4c",
+      "contractHash": "sha256:a68f6cac65bbd13d395eb6b9fb205cecb179d0f9832de79b4568900bb4a83c5b",
       "review": "terrain/1"
     },
     {

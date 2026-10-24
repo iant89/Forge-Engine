@@ -1427,7 +1427,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,211-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,219-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1441,7 +1441,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,220 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,211 public candidates have exact approvals across 27 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
+    notes: "The audit resolves all 2,228 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,219 public candidates have exact approvals across 29 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",

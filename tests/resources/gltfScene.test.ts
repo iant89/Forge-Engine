@@ -107,7 +107,7 @@ function advancedFixture(): string {
     bufferViews: views,
     accessors,
     meshes: [{ weights: [0.25], primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1, TEXCOORD_1: 2, TANGENT: 3 }, targets: [{ POSITION: 4, TANGENT: 5 }], material: 0 }] }],
-    materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 1 } } }],
+    materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0, texCoord: 0, extensions: { KHR_texture_transform: { offset: [0.125, -0.25], rotation: Math.PI / 4, scale: [2, 0.5], texCoord: 1 } } } } }],
     textures: [{}],
     nodes: [{ name: "instances", mesh: 0, weights: [0.5], extensions: { EXT_mesh_gpu_instancing: { attributes: { TRANSLATION: 8, ROTATION: 9, SCALE: 10 } } } }],
     scenes: [{ nodes: [0] }],
@@ -345,6 +345,9 @@ group("glTF skinned scene import (Phase 16.1f)", () => {
     assert.deepEqual([second.require(Transform).scale.x, second.require(Transform).scale.y, second.require(Transform).scale.z], [2, 1, 1]);
     assert.equal(first.require(Renderable).geometry, instance.meshes[0]!.geometry);
     assert.equal(first.require(Renderable).material!.uvSets.albedo, 1);
+    assert.deepEqual(first.require(Renderable).material!.uvTransforms.albedo.scale, [2, 0.5]);
+    assert.deepEqual(first.require(Renderable).material!.uvTransforms.albedo.offset, [0.125, -0.25]);
+    assert.equal(first.require(Renderable).material!.uvTransforms.albedo.rotation, Math.PI / 4);
 
     instance.animation!.play("morph");
     new AnimationSystem().update(ctx(scene, 0.5));

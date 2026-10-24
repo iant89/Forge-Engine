@@ -9,6 +9,7 @@ import type { Scene } from "../scene/scene.js";
 import { ParticleComponent } from "../particles/components.js";
 import { ParticleWorld } from "../particles/world.js";
 import { GpuParticleWorld } from "../particles/gpuWorld.js";
+import type { GpuParticleDiagnosticSample, GpuParticleDiagnosticSnapshot } from "../particles/gpuSystem.js";
 import { isAlive, P_LIFE, P_MAX_LIFE, P_VX, P_VY, P_VZ, P_X, P_Y, P_Z, PARTICLE_FLOATS } from "../particles/layout.js";
 import type { ParticleSimulation } from "../particles/simulation.js";
 import { Vec3 } from "../math/vec.js";
@@ -34,6 +35,16 @@ export interface ParticleEmitterDebugInfo {
   coneAngle: number;
 }
 
+export interface ParticleGpuDiagnosticInfo {
+  status: GpuParticleDiagnosticSnapshot["status"];
+  alive: number | null;
+  visible: number | null;
+  samples: ParticleDebugSample[];
+  sampleLimit: number;
+  scannedSlots: number;
+  bytes: number;
+}
+
 export interface ParticleWorldDebugInfo {
   name: string;
   backend: "cpu" | "gpu";
@@ -49,6 +60,8 @@ export interface ParticleWorldDebugInfo {
   sampledParticles: ParticleDebugSample[];
   scannedSlots: number;
   truncatedParticles: boolean;
+  /** GPU-only: null for CPU simulations; populated only by the explicit diagnostic path. */
+  diagnostic: ParticleGpuDiagnosticInfo | null;
 }
 
 export interface ParticleDebugSnapshot {
@@ -76,6 +89,10 @@ export interface ParticleDebugOptions {
   showVelocity?: boolean;
   /** Include emitter origin and direction markers. Defaults to true. */
   showEmitters?: boolean;
+  /** Explicitly request an asynchronous GPU state readback; false leaves the render path untouched. */
+  requestGpuReadback?: boolean;
+  /** Maximum live GPU samples for an explicit request. Defaults to 128. */
+  gpuSampleCount?: number;
 }
 
 export type ParticleDebugLineKind = "particle" | "velocity" | "emitter" | "emissionDirection";
@@ -133,7 +150,7 @@ export function inspectParticles(scene: Scene, options: ParticleDebugOptions = {
   const worlds = found.slice(0, worldLimit).map((item) =>
     item.backend === "cpu"
       ? inspectCpuSimulation(item.source, sampleLimit, scanBudget)
-      : inspectGpuWorld(item.source),
+      : inspectGpuWorld(item.source, options),
   );
   return { cpuWorlds, gpuWorlds, worldCount: found.length, worlds, truncatedWorlds: found.length > worlds.length };
 }
@@ -230,10 +247,11 @@ function inspectCpuSimulation(source: CpuParticleSource, sampleLimit: number, sc
     sampledParticles,
     scannedSlots,
     truncatedParticles: particleScanTruncated || sampledParticles.length < sim.alive,
+    diagnostic: null,
   };
 }
 
-function inspectGpuWorld(world: GpuParticleWorld): ParticleWorldDebugInfo {
+function inspectGpuWorld(world: GpuParticleWorld, options: ParticleDebugOptions): ParticleWorldDebugInfo {
   const system = world.system;
   if (!system) return {
     name: world.name,
@@ -250,8 +268,13 @@ function inspectGpuWorld(world: GpuParticleWorld): ParticleWorldDebugInfo {
     sampledParticles: [],
     scannedSlots: 0,
     truncatedParticles: false,
+    diagnostic: null,
   };
+  if (options.requestGpuReadback && system.diagnosticSnapshot().status === "idle") {
+    void system.requestDiagnostics({ sampleCount: options.gpuSampleCount }).catch(() => undefined);
+  }
   const emitter = system.emitter;
+  const diagnostic = system.diagnosticSnapshot();
   return {
     name: world.name,
     backend: "gpu",
@@ -278,7 +301,36 @@ function inspectGpuWorld(world: GpuParticleWorld): ParticleWorldDebugInfo {
     sampledParticles: [],
     scannedSlots: 0,
     truncatedParticles: false,
+    diagnostic: toParticleGpuDiagnostic(diagnostic),
   };
+}
+
+function toParticleGpuDiagnostic(snapshot: GpuParticleDiagnosticSnapshot): ParticleGpuDiagnosticInfo {
+  return {
+    status: snapshot.status,
+    alive: snapshot.alive,
+    visible: snapshot.visible,
+    samples: snapshot.samples.map((sample: GpuParticleDiagnosticSample) => ({
+      slot: sample.slot,
+      position: sample.position,
+      velocity: sample.velocity,
+      remainingLife: sample.remainingLife,
+      maxLife: sample.maxLife,
+    })),
+    sampleLimit: snapshot.sampleLimit,
+    scannedSlots: snapshot.scannedSlots,
+    bytes: snapshot.bytes,
+  };
+}
+
+/** Explicitly await one requested GPU sample, then return the normal debugger snapshot. */
+export async function requestGpuParticleDiagnostics(scene: Scene, options: ParticleDebugOptions = {}): Promise<ParticleDebugSnapshot> {
+  const requests: Promise<unknown>[] = [];
+  for (const object of scene.objects) {
+    if (object instanceof GpuParticleWorld) requests.push(object.requestDiagnostics({ sampleCount: options.gpuSampleCount }));
+  }
+  await Promise.all(requests);
+  return inspectParticles(scene, { ...options, requestGpuReadback: false });
 }
 
 function bounded(value: number | undefined, fallback: number, maximum: number): number {

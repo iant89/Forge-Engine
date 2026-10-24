@@ -429,6 +429,17 @@ const FLAGS_DEPTH_REUSE: u32 = 256u;
 fn materialUv(uv0: vec2<f32>, uv1: vec2<f32>, bit: u32) -> vec2<f32> {
   return select(uv0, uv1, ((material.uvSets >> bit) & 1u) != 0u);
 }
+
+// KHR_texture_transform applies scale, then counter-clockwise rotation around the UV origin,
+// then offset. The final material tiling/offset composes after the imported transform.
+fn materialSampleUv(uv0: vec2<f32>, uv1: vec2<f32>, bit: u32) -> vec2<f32> {
+  let uv = materialUv(uv0, uv1, bit);
+  let transform = material.uvScaleOffset[bit];
+  let rotation = material.uvRotation[bit];
+  let scaled = uv * transform.xy;
+  let rotated = vec2<f32>(scaled.x * rotation.x - scaled.y * rotation.y, scaled.x * rotation.y + scaled.y * rotation.x);
+  return (rotated + transform.zw) * material.tiling + material.offset;
+}
 `;
 
 /**
@@ -663,13 +674,13 @@ fn vertexMainInstancedLod(input: VertexInput, @builtin(instance_index) instanceI
  * that already carries the declarations, so a module holds one copy of every struct.
  */
 const STANDARD_SURFACE_SETUP = /* wgsl */ `
-  let albedo = materialAlbedo(materialUv(in.uv, in.uv1, 0u));
+  let albedo = materialAlbedo(materialSampleUv(in.uv, in.uv1, 0u));
   var N = normalize(in.normal);
   let V = normalize(perFrame.cameraPosRender - in.worldPos);
   if ((perFrame.flags & 4u) != 0u) {
     // Normal map (tangent space) when available; the TBN is built from the interpolated tangent.
     if ((material.flags & FLAGS_NORMAL) != 0u) {
-      let sampled = textureSample(normalMap, normalSampler, materialUv(in.uv, in.uv1, 1u) * material.tiling + material.offset).xyz * 2.0 - 1.0;
+      let sampled = textureSample(normalMap, normalSampler, materialSampleUv(in.uv, in.uv1, 1u)).xyz * 2.0 - 1.0;
       let T = normalize(in.tangent.xyz);
       let B = cross(N, T) * in.tangent.w;
       let tbn = mat3x3<f32>(T, B, N);
@@ -679,7 +690,7 @@ const STANDARD_SURFACE_SETUP = /* wgsl */ `
   var metallic = material.metallic;
   var roughness = material.roughness;
   if ((material.flags & FLAGS_MR) != 0u) {
-    let mr = textureSample(mrMap, mrSampler, materialUv(in.uv, in.uv1, 2u) * material.tiling + material.offset);
+    let mr = textureSample(mrMap, mrSampler, materialSampleUv(in.uv, in.uv1, 2u));
     metallic = metallic * mr.b;
     roughness = roughness * mr.g;
     // fe-38 convention: the MR map's alpha below 1 marks standing water (a moisture field's
@@ -882,7 +893,7 @@ fn lightContribution(L: LightUniforms, s: SurfaceShading, fragCoord: vec2<f32>) 
 fn materialEmission(uv: vec2<f32>) -> vec3<f32> {
   var e = material.emissiveFactor * material.emissiveStrength;
   if ((material.flags & FLAGS_EMISSIVE_MAP) != 0u) {
-    e = e * textureSample(emissiveMap, emissiveSampler, uv * material.tiling + material.offset).rgb;
+    e = e * textureSample(emissiveMap, emissiveSampler, uv).rgb;
   }
   return e;
 }
@@ -892,14 +903,14 @@ fn materialOcclusion(uv: vec2<f32>) -> f32 {
   if ((material.flags & FLAGS_OCCLUSION_MAP) == 0u) {
     return 1.0;
   }
-  let ao = textureSample(occlusionMap, occlusionSampler, uv * material.tiling + material.offset).r;
+  let ao = textureSample(occlusionMap, occlusionSampler, uv).r;
   return 1.0 + material.occlusionStrength * (ao - 1.0);
 }
 
 fn materialAlbedo(uv: vec2<f32>) -> vec4<f32> {
   var base = material.baseColorFactor;
   if ((material.flags & FLAGS_ALBEDO) != 0u) {
-    base = base * textureSample(albedoMap, materialSampler, uv * material.tiling + material.offset);
+    base = base * textureSample(albedoMap, materialSampler, uv);
   }
   return base;
 }
@@ -986,8 +997,8 @@ fn fragmentMain(in: VertexOutput) -> @location(0) vec4<f32> {
   var standingWater = 0.0;
 ${surfaceSetup}
   // Sampled here, in uniform control flow, before the unlit/standard split.
-  let emission = materialEmission(materialUv(in.uv, in.uv1, 3u));
-  let occlusion = materialOcclusion(materialUv(in.uv, in.uv1, 4u));
+  let emission = materialEmission(materialSampleUv(in.uv, in.uv1, 3u));
+  let occlusion = materialOcclusion(materialSampleUv(in.uv, in.uv1, 4u));
   // glTF alpha MASK: alpha (texture × factor) below the cutoff is not drawn.
   if ((material.flags & FLAGS_ALPHA_TEST) != 0u && albedo.a * material.opacity < material.alphaCutoff) {
     discard;
@@ -1098,7 +1109,7 @@ export const STANDARD_FRAGMENT_BODY = createStandardFragmentBody();
 export const STANDARD_PREPASS_FRAGMENT = /* wgsl */ `
 @fragment
 fn fragmentDepth(in: VertexOutput) {
-  let uv = materialUv(in.uv, in.uv1, 0u) * material.tiling + material.offset;
+  let uv = materialSampleUv(in.uv, in.uv1, 0u);
   var albedoAlpha = material.baseColorFactor.a;
   if ((material.flags & FLAGS_ALBEDO) != 0u) {
     albedoAlpha = albedoAlpha * textureSample(albedoMap, materialSampler, uv).a;
@@ -1118,8 +1129,38 @@ fn fragmentDepth(in: VertexOutput) {
 /** @deprecated kept so external demos keep compiling; use `STANDARD_FRAGMENT_BODY`. */
 export const STANDARD_FRAGMENT = STANDARD_DEFINES + STANDARD_FRAGMENT_BODY;
 
-/** Depth-only program for the shadow pass: no colour targets, so the fragment stage is empty. */
+/** Shared material bindings and alpha test used by all shadow/depth caster variants. */
+const DEPTH_MATERIAL_WGSL = /* wgsl */ `
+${MaterialUniforms.toWgsl("uniform")}
+
+@group(2) @binding(0) var<uniform> material: MaterialUniforms;
+@group(2) @binding(1) var albedoMap: texture_2d<f32>;
+@group(2) @binding(4) var materialSampler: sampler;
+
+const FLAGS_ALBEDO_DEPTH: u32 = 1u;
+const FLAGS_ALPHA_TEST_DEPTH: u32 = 256u;
+
+fn shadowSampleUv(uv0: vec2<f32>, uv1: vec2<f32>) -> vec2<f32> {
+  let uv = select(uv0, uv1, ((material.uvSets >> 0u) & 1u) != 0u);
+  let transform = material.uvScaleOffset[0];
+  let rotation = material.uvRotation[0];
+  let scaled = uv * transform.xy;
+  let rotated = vec2<f32>(scaled.x * rotation.x - scaled.y * rotation.y, scaled.x * rotation.y + scaled.y * rotation.x);
+  return (rotated + transform.zw) * material.tiling + material.offset;
+}
+
+fn shadowAlpha(uv0: vec2<f32>, uv1: vec2<f32>) -> f32 {
+  var alpha = material.baseColorFactor.a;
+  if ((material.flags & FLAGS_ALBEDO_DEPTH) != 0u) {
+    alpha = alpha * textureSample(albedoMap, materialSampler, shadowSampleUv(uv0, uv1)).a;
+  }
+  return alpha * material.opacity;
+}
+`;
+
+/** Depth-only program for the shadow pass. Its fragment stage preserves MASK coverage. */
 export const DEPTH_VERTEX = /* wgsl */ `
+${DEPTH_MATERIAL_WGSL}
 ${ShadowPassUniforms.toWgsl("uniform")}
 ${ObjectUniforms.toWgsl("uniform")}
 ${InstanceStruct.toWgsl("storage")}
@@ -1133,10 +1174,14 @@ ${POPULATION_FADE_WGSL}
 
 struct In {
   @location(0) position: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(6) uv1: vec2<f32>,
 }
 
 struct Out {
   @builtin(position) clip: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) uv1: vec2<f32>,
 }
 
 @vertex
@@ -1144,6 +1189,8 @@ fn vertexMain(input: In) -> Out {
   var out: Out;
   let fade = populationFadeScale(objectData.model[3].xyz, shadowPass.fadeCamera, objectData.distanceFade);
   out.clip = shadowPass.viewProj * objectData.model * vec4<f32>(input.position * fade, 1.0);
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
@@ -1154,6 +1201,8 @@ fn vertexMainInstanced(input: In, @builtin(instance_index) instanceIndex: u32) -
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
   let fade = populationFadeScale(i.row3.xyz, shadowPass.fadeCamera, objectData.distanceFade);
   out.clip = shadowPass.viewProj * model * vec4<f32>(input.position * fade, 1.0);
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
@@ -1173,11 +1222,17 @@ fn vertexMainInstancedLod(input: In, @builtin(instance_index) instanceIndex: u32
     clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
   }
   out.clip = clip;
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
 @fragment
-fn fragmentMain() {}
+fn fragmentMain(in: Out) {
+  if ((material.flags & FLAGS_ALPHA_TEST_DEPTH) != 0u && shadowAlpha(in.uv, in.uv1) < material.alphaCutoff) {
+    discard;
+  }
+}
 `;
 
 /**
@@ -1188,6 +1243,7 @@ fn fragmentMain() {}
  * indirection deeper, so a caster's depth is bit-identical on both paths.
  */
 export const DEPTH_CULLED_VERTEX = /* wgsl */ `
+${DEPTH_MATERIAL_WGSL}
 ${ShadowPassUniforms.toWgsl("uniform")}
 ${ObjectUniforms.toWgsl("uniform")}
 ${InstanceStruct.toWgsl("storage")}
@@ -1200,10 +1256,14 @@ ${POPULATION_FADE_WGSL}
 
 struct In {
   @location(0) position: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(6) uv1: vec2<f32>,
 }
 
 struct Out {
   @builtin(position) clip: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) uv1: vec2<f32>,
 }
 
 @vertex
@@ -1213,6 +1273,8 @@ fn vertexMainCulled(input: In, @builtin(instance_index) instanceIndex: u32) -> O
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
   let fade = populationFadeScale(i.row3.xyz, shadowPass.fadeCamera, objectData.distanceFade);
   out.clip = shadowPass.viewProj * model * vec4<f32>(input.position * fade, 1.0);
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
@@ -1229,11 +1291,17 @@ fn vertexMainCulledLod(input: In, @builtin(instance_index) instanceIndex: u32, @
     clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
   }
   out.clip = clip;
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
 @fragment
-fn fragmentMain() {}
+fn fragmentMain(in: Out) {
+  if ((material.flags & FLAGS_ALPHA_TEST_DEPTH) != 0u && shadowAlpha(in.uv, in.uv1) < material.alphaCutoff) {
+    discard;
+  }
+}
 `;
 
 /**
@@ -1246,6 +1314,7 @@ fn fragmentMain() {}
  * skinned caster's shadow lands exactly where its lit pixels are.
  */
 export const DEPTH_SKINNED_VERTEX = /* wgsl */ `
+${DEPTH_MATERIAL_WGSL}
 ${ShadowPassUniforms.toWgsl("uniform")}
 ${ObjectUniforms.toWgsl("uniform")}
 ${InstanceStruct.toWgsl("storage")}
@@ -1259,12 +1328,16 @@ ${InstanceStruct.toWgsl("storage")}
 
 struct In {
   @location(0) position: vec3<f32>,
+  @location(2) uv: vec2<f32>,
   @location(4) joints: vec4<u32>,
   @location(5) weights: vec4<f32>,
+  @location(6) uv1: vec2<f32>,
 }
 
 struct Out {
   @builtin(position) clip: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+  @location(1) uv1: vec2<f32>,
 }
 
 fn skinMatrix(input: In) -> mat4x4<f32> {
@@ -1281,6 +1354,8 @@ fn vertexMainSkinned(input: In) -> Out {
   var out: Out;
   let skinned = skinMatrix(input) * vec4<f32>(input.position, 1.0);
   out.clip = shadowPass.viewProj * objectData.model * skinned;
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
@@ -1291,11 +1366,17 @@ fn vertexMainInstancedSkinned(input: In, @builtin(instance_index) instanceIndex:
   let model = mat4x4<f32>(i.row0, i.row1, i.row2, i.row3);
   let skinned = skinMatrix(input) * vec4<f32>(input.position, 1.0);
   out.clip = shadowPass.viewProj * model * skinned;
+  out.uv = input.uv;
+  out.uv1 = input.uv1;
   return out;
 }
 
 @fragment
-fn fragmentMain() {}
+fn fragmentMain(in: Out) {
+  if ((material.flags & FLAGS_ALPHA_TEST_DEPTH) != 0u && shadowAlpha(in.uv, in.uv1) < material.alphaCutoff) {
+    discard;
+  }
+}
 `;
 
 /** Debug overlay: coloured line list in render-local space (no lighting, no depth bias). */

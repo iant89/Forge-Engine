@@ -174,6 +174,8 @@ export const MaterialUniforms = new StructDef("MaterialUniforms", [
   { name: "occlusionStrength", type: f32 },
   { name: "alphaCutoff", type: f32 },
   { name: "snowCover", type: vec4, comment: "fe-38 per-object snow: amount, snow line (min world normal.y), wetness, unused" },
+  { name: "uvScaleOffset", type: arrayOf(vec4, 5), comment: "KHR_texture_transform: scale.xy, offset.zw for albedo, normal, MR, emissive, occlusion" },
+  { name: "uvRotation", type: arrayOf(vec4, 5), comment: "KHR_texture_transform: cos(rotation), sin(rotation), unused, unused per texture slot" },
 ]);
 
 /** Four-surface splat material, opt-in group 2 extension. Every array element is vec4-aligned. */
