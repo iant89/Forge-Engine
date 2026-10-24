@@ -3189,3 +3189,7 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   helper and a few checks in `tests/examples/marsOrbitScene.test.ts` pass epsilons, so they are far looser than they read (not fixed).
 - Editing `engine/api-approvals.json` is (rightly) blocked for agents: the API review for these additions (`environment/3`) is the
   maintainer's to record, together with `npm run api:reference` and the pinned surface counts in `runtimeApi.test.ts`.
+- **Ground = finest MOLA on every size (fe-41 follow-up).** The atlas *size* now only sets the globe's level; `marsGroundLevel`
+  (examples/src/scenes/marsOrbitAtlas.ts) makes the ground fetch the 2048² faces (≈2.6 km) per landing site everywhere (1024² at
+  ≤ 2 GB). Finer than 2.6 km needs a new offline bake from the 2.1 GB USGS GeoTIFF — `planetarymaps.usgs.gov` is blocked by this
+  sandbox's network policy (proxy 403), and ~18 MB/face (4096²) is too heavy for the repo; host it outside and use `atlasBaseUrl`.

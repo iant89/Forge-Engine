@@ -448,7 +448,9 @@ serve stale data. Decoding is on the main thread (native gunzip is already off-t
 
 `chooseMarsAtlasSize({ override, tier, phone, mobile, deviceMemoryGB })` picks the size: `?mola=` wins; otherwise the
 smaller of what the tier allows (`low` phone, `medium` tablet, `high` desktop) and what the device can hold (phone-class: `phone`;
-other mobile/touch: ≤ `tablet`; ≤ 2 GB memory: `phone`; ≤ 4 GB: ≤ `tablet`). The Mars Orbit Explorer wires `?mola=phone|tablet|desktop|off`.
+other mobile/touch: ≤ `tablet`; ≤ 2 GB memory: `phone`; ≤ 4 GB: ≤ `tablet`). The Mars Orbit Explorer wires `?mola=phone|tablet|desktop|off`
+for its globe, and builds its ground from the 2048² faces on every size (1024² at ≤ 2 GB; `marsGroundLevel` in
+`examples/src/scenes/marsOrbitAtlas.ts`), fetched per landing site — the size limits what is loaded whole, not what a site may use.
 
 A *finer* ground atlas (4096² faces, ~1.3 km nodes, ≈110 MB gzip) is possible with the same tool and loader but is not
 shipped: the repo budget is better spent elsewhere, and below the node spacing the ground is procedural detail anyway

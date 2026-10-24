@@ -1053,9 +1053,10 @@ async function checkMarsOrbit() {
 }
 
 /**
- * fe-40: one MOLA atlas size end to end. The page asks for `?mola=<size>`, only that size is downloaded
- * (`desktop` = the tablet base plus 2048² faces on demand), the globe renders from it, and a dive onto Olympus
- * Mons lands on terrain built over the real heights. The tablet/desktop runs reuse the browser context, so the
+ * fe-40: one MOLA atlas size end to end. The page asks for `?mola=<size>`, only that size is downloaded whole
+ * (`desktop` = the tablet base), the globe renders from it, and a dive onto Olympus Mons lands on terrain built
+ * over the real heights — from the 2048² faces under the site on every size (fe-41: the ground is not limited
+ * by the globe's atlas). The tablet/desktop runs reuse the browser context, so the
  * IndexedDB cache is exercised as well (a second visit downloads nothing).
  */
 async function checkMarsOrbitAtlasSize(size) {
@@ -1076,15 +1077,14 @@ async function checkMarsOrbitAtlasSize(size) {
   await page.evaluate(() => window.__forge.marsOrbitDive(18, 226.5, { hours: 12, ls: 90 }));
   await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 250, timeout: 90000 });
   await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
-  if (size === "desktop") {
-    // `?moinstant=1` does not wait for the fine faces; they arrive a moment after the landing.
-    await page.waitForFunction(() => window.__forge.marsOrbitState().atlas.facesDetail >= 1, null, { polling: 500, timeout: 120000 });
-  }
+  // Every size lands on the 2048² faces (the globe's size only limits what is loaded whole). `?moinstant=1`
+  // does not wait for them; they arrive a moment after the landing.
+  await page.waitForFunction(() => window.__forge.marsOrbitState().atlas.facesDetail >= 1, null, { polling: 500, timeout: 120000 })
+    .catch(() => {});
   const ground = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
-  if (size === "desktop" && !(ground.state.atlas.facesDetail >= 1)) {
-    throw new Error(`?mola=desktop landed without fetching a 2048² face: ${JSON.stringify(ground.state.atlas)}`);
+  if (!(ground.state.atlas.facesDetail >= 1) || ground.state.atlas.groundSize !== "desktop" || ground.state.atlas.resolution !== 2048) {
+    throw new Error(`?mola=${size} landed without fetching a 2048² face: ${JSON.stringify(ground.state.atlas)}`);
   }
-  if (size !== "desktop" && ground.state.atlas.facesDetail !== 0) throw new Error(`?mola=${size} fetched detail faces: ${JSON.stringify(ground.state.atlas)}`);
   if (ground.stats.gpuErrors !== 0 || ground.stats.lastError) throw new Error(`?mola=${size} GPU error: ${ground.stats.lastError}`);
   await sleep(1000);
   await page.screenshot({ path: `tools/.browser-check-mars-orbit-${size}-ground.png`, timeout: 60000 });

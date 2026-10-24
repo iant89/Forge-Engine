@@ -8,6 +8,11 @@
  * `desktop` = the tablet level (orbit) plus the 6×2048² faces (~28 MB total) fetched lazily, one face at
  * a time, only for the face(s) under the site the viewer lands on. `?mola=phone|tablet|desktop` forces a
  * size, `?mola=off` turns real elevation off (procedural Mars, the pre-fe-40 behaviour).
+ *
+ * The size only sets the **globe's** level. The **ground** is built from the finest shipped level on every
+ * size ({@link marsGroundLevel}: the 2048² faces, ≈2.6 km nodes, ~4.6 MB each, fetched for the site only),
+ * so a phone's light orbit atlas no longer limits the terrain it lands on; a device that reports ≤ 2 GB of
+ * memory gets the 1024² faces instead.
  */
 
 import {
@@ -30,6 +35,8 @@ export interface MarsOrbitAtlasInfo {
   reason: string;
   /** Finest resolution (nodes per face edge) loaded anywhere, 0 when none. */
   resolution: number;
+  /** The level the ground is built from (fetched per site), or null when it is the base level itself. */
+  groundSize: MarsAtlasSize | null;
   facesBase: number;
   facesDetail: number;
   /** Bytes fetched over the network / face files served from IndexedDB. */
@@ -59,7 +66,7 @@ export interface MarsOrbitAtlasController {
   readonly ready: Promise<void>;
   /** True when every face the ground around `dir` needs is already loaded at the finest level. */
   groundReady(dir: { x: number; y: number; z: number }, radiusRad: number): boolean;
-  /** Load the finest-level faces around a site (a no-op for `phone`/`tablet`); never rejects. */
+  /** Load the ground level's faces around a site ({@link marsGroundLevel}); never rejects. */
   loadGround(dir: { x: number; y: number; z: number }, radiusRad: number): Promise<void>;
   dispose(): void;
 }
@@ -89,12 +96,25 @@ function defaultBaseUrl(): string {
   return `${base.endsWith("/") ? base : `${base}/`}mars/mola/`;
 }
 
+/**
+ * The atlas level the ground is built from for a globe `size`: the finest shipped level (`desktop`),
+ * or `tablet` on a device that reports ≤ 2 GB of memory; null when that is no finer than the level the
+ * globe already loads whole (so there is nothing extra to fetch).
+ */
+export function marsGroundLevel(size: MarsAtlasSize, deviceMemoryGB?: number): MarsAtlasSize | null {
+  const ground: MarsAtlasSize = deviceMemoryGB !== undefined && deviceMemoryGB <= 2 ? "tablet" : "desktop";
+  const base = marsAtlasPlan(size).base;
+  const rank = (s: MarsAtlasSize): number => ["phone", "tablet", "desktop"].indexOf(s);
+  return rank(ground) > rank(base) ? ground : null;
+}
+
 export function createMarsOrbitAtlas(options: MarsOrbitAtlasOptions): MarsOrbitAtlasController {
   const info: MarsOrbitAtlasInfo = {
     status: "off",
     size: null,
     reason: "",
     resolution: 0,
+    groundSize: null,
     facesBase: 0,
     facesDetail: 0,
     bytesDownloaded: 0,
@@ -121,7 +141,9 @@ export function createMarsOrbitAtlas(options: MarsOrbitAtlasOptions): MarsOrbitA
   const device = options.device ?? detectMolaDevice();
   const size = chooseMarsAtlasSize({ override: mola, tier: options.tier, phone: device.phone, mobile: device.mobile, deviceMemoryGB: device.deviceMemoryGB });
   const plan = marsAtlasPlan(size);
+  const groundLevel = marsGroundLevel(size, device.deviceMemoryGB);
   info.size = size;
+  info.groundSize = groundLevel;
   info.status = "loading";
   info.reason =
     mola === size
@@ -135,7 +157,7 @@ export function createMarsOrbitAtlas(options: MarsOrbitAtlasOptions): MarsOrbitA
     info.cacheHits = s.cacheHits;
     info.resolution = streamer.atlas.resolutions[0] ?? 0;
     info.facesBase = streamer.facesReady(plan.base).length;
-    info.facesDetail = plan.detail ? streamer.facesReady(plan.detail).length : 0;
+    info.facesDetail = groundLevel ? streamer.facesReady(groundLevel).length : 0;
   };
 
   const baseUrl = options.baseUrl ?? defaultBaseUrl();
@@ -150,6 +172,7 @@ export function createMarsOrbitAtlas(options: MarsOrbitAtlasOptions): MarsOrbitA
         onFace: refresh,
       });
       if (!streamer.manifest.sizes[size]) throw new Error(`size "${size}" is not in the manifest`);
+      if (groundLevel && !streamer.manifest.sizes[groundLevel]) throw new Error(`size "${groundLevel}" is not in the manifest`);
       await streamer.loadSize(plan.base);
       refresh();
       info.status = "ready";
@@ -167,15 +190,15 @@ export function createMarsOrbitAtlas(options: MarsOrbitAtlasOptions): MarsOrbitA
     },
     ready,
     groundReady(dir, radiusRad) {
-      if (!streamer || !plan.detail) return true;
-      const entry = streamer.manifest.sizes[plan.detail];
+      if (!streamer || !groundLevel) return true;
+      const entry = streamer.manifest.sizes[groundLevel];
       if (!entry) return true;
       return streamer.atlas.facesNear(dir.x, dir.y, dir.z, radiusRad).every((f) => streamer!.atlas.hasFace(f, entry.res));
     },
     async loadGround(dir, radiusRad) {
-      if (!streamer || !plan.detail) return;
+      if (!streamer || !groundLevel) return;
       try {
-        await streamer.loadNear(plan.detail, dir, radiusRad);
+        await streamer.loadNear(groundLevel, dir, radiusRad);
       } catch (error) {
         // Not fatal: the ground keeps the base level's heights.
         info.error = error instanceof Error ? error.message : String(error);

@@ -108,12 +108,20 @@ under every contact and a rolling event log — for working out why a device is 
 ## Real elevation (fe-40)
 
 The globe and the ground terrain use **real MOLA heights** where the atlas is available (`docs/MARS-TERRAIN.md` §8).
-`marsOrbitAtlas.ts` picks the size (`?mola=` or tier + device: iPhone → `phone` 2 MB, iPad/medium → `tablet` 7.6 MB, high →
-`desktop` = tablet base + lazy 2048² faces), downloads only that, and caches the face files in IndexedDB. The planet is not drawn
-until the base level is in ("loading elevation data…"); if the atlas is missing or the browser cannot decode it the demo falls back
-to the procedural planet. On a dive, a `desktop` device fetches the 2048² faces under the site (the 2.8 s orbit approach usually
-covers it; otherwise the approach waits up to 12 s with "loading terrain detail…") before the terrain is built, so tiles are
-generated once with the finest heights. The HUD overlay reads `elev <size> <res>² <status>`.
+`marsOrbitAtlas.ts` picks the **globe's** size (`?mola=` or tier + device: iPhone → `phone` 2 MB, iPad/medium → `tablet` 7.6 MB,
+high → `desktop` = tablet base + lazy 2048² faces), downloads only that, and caches the face files in IndexedDB. The planet is not
+drawn until the base level is in ("loading elevation data…"); if the atlas is missing or the browser cannot decode it the demo falls
+back to the procedural planet.
+
+The **ground** does not use the globe's level: on every size it is built from the finest shipped level, the 2048² faces (≈2.6 km
+nodes, ~4.6 MB each, `marsGroundLevel`), fetched only for the face(s) under the site; a device reporting ≤ 2 GB of memory gets the
+1024² faces instead. So a phone orbits on its 2 MB atlas and lands on 2.6 km data. The dive fetches them during the 2.8 s orbit
+approach (otherwise it waits up to 12 s with "loading terrain detail…") before the terrain is built, so tiles are generated once
+with the finest heights; the globe's detail patch also picks them up where they are loaded. The HUD overlay reads
+`elev <size> <res>² <status>`, where `<res>` is the finest level loaded.
+
+Nothing finer than 2.6 km ships: the source is the 463 m USGS GeoTIFF (2.1 GB), and seeing its full resolution on the ground needs a
+finer offline bake (e.g. 4096² faces, ~1.3 km, ~18 MB each) or a tiled streamer, hosted outside the repo (`atlasBaseUrl`).
 
 ## Verification and limits
 
@@ -126,7 +134,7 @@ generated once with the finest heights. The HUD overlay reads `elev <size> <res>
   `?moinstant=1`; it does **not** measure real-time easing or real-GPU / iOS performance.
 * The globe texture is ≈10–21 km per texel procedural, **≈5–20 km over real data** (final grid pass 0.33–0.75°, the atlas nodes
   are 2.6–10 km). Zoomed in, the detail patch brings the view to ≈1–2 km per texel, but its relief can be no finer than the atlas
-  (tablet ≈5 km nodes; the desktop 2048² faces are only fetched for a dive). There is one patch level, not a full clipmap.
+  (tablet ≈5 km nodes; the 2048² faces are only fetched for a dive). There is one patch level, not a full clipmap.
   The orbit and ground renderings of the same weather are separate (the orbit shows clouds/dust on a shell; the
   ground shows haze, devils and a sheet cloud layer).
 * See `docs/KNOWN-ISSUES.md` for the tracked limitations.

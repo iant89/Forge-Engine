@@ -31271,6 +31271,78 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "fe-41 lessons: AP dots root cause, T-junction flange, clamp sampler, rebake ratio, headless timing, assertCloseTo digits",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2513",
+    "date": "2026-10-24T23:58:22Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitAtlas.ts",
+    "what": "marsGroundLevel: the ground is built from the 2048² faces on every atlas size (1024² at <= 2 GB), fetched per site; info.groundSize",
+    "why": "User request: MOLA for the globe, finer MOLA for the terrain; a phone's 2 MB globe atlas no longer limits the ground"
+  },
+  {
+    "id": "2514",
+    "date": "2026-10-24T23:58:22Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/terrain/marsHeightAtlas.test.ts",
+    "what": "Every size lazily fetches 2048² ground faces; marsGroundLevel policy cases",
+    "why": "Pin the new ground policy"
+  },
+  {
+    "id": "2515",
+    "date": "2026-10-24T23:58:22Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tools/browser-check.mjs",
+    "what": "Per-size atlas check: every size must land on a 2048² face",
+    "why": "The old assertion pinned the policy this change replaces"
+  },
+  {
+    "id": "2516",
+    "date": "2026-10-24T23:58:22Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Globe level vs ground level; why nothing finer than 2.6 km ships",
+    "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2517",
+    "date": "2026-10-24T23:58:22Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/MARS-TERRAIN.md",
+    "what": "The orbit explorer's ground uses the 2048² faces on every size",
+    "why": "Keep the atlas doc truthful"
+  },
+  {
+    "id": "2518",
+    "date": "2026-10-24T23:58:22Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Ground level policy and the blocked 463 m source",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

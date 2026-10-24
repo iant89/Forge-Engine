@@ -65,7 +65,7 @@ import {
   type MarsAtlasManifest,
   type MarsAtlasSize,
 } from "@forge/engine";
-import { createMarsOrbitAtlas } from "../../examples/src/scenes/marsOrbitAtlas.js";
+import { createMarsOrbitAtlas, marsGroundLevel } from "../../examples/src/scenes/marsOrbitAtlas.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const molaDir = path.join(repoRoot, "examples/public/mars/mola");
@@ -733,7 +733,7 @@ group("Mars Orbit Explorer atlas controller", () => {
     assert.equal(c.groundReady({ x: 1, y: 0, z: 0 }, 0.01), true);
   });
 
-  test("each size downloads only what it needs: phone one level, tablet one level, desktop the tablet base then lazy faces", async () => {
+  test("each size downloads its globe level whole, then only the 2048² faces under a landing site", async () => {
     const seen: string[] = [];
     const spy = ((input: RequestInfo | URL) => {
       seen.push(String(input).replace(/^.*\/mars\/mola\//, ""));
@@ -750,21 +750,28 @@ group("Mars Orbit Explorer atlas controller", () => {
       assert.deepEqual([...dirs], [mola === "desktop" ? "tablet" : mola], `${mola}: only its base level fetched`);
       assert.equal(seen.filter((s) => s !== "manifest.json").length, 6);
       assert.equal(c.info.facesBase, 6);
-      if (mola === "desktop") {
-        const site = dirOf(17.3, 226.6);
-        assert.equal(c.groundReady(site, 0.005), false);
-        const before = seen.length;
-        await c.loadGround(site, 0.005);
-        assert.equal(c.groundReady(site, 0.005), true);
-        const added = seen.slice(before);
-        assert.ok(added.length >= 1 && added.length <= 4 && added.every((s) => s.startsWith("desktop/")), `lazy desktop faces: ${added}`);
-        assert.equal(c.info.resolution, 2048);
-        assert.ok(c.info.facesDetail >= 1 && c.info.facesDetail <= 4);
-      } else {
-        assert.equal(c.groundReady(dirOf(0, 0), 0.01), true, "phone/tablet have no finer level to wait for");
-      }
+      // Every size lands on the finest shipped level: the ground is not limited by the globe's atlas.
+      assert.equal(c.info.groundSize, "desktop");
+      const site = dirOf(17.3, 226.6);
+      assert.equal(c.groundReady(site, 0.005), false);
+      const before = seen.length;
+      await c.loadGround(site, 0.005);
+      assert.equal(c.groundReady(site, 0.005), true);
+      const added = seen.slice(before);
+      assert.ok(added.length >= 1 && added.length <= 4 && added.every((s) => s.startsWith("desktop/")), `${mola}: lazy desktop faces ${added}`);
+      assert.equal(c.info.resolution, 2048);
+      assert.ok(c.info.facesDetail >= 1 && c.info.facesDetail <= 4);
+      // The globe's base level is still whole and unchanged.
+      assert.equal(c.info.facesBase, 6);
       c.dispose();
     }
+  });
+
+  test("the ground level is the finest shipped one, except on a ≤ 2 GB device", () => {
+    for (const size of ["phone", "tablet", "desktop"] as const) assert.equal(marsGroundLevel(size), "desktop", size);
+    assert.equal(marsGroundLevel("phone", 8), "desktop");
+    assert.equal(marsGroundLevel("phone", 2), "tablet", "low memory: the 1024² faces");
+    assert.equal(marsGroundLevel("tablet", 2), null, "nothing finer than what the globe already holds");
   });
 
   test("automatic choice follows the tier and the device, and says why", async () => {
