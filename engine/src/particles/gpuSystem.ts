@@ -11,7 +11,7 @@
 import { BufferUsage, ShaderStage, TextureUsage, gpuSource } from "../gpu/constants.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import type { RenderGraph, RenderGraphHandle, RenderGraphPassContext } from "../rendering/renderGraph.js";
-import { PARTICLE_FLOATS, PARTICLE_STRIDE } from "./layout.js";
+import { PARTICLE_FLOATS, PARTICLE_STRIDE, P_FLAGS, P_LIFE, P_MAX_LIFE, P_X, P_Y, P_Z, P_VX, P_VY, P_VZ } from "./layout.js";
 import {
   PARTICLE_CULL_SHADER,
   PARTICLE_EMIT_SHADER,
@@ -169,6 +169,31 @@ export interface GpuParticleFrameInput {
   cameraUp: { x: number; y: number; z: number };
 }
 
+export interface GpuParticleDiagnosticRequest {
+  /** Maximum live particles copied into the completed diagnostic sample. */
+  sampleCount?: number;
+}
+
+export interface GpuParticleDiagnosticSample {
+  slot: number;
+  position: [number, number, number];
+  velocity: [number, number, number];
+  remainingLife: number;
+  maxLife: number;
+}
+
+export interface GpuParticleDiagnosticSnapshot {
+  status: "idle" | "pending" | "ready" | "unavailable";
+  /** Alive particles counted from the copied authoritative state, or null before completion. */
+  alive: number | null;
+  /** Compacted visible count copied from the indirect draw record, or null before completion. */
+  visible: number | null;
+  samples: GpuParticleDiagnosticSample[];
+  sampleLimit: number;
+  scannedSlots: number;
+  bytes: number;
+}
+
 const EMIT_UNIFORM_BYTES = 160;
 const SIM_UNIFORM_BYTES = 224; // 55 words used (fe-22f size range in 53/54)
 const CULL_UNIFORM_BYTES = 96;
@@ -176,6 +201,8 @@ const RENDER_UNIFORM_BYTES = 128;
 const RIBBON_UNIFORM_BYTES = 128;
 /** Two 4-word records: billboard draw (words 0-3) and ribbon draw (words 4-7). */
 const INDIRECT_BYTES = 32;
+const DIAGNOSTIC_DEFAULT_SAMPLES = 128;
+const DIAGNOSTIC_MAX_SAMPLES = 2048;
 
 function defaultEmitter(partial: Partial<GpuParticleEmitterConfig> = {}): GpuParticleEmitterConfig {
   return {
@@ -307,6 +334,13 @@ export class GpuParticleSystem {
   /** Depth texture last bound into {@link ribbonBindGroup}; same rebuild rule. */
   private ribbonBindDepth: GPUTexture | null = null;
 
+  // Diagnostic readback is deliberately allocated and queued only after requestDiagnostics().
+  // The live render/simulation path never maps or copies these buffers.
+  private diagnosticReadback: GPUBuffer | null = null;
+  private diagnosticRequest: { sampleLimit: number; resolve: (snapshot: GpuParticleDiagnosticSnapshot) => void; reject: (error: unknown) => void; promise: Promise<GpuParticleDiagnosticSnapshot> } | null = null;
+  private diagnosticPassEnqueued = false;
+  private diagnosticLast: GpuParticleDiagnosticSnapshot = { status: "idle", alive: null, visible: null, samples: [], sampleLimit: 0, scannedSlots: 0, bytes: 0 };
+
   private writeHead = 0;
   private emitAccumulator = 0;
   private time = 0;
@@ -363,7 +397,7 @@ export class GpuParticleSystem {
     this.indirectBuffer = d.createBuffer({
       label: "gpuParticles.indirect",
       size: INDIRECT_BYTES,
-      usage: BufferUsage.STORAGE | BufferUsage.INDIRECT | BufferUsage.COPY_DST,
+      usage: BufferUsage.STORAGE | BufferUsage.INDIRECT | BufferUsage.COPY_DST | BufferUsage.COPY_SRC,
     });
     this.emitUniform = d.createBuffer({
       label: "gpuParticles.emitParams",
@@ -848,6 +882,98 @@ export class GpuParticleSystem {
   }
 
   /**
+   * Request one asynchronous GPU diagnostic sample. This is intentionally separate from `prepare`
+   * and `enqueue`: ordinary particle frames perform no readback, mapping, or synchronization. The
+   * promise resolves after the next graph containing this system has submitted its diagnostic copy.
+   */
+  requestDiagnostics(options: GpuParticleDiagnosticRequest = {}): Promise<GpuParticleDiagnosticSnapshot> {
+    if (!this.ready || this.disposed) {
+      return Promise.resolve({ ...this.diagnosticLast, status: "unavailable" });
+    }
+    if (this.diagnosticRequest) return this.diagnosticRequest.promise;
+    const sampleLimit = Math.max(0, Math.min(DIAGNOSTIC_MAX_SAMPLES, Math.floor(options.sampleCount ?? DIAGNOSTIC_DEFAULT_SAMPLES)));
+    const readbackBytes = this.capacity * PARTICLE_STRIDE + INDIRECT_BYTES;
+    if (!this.diagnosticReadback) {
+      this.diagnosticReadback = this.device.createBuffer({
+        label: "gpuParticles.diagnostics.readback",
+        size: readbackBytes,
+        usage: BufferUsage.MAP_READ | BufferUsage.COPY_DST,
+      });
+    }
+    let resolve!: (snapshot: GpuParticleDiagnosticSnapshot) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<GpuParticleDiagnosticSnapshot>((res, rej) => { resolve = res; reject = rej; });
+    this.diagnosticRequest = { sampleLimit, resolve, reject, promise };
+    this.diagnosticPassEnqueued = false;
+    this.diagnosticLast = { status: "pending", alive: null, visible: null, samples: [], sampleLimit, scannedSlots: 0, bytes: 0 };
+    return promise;
+  }
+
+  /** Latest completed diagnostic sample, or its explicit pending/idle state. */
+  diagnosticSnapshot(): GpuParticleDiagnosticSnapshot {
+    return { ...this.diagnosticLast, samples: this.diagnosticLast.samples.map((sample) => ({ ...sample, position: [...sample.position] as [number, number, number], velocity: [...sample.velocity] as [number, number, number] })) };
+  }
+
+  private encodeDiagnostic(ctx: RenderGraphPassContext): void {
+    const request = this.diagnosticRequest;
+    if (!request || !this.diagnosticReadback || !this.particleBuffer || !this.indirectBuffer) return;
+    const stateBytes = this.capacity * PARTICLE_STRIDE;
+    ctx.encoder.copyBufferToBuffer(this.particleBuffer, 0, this.diagnosticReadback, 0, stateBytes);
+    ctx.encoder.copyBufferToBuffer(this.indirectBuffer, 0, this.diagnosticReadback, stateBytes, INDIRECT_BYTES);
+    // RenderGraph invokes this after the command buffer has been submitted. mapAsync is asynchronous
+    // and waits for the copy without blocking the render frame.
+    ctx.afterSubmit(() => { void this.finishDiagnosticReadback(request); });
+  }
+
+  private async finishDiagnosticReadback(request: { sampleLimit: number; resolve: (snapshot: GpuParticleDiagnosticSnapshot) => void; reject: (error: unknown) => void; promise: Promise<GpuParticleDiagnosticSnapshot> }): Promise<void> {
+    if (this.diagnosticRequest !== request || !this.diagnosticReadback) return;
+    try {
+      await this.diagnosticReadback.mapAsync(BufferUsage.MAP_READ);
+      const stateBytes = this.capacity * PARTICLE_STRIDE;
+      const mapped = this.diagnosticReadback.getMappedRange();
+      const state = new Float32Array(mapped.slice(0, stateBytes));
+      const indirect = new Uint32Array(mapped.slice(stateBytes, stateBytes + INDIRECT_BYTES));
+      const samples: GpuParticleDiagnosticSample[] = [];
+      let alive = 0;
+      for (let slot = 0; slot < this.capacity; slot++) {
+        const o = slot * PARTICLE_FLOATS;
+        if (state[o + P_FLAGS]! < 0.5 || state[o + P_LIFE]! <= 0) continue;
+        alive++;
+        if (samples.length < request.sampleLimit) {
+          samples.push({
+            slot,
+            position: [state[o + P_X]!, state[o + P_Y]!, state[o + P_Z]!],
+            velocity: [state[o + P_VX]!, state[o + P_VY]!, state[o + P_VZ]!],
+            remainingLife: state[o + P_LIFE]!,
+            maxLife: state[o + P_MAX_LIFE]!,
+          });
+        }
+      }
+      this.diagnosticReadback.unmap();
+      const snapshot: GpuParticleDiagnosticSnapshot = { status: "ready", alive, visible: indirect[1] ?? 0, samples, sampleLimit: request.sampleLimit, scannedSlots: this.capacity, bytes: stateBytes + INDIRECT_BYTES };
+      this.diagnosticLast = snapshot;
+      this.diagnosticRequest = null;
+      this.diagnosticPassEnqueued = false;
+      request.resolve(this.diagnosticSnapshot());
+    } catch (error) {
+      this.failDiagnosticReadback(request, error);
+    }
+  }
+
+  private failDiagnosticReadback(request: { sampleLimit: number; resolve: (snapshot: GpuParticleDiagnosticSnapshot) => void; reject: (error: unknown) => void; promise: Promise<GpuParticleDiagnosticSnapshot> }, error: unknown): void {
+    if (this.diagnosticRequest !== request) return;
+    try {
+      if ((this.diagnosticReadback as unknown as { mapState?: string } | null)?.mapState === "mapped") this.diagnosticReadback?.unmap();
+    } catch {
+      /* device loss can make unmap fail; the request is still retired */
+    }
+    this.diagnosticRequest = null;
+    this.diagnosticPassEnqueued = false;
+    this.diagnosticLast = { status: "unavailable", alive: null, visible: null, samples: [], sampleLimit: request.sampleLimit, scannedSlots: 0, bytes: 0 };
+    request.reject(error);
+  }
+
+  /**
    * Enqueue `particle.sim` → `particle.sort` → `particle.render` → `particle.resolve` into the
    * active render graph. `particle.sort` is the frustum/distance compact (HiZ deferred).
    */
@@ -896,6 +1022,15 @@ export class GpuParticleSystem {
       sideEffect: true,
       execute: (ctx) => this.encodeResolve(ctx),
     });
+    if (this.diagnosticRequest && !this.diagnosticPassEnqueued) {
+      this.diagnosticPassEnqueued = true;
+      this.lastEnqueuedPasses.push("particle.diagnostics" + sfx);
+      graph.addPass({
+        name: "particle.diagnostics" + sfx,
+        sideEffect: true,
+        execute: (ctx) => this.encodeDiagnostic(ctx),
+      });
+    }
     this.stepCount += this.lastSimulationSteps;
   }
 
@@ -1087,6 +1222,8 @@ export class GpuParticleSystem {
       ribbons: this.ribbons,
       ribbonVerts: PARTICLE_RIBBON_VERTS,
       ribbonDrawn: this.lastRibbonDrawn,
+      diagnosticPending: this.diagnosticRequest !== null,
+      diagnosticSamples: this.diagnosticLast.samples.length,
     };
   }
 
@@ -1095,6 +1232,7 @@ export class GpuParticleSystem {
     this.disposed = true;
     this.ready = false;
     for (const b of [
+      this.diagnosticReadback,
       this.particleBuffer,
       this.trailBuffer,
       this.visibleBuffer,
@@ -1120,6 +1258,12 @@ export class GpuParticleSystem {
     this.cullUniform = null;
     this.renderUniform = null;
     this.ribbonUniform = null;
+    this.diagnosticReadback = null;
+    if (this.diagnosticRequest) {
+      this.diagnosticRequest.reject(new Error("GPU particle diagnostics disposed"));
+      this.diagnosticRequest = null;
+    }
+    this.diagnosticPassEnqueued = false;
     this.emitPipeline = null;
     this.simPipeline = null;
     this.cullPipeline = null;

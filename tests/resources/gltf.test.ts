@@ -382,6 +382,54 @@ group("glTF 2.0 skin import (Phase 16.1a)", () => {
   });
 });
 
+group("glTF KHR_texture_transform", () => {
+  test("decodes independent slot transforms and lets extension texCoord override textureInfo.texCoord", async () => {
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    const transform = (offset: [number, number], scale: [number, number], rotation: number, texCoord?: number) => ({
+      offset, scale, rotation, ...(texCoord === undefined ? {} : { texCoord }),
+    });
+    const document = {
+      asset: { version: "2.0" },
+      buffers: [{ byteLength: positions.byteLength }],
+      bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength }],
+      accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3" }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
+      textures: [{}, {}, {}, {}, {}],
+      materials: [{
+        pbrMetallicRoughness: {
+          baseColorTexture: { index: 0, texCoord: 0, extensions: { KHR_texture_transform: transform([0.25, -0.5], [2, 3], Math.PI / 2, 1) } },
+          metallicRoughnessTexture: { index: 1, texCoord: 1, extensions: { KHR_texture_transform: transform([-1, 0.5], [0.5, 0.75], -0.25) } },
+        },
+        normalTexture: { index: 2, texCoord: 0, extensions: { KHR_texture_transform: transform([0, 0.125], [1, 1], 0.5, 1) } },
+        emissiveTexture: { index: 3, extensions: { KHR_texture_transform: transform([0.1, 0.2], [4, 4], 0) } },
+        occlusionTexture: { index: 4, texCoord: 1, extensions: { KHR_texture_transform: transform([0, 0], [0.25, 0.25], 1.25) } },
+      }],
+    };
+    const asset = await decodeGltfMesh({ json: JSON.stringify(document), buffers: [positions.buffer] }, PRESERVE);
+    const material = asset.materials[0]!;
+    assert.deepEqual([...material.baseColorTransform!.offset], [0.25, -0.5]);
+    assert.deepEqual([...material.baseColorTransform!.scale], [2, 3]);
+    assert.equal(material.baseColorTransform!.rotation, Math.PI / 2);
+    assert.equal(material.baseColorTexCoord, 1, "extension texCoord wins over textureInfo.texCoord");
+    assert.equal(material.metallicRoughnessTexCoord, 1, "base textureInfo texCoord is retained without an override");
+    assert.equal(material.normalTexCoord, 1);
+    assert.equal(material.emissiveTexCoord, 0);
+    assert.equal(material.occlusionTexCoord, 1);
+    assert.equal(material.metallicRoughnessTransform!.offset[0], -1);
+    assert.equal(material.occlusionTransform!.scale[0], 0.25);
+  });
+
+  test("rejects malformed or non-finite transform members", async () => {
+    const document = {
+      asset: { version: "2.0" },
+      meshes: [],
+      textures: [{}],
+      materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0, extensions: { KHR_texture_transform: { scale: [1, null] } } } } }],
+    };
+    await assertRejects(decodeGltfMesh(JSON.stringify(document), PRESERVE), /KHR_texture_transform scale must be a finite vec2/);
+  });
+});
+
 group("glTF 2.0 mesh decoder", () => {
   test("decodes GLB triangle geometry, node transforms, scenes and PBR factors", async () => {
     const result = await decodeGltfMesh(fixtureBuffer(), { ...PRESERVE, source: "triangle.glb" });

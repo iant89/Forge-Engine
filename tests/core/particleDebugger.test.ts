@@ -30,7 +30,7 @@ export const suite = {
 
 import assert from "node:assert/strict";
 import { finish, group, test } from "selrun";
-import { drawParticleDebug, GpuParticleWorld, inspectParticles, particleDebugLines, ParticleComponent, ParticleWorld, Scene } from "@forge/engine";
+import { drawParticleDebug, GraphicsDevice, GpuParticleWorld, inspectParticles, particleDebugLines, ParticleComponent, ParticleWorld, RenderGraph, Scene, TextureUsage } from "@forge/engine";
 
 group("particle debugger", () => {
   test("samples bounded CPU particles and forwards particle, velocity, and emitter lines", () => {
@@ -66,6 +66,36 @@ group("particle debugger", () => {
     const forwarded: number[] = [];
     assert.equal(drawParticleDebug(scene, (_start, _end, color) => forwarded.push(color), { showVelocity: false }), 13);
     assert.equal(forwarded.length, 13);
+  });
+
+  test("exposes a completed opt-in GPU sample through inspectParticles", async () => {
+    const gpu = await GraphicsDevice.create({ forceMock: true, allowMockFallback: true });
+    const scene = new Scene({ name: "gpu-particle-debug" });
+    const world = new GpuParticleWorld({ name: "diagnostic-gpu", capacity: 64 });
+    scene.addObject(world);
+    try {
+      await world.attachDevice(gpu);
+      const request = world.requestDiagnostics({ sampleCount: 2 });
+      const colorTexture = gpu.device.createTexture({ label: "diag-color", size: { width: 8, height: 8 }, format: gpu.format, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.COPY_SRC });
+      const depthTexture = gpu.device.createTexture({ label: "diag-depth", size: { width: 8, height: 8 }, format: gpu.depthFormat, usage: TextureUsage.RENDER_ATTACHMENT | TextureUsage.TEXTURE_BINDING });
+      const graph = new RenderGraph(gpu);
+      graph.begin();
+      const color = graph.importTexture("diag-color", colorTexture);
+      const depth = graph.importTexture("diag-depth", depthTexture);
+      graph.addPass({ name: "seed", color: [{ texture: color }], depth: { texture: depth }, execute: (ctx) => ctx.beginRenderPass().end() });
+      world.enqueue(graph, { color, depth, colorFormat: gpu.format, depthFormat: gpu.depthFormat });
+      graph.execute();
+      await request;
+      const gpuView = inspectParticles(scene).worlds[0]!;
+      assert.equal(gpuView.diagnostic?.status, "ready");
+      assert.equal(gpuView.diagnostic?.sampleLimit, 2);
+      assert.equal(gpuView.diagnostic?.visible, 64);
+      colorTexture.destroy();
+      depthTexture.destroy();
+    } finally {
+      scene.dispose();
+      await gpu.dispose();
+    }
   });
 
   test("includes ECS ParticleComponents alongside scene-object worlds", () => {

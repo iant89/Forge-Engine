@@ -1,7 +1,7 @@
 # Phase 27.1 public API review record
 
 > **1.0 status:** The Phase 27.1 review recorded here is now part of the released `@forge/engine`
-> 1.0.0 contract. The current surface is 2,300 exports (2,291 public, 9 experimental, 0 deprecated),
+> 1.0.0 contract. The current surface is 2,308 exports (2,299 public, 9 experimental, 0 deprecated),
 > including the reviewed 1.0 extension contract and the Phase 14 population additions. Consumer guidance is in
 > [API-REFERENCE.md](API-REFERENCE.md), [MIGRATION-1.0.md](MIGRATION-1.0.md), [VERSIONING.md](VERSIONING.md),
 > [DEPRECATION.md](DEPRECATION.md), and [EXAMPLES.md](EXAMPLES.md).
@@ -15,7 +15,7 @@ released surface adds the 16 public extension-contract exports plus the reviewed
 shader export, for **2,188 approved public exports**. Phase 14 adds a separately reviewed population
 batch of 13 canonical sampling, worker-task, and resident-raycast exports, and Phase 16 adds ten glTF,
 morph-animation, and secondary-UV contracts across three follow-up batches, for **2,211 approved public
-exports** out of 2,220 total across 29 review batches; the fe-39 planet-viewer batch (`environment/2`, 55 exports) and the fe-40 real-elevation batch (`terrain/2`, 25 exports) bring the surface to **2,291 approved public exports** out of 2,300. Each approved row has an exact declaration kind,
+exports** out of 2,220 total across 29 review batches; the fe-39 planet-viewer batch (`environment/2`, 55 exports) and the fe-40 real-elevation batch (`terrain/2`, 25 exports) and the eight additions recorded below bring the surface to **2,299 approved public exports** out of 2,308. Each approved row has an exact declaration kind,
 direct declaration hash, transitive contract hash, and subsystem review. The nine exports already marked
 experimental remain experimental and are not approvals. There are no deprecated exports and no pending
 public candidates.
@@ -36,6 +36,13 @@ The vehicles follow-up review (`vehicles/2`) updates the chassis-related declara
 `createVehicleChassis` retain the existing kinematic default and now document the fixed-step bridge.
 The focused vehicle-physics and Mars showcase suites cover the dynamic acceleration command, solver
 contact/CCD, shared-world teardown, external teleports, and showcase contact behavior.
+
+This follow-up also records eight public additions in the existing resources, rendering, particle,
+and debug review batches: `DecodedGltfTextureTransform`, the two material texture-slot/transform
+contracts, three GPU particle diagnostic contracts, `ParticleGpuDiagnosticInfo`, and
+`requestGpuParticleDiagnostics`. The rendering, resource, particle, and debugger suites cover the
+transformed bindings, MASK coverage, opt-in asynchronous readback, and debugger exposure; their exact
+declarations and transitive hashes are recorded in the updated approval ledger.
 
 ## Review method
 
@@ -62,21 +69,21 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `core-runtime/1` | 78 | capabilities, config, device tiers, engine lifecycle, events, logging, pools, platform probes, snapshots, `VERSION` | runtime API, architecture, device-tier, and snapshot suites |
 | `core-tasks/1` | 63 | task protocols, registries, schedulers, worker scope, glTF task handlers | task, worker-bundling, and glTF suites |
 | `core-time/1` | 6 | clock configuration, frame timing, fixed-step accumulation | clock, replay, and environment timing suites |
-| `debug/1` | 94 | console, profiler/timeline, ECS/GPU/render-graph/particle/environment/terrain/streaming inspectors | twelve focused debug suites |
+| `debug/1` | 96 | console, profiler/timeline, ECS/GPU/render-graph/particle/environment/terrain/streaming inspectors | twelve focused debug suites |
 | `debug/2` | 6 | bounded physics contact-point and normal debug overlay additions | physics debug-draw and Inspector suites |
 | `environment/1` | 236 | atmosphere, clouds, cyclones, day/night, fog, lightning, ocean, snow, solar, water, weather, wind | environment, ocean, snow-melt, and storm-realism suites |
 | `extensions/1` | 16 | the Forge 1.0 systems, components, importers, terrain generators, materials, physics shapes, debug visualizers, and console commands contract | extension contract, API reference, migration, and runnable example suites |
 | `gpu/1` | 64 | constants, formats, layouts, buffer writing, device acquisition, shader cache | GPU fatal/memory and WGSL suites |
 | `math/1` | 98 | scalar/vector/matrix/color/geometry/BVH/noise/RNG/deterministic math/transforms | math, deterministic-math, and BVH suites |
-| `particles/1` | 86 | layouts, components, emitters, CPU/GPU worlds, shaders, precipitation/lightning/vortex visuals | particle and environment suites |
+| `particles/1` | 89 | layouts, components, emitters, CPU/GPU worlds, shaders, precipitation/lightning/vortex visuals | particle and environment suites |
 | `physics/1` | 41 | body/world/system contracts, broad phase, collision, solver, shapes, WASM memory | physics and vehicle-physics suites |
 | `population/1` | 53 | scatter, LOD/culling, grass/trees/vegetation, settle, wind sway, population world | population, culling, and vegetation suites |
 | `population/2` | 13 | canonical population surface sampling, worker task payloads/results, deterministic task handlers, and resident population raycast metadata | population, task/worker, runtime namespace, and terrain/world suites |
-| `rendering/1` | 244 | geometry/material/mesh, clusters/culling, pipelines, graph, renderer, shadows, uniforms, public WGSL | frame, graph, pipeline, shader, culling, shadow, and rendering suites |
+| `rendering/1` | 246 | geometry/material/mesh, clusters/culling, pipelines, graph, renderer, shadows, uniforms, public WGSL | frame, graph, pipeline, shader, culling, shadow, and rendering suites |
 | `rendering/2` | 4 | morph-target geometry and stable secondary UV vertex streams | rendering skinning, glTF scene, texture, and WGSL suites |
 | `replay/1` | 28 | channel/hash/recording/session contracts | replay and cross-engine replay suites |
 | `resources/1` | 66 | IDs/graphs/registries, glTF/KTX2/textures, streaming, hot reload, validation | asset, glTF, resource, streaming, and texture suites |
-| `resources/2` | 4 | glTF morph/instancing metadata and injectable Draco/meshopt decoder contracts | glTF decoder, scene, texture, and worker suites |
+| `resources/2` | 5 | glTF morph/instancing metadata and injectable Draco/meshopt decoder contracts | glTF decoder, scene, texture, and worker suites |
 | `scene/1` | 123 | entity/component stores, spaces, scene/world/systems, serialization and snapshots | ECS, coordinate-space, save, and simulation-snapshot suites |
 | `scripting/1` | 35 | script lifecycle, events, coroutines, timers, component/runtime contracts | five scripting suites |
 | `terrain/1` | 231 | chunks/cache/LOD, generation/materials/interactions/deformation, tracks, realistic and Mars terrain | nine terrain suites |
@@ -86,7 +93,7 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `vehicles/2` | 3 | dynamic chassis options and fixed-step vehicle-system coupling, preserving the kinematic default | vehicle-physics and Mars showcase suites |
 | `environment/2` | 55 | planet frames and calendar, globe spin controller, planet weather and polar caps, Mars globe sampler, `PlanetGlobe`, `DustDevilField`, the optional sky aureole lobe and the external sun | planet-orbit and Mars-orbit demo suites |
 | `terrain/2` | 25 | the MOLA height atlas and its loader/streamer/codec/size policy, `marsDirectionToFaceUVExact`; optional atlas inputs to the Mars stage and globe sampler | `tests/terrain/marsHeightAtlas.test.ts`, runtime namespace suites |
-| **Total** | **2,291** | **850 type, 1,057 value, 393 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
+| **Total** | **2,299** | **857 type, 1,058 value, 393 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
 
 ## Deliberately accepted compatibility costs
 
@@ -96,6 +103,6 @@ Preserving the complete candidate set is a consequential compatibility choice, n
 - Large implementation-rich terrain, environment, rendering, and UI surfaces remain public. Their nested option/state types are part of the transitive contracts captured by the ledger.
 - Existing naming, including specialized suffixes and narrowly scoped reset/registration helpers, is accepted rather than renamed or hidden during this audit.
 - Mutable engine objects, externally supplied GPU/audio handles, and explicit resource-lifecycle methods remain caller-visible contracts; backend behavior is bounded by the focused evidence and future reference documentation.
-- The breadth of 2,291 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
+- The breadth of 2,299 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
 
 The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. The Phase 14 population review specifically covers the new public names `GridPopulationSurfaceSampler`, `POPULATION_CHUNK_TASK`, `POPULATION_SURFACE_RESOLUTION`, `POPULATION_TASK_NAMES`, `PopulationChunkTaskEntry`, `PopulationChunkTaskPayload`, `PopulationChunkTaskResult`, `PopulationRaycastInfo`, `PopulationSurfaceGrid`, `executePopulationChunk`, `generatePopulationChunk`, `installPopulationTaskHandlers`, and `transferablesForPopulationChunk`. Their exact declaration and transitive hashes are recorded under `population/2` in the approval ledger. See [`docs/API.md`](API.md) for the current consumer-facing status and the linked 1.0 migration, release, deprecation, extension, and example guidance.

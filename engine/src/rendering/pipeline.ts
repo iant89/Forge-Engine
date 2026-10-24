@@ -84,7 +84,7 @@ export interface PipelineKeyOptions {
   writeDepth?: boolean;
   /** Fragment entry point for techniques that expose several (`post`, `ssao`, prepass/water). */
   fragmentEntry?: PipelineFragmentEntry;
-  /** `prepass` only: bind the terrain material layout (the shader still uses the shared vertex path). */
+  /** `prepass`/`depth`: bind the terrain material layout (the shader still uses the shared vertex path). */
   terrain?: boolean;
   /** Bind the optional glTF `TEXCOORD_1` vertex stream at shader location 6. */
   uv1?: boolean;
@@ -153,6 +153,7 @@ export class PipelineFactory {
   private terrainLayout: GPUPipelineLayout | null = null;
   private layout: GPUPipelineLayout | null = null;
   private depthOnlyLayout: GPUPipelineLayout | null = null;
+  private terrainDepthLayout: GPUPipelineLayout | null = null;
   private debugLayout: GPUPipelineLayout | null = null;
   private blitLayout: GPUPipelineLayout | null = null;
   private postBindGroupLayout: GPUBindGroupLayout | null = null;
@@ -178,6 +179,7 @@ export class PipelineFactory {
   private skinPrepassLayout: GPUPipelineLayout | null = null;
   private populationShadowLayout: GPUBindGroupLayout | null = null;
   private populationShadowPipelineLayout: GPUPipelineLayout | null = null;
+  private terrainPopulationShadowPipelineLayout: GPUPipelineLayout | null = null;
   private creates = 0;
   private hits = 0;
 
@@ -204,12 +206,7 @@ export class PipelineFactory {
     ssao: GPUBindGroupLayout;
     ssaoBlur: GPUBindGroupLayout;
     skin: GPUBindGroupLayout;
-    /**
-     * The empty placeholder the skinned shadow layout declares at group 2 (the shadow program has no
-     * material group, and the palette has to stay at group 3 so it is one index everywhere). A shadow
-     * draw must *set* a bind group for it — an empty one — because Chromium rejects a draw whose
-     * layout declares a group that was never bound; `Renderer.ensureSkinGapBindGroup` creates it.
-     */
+    /** @deprecated Legacy empty group retained for layout-inspection compatibility; depth layouts now bind material at group 2. */
     skinGap: GPUBindGroupLayout;
   } {
     this.ensureLayouts();
@@ -316,9 +313,10 @@ export class PipelineFactory {
     ] });
     this.terrainLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.terrainMaterialLayout] });
     this.layout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.materialLayout] });
-    // The depth pass has no material group and cannot bind the shadow map (which is the pass target),
-    // so it uses depthFrameLayout containing only the per-frame uniform buffer.
-    this.depthOnlyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout] });
+    // Shadow depth has no colour target, but its fragment stage still binds the material group so
+    // MASK coverage can sample base-colour alpha. It uses depthFrameLayout for the shadow matrix.
+    this.depthOnlyLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout, this.materialLayout] });
+    this.terrainDepthLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout, this.terrainMaterialLayout] });
     // Device-culled population casters (§4g): the chunk's whole source buffer plus one 256-byte
     // aligned range of its shared caster-index buffer, selected per shadow map by dynamic offset.
     this.populationShadowLayout = d.createBindGroupLayout({
@@ -329,7 +327,8 @@ export class PipelineFactory {
         { binding: 2, visibility: ShaderStage.VERTEX, buffer: { type: "read-only-storage", hasDynamicOffset: true, minBindingSize: 4 } },
       ],
     });
-    this.populationShadowPipelineLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.populationShadowLayout] });
+    this.populationShadowPipelineLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.populationShadowLayout, this.materialLayout] });
+    this.terrainPopulationShadowPipelineLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.populationShadowLayout, this.terrainMaterialLayout] });
     this.debugLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout] });
     this.blitLayout = d.createPipelineLayout({ bindGroupLayouts: [d.createBindGroupLayout({ entries: [{ binding: 0, visibility: ShaderStage.FRAGMENT, buffer: { type: "uniform", minBindingSize: PerFrameUniforms.byteSize("uniform") } }, { binding: 1, visibility: ShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } }, { binding: 2, visibility: ShaderStage.FRAGMENT, sampler: { type: "filtering" } }] })] });
     this.postBindGroupLayout = d.createBindGroupLayout({
@@ -412,13 +411,12 @@ export class PipelineFactory {
         },
       ],
     });
-    // The shadow program has no material group, but a pipeline layout has to be *dense*: group 3
-    // exists only if groups 0..2 do. An empty layout is the placeholder for the shadow program's
-    // unused group 2, which keeps the palette at group 3 in every skinned module — the renderer binds
-    // one palette index in every pass.
+    // Skinned shadow programs bind the same material group as their colour/prepass variants, then
+    // the palette at group 3. Keeping the group numbers identical lets the renderer bind one palette
+    // index in every pass.
     this.skinPlaceholderLayout = d.createBindGroupLayout({ label: "skin.gap.layout", entries: [] });
     this.skinLayout = d.createPipelineLayout({ bindGroupLayouts: [this.frameLayout, this.drawLayout, this.materialLayout, this.skinBindGroupLayout] });
-    this.skinDepthLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout, this.skinPlaceholderLayout, this.skinBindGroupLayout] });
+    this.skinDepthLayout = d.createPipelineLayout({ bindGroupLayouts: [this.depthFrameLayout, this.drawLayout, this.materialLayout, this.skinBindGroupLayout] });
     this.skinPrepassLayout = d.createPipelineLayout({ bindGroupLayouts: [this.prepassFrameLayout, this.drawLayout, this.materialLayout, this.skinBindGroupLayout] });
   }
 
@@ -529,7 +527,7 @@ export class PipelineFactory {
       options.doubleSided ? "two" : "one",
       options.instanced ? "inst" : "static",
       options.lod ? "lod" : "-",
-      options.technique === "prepass" && options.terrain ? "terrain" : "-",
+      (options.technique === "prepass" || options.technique === "depth") && options.terrain ? "terrain" : "-",
       options.uv1 ? "uv1" : "-",
       skinnable(options) ? "skin" : "-",
       options.technique === "depth" && options.casterIndices ? "casteridx" : "-",
@@ -649,9 +647,9 @@ export class PipelineFactory {
     // stage for alpha coverage. Keeping this separate lets the descriptor retain that stage.
     const isDepthOnly = isShadowDepth || isPrepass;
     const fullscreen = blit || post || sky || ssao || waterGrab || contactDepth;
-    // Standard colour, terrain and prepass entries carry the secondary UV location. Shadow and water
-    // modules intentionally retain their historical vertex interface.
-    const needsUv1 = options.uv1 !== false && !fullscreen && !debug && !isShadowDepth && !water;
+    // Standard colour, terrain, prepass, and shadow entries carry the secondary UV location so
+    // material alpha coverage can select TEXCOORD_1. Fullscreen and water modules retain their own interfaces.
+    const needsUv1 = options.uv1 !== false && !fullscreen && !debug && !water;
     const layout = contactDepth
       ? this.contactDepthLayout!
       : waterGrab
@@ -679,7 +677,9 @@ export class PipelineFactory {
                   : isPrepass
                     ? options.terrain ? this.terrainPrepassLayout! : this.prepassLayout!
                     : isShadowDepth
-                      ? options.casterIndices ? this.populationShadowPipelineLayout! : this.depthOnlyLayout!
+                      ? options.casterIndices
+                        ? options.terrain ? this.terrainPopulationShadowPipelineLayout! : this.populationShadowPipelineLayout!
+                        : options.terrain ? this.terrainDepthLayout! : this.depthOnlyLayout!
                       : options.technique === "terrain" ? this.terrainLayout! : this.layout!;
     const blend: GPUBlendState | undefined = options.additive
       ? {
@@ -706,7 +706,11 @@ export class PipelineFactory {
           : needsUv1 ? [VERTEX_LAYOUT, UV1_VERTEX_LAYOUT] : [VERTEX_LAYOUT],
       },
       fragment: isShadowDepth
-        ? undefined
+        ? {
+            module: fragment,
+            entryPoint: fragmentEntry,
+            targets: [],
+          }
         : {
             module: fragment,
             entryPoint: fragmentEntry,
@@ -800,6 +804,7 @@ export class PipelineFactory {
     this.terrainLayout = null;
     this.layout = null;
     this.depthOnlyLayout = null;
+    this.terrainDepthLayout = null;
     this.debugLayout = null;
     this.blitLayout = null;
     this.postBindGroupLayout = null;
@@ -823,6 +828,8 @@ export class PipelineFactory {
     this.skinLayout = null;
     this.skinDepthLayout = null;
     this.skinPrepassLayout = null;
+    this.populationShadowPipelineLayout = null;
+    this.terrainPopulationShadowPipelineLayout = null;
     this.shaders.clear();
   }
 

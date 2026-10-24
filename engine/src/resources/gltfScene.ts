@@ -28,7 +28,7 @@ import { Vec3 } from "../math/vec.js";
 import { Color } from "../math/color.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import { Mesh } from "../rendering/mesh.js";
-import { Material } from "../rendering/material.js";
+import { Material, type MaterialTextureTransform } from "../rendering/material.js";
 import { computeNormalsAndTangents } from "../rendering/geometry.js";
 import { Renderable, Transform } from "../scene/components/index.js";
 import type { Entity } from "../scene/world.js";
@@ -84,6 +84,15 @@ function localTrs(node: DecodedGltfNode, position: Vec3, rotation: Quat, scale: 
   if (node.scale) scale.set(node.scale[0]!, node.scale[1]!, node.scale[2]!);
 }
 
+function textureTransform(transform: DecodedGltfMaterial["baseColorTransform"]): MaterialTextureTransform | undefined {
+  if (!transform) return undefined;
+  return {
+    scale: [transform.scale[0]!, transform.scale[1]!],
+    offset: [transform.offset[0]!, transform.offset[1]!],
+    rotation: transform.rotation,
+  };
+}
+
 function defaultMaterial(material: DecodedGltfMaterial | null, index: number | null, textures?: GltfTextureSet): Material {
   if (!material) return new Material({ label: "gltf.default", color: new Color(0.8, 0.8, 0.8, 1), roughness: 0.6, doubleSided: true });
   const f = material.baseColorFactor;
@@ -112,6 +121,13 @@ function defaultMaterial(material: DecodedGltfMaterial | null, index: number | n
       metallicRoughness: material.metallicRoughnessTexCoord === 1 ? 1 : 0,
       emissive: material.emissiveTexCoord === 1 ? 1 : 0,
       occlusion: material.occlusionTexCoord === 1 ? 1 : 0,
+    },
+    uvTransforms: {
+      albedo: textureTransform(material.baseColorTransform),
+      normal: textureTransform(material.normalTransform),
+      metallicRoughness: textureTransform(material.metallicRoughnessTransform),
+      emissive: textureTransform(material.emissiveTransform),
+      occlusion: textureTransform(material.occlusionTransform),
     },
     samplers: textures ? {
       albedo: textures.sampler(material.baseColorTexture),

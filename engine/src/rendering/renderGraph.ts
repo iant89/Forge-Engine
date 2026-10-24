@@ -99,6 +99,8 @@ export type GpuTimingCallback = (timing: GpuTimingFrame) => void;
 export interface RenderGraphPassContext {
   readonly encoder: GPUCommandEncoder;
   readonly passName: string;
+  /** Schedule a non-blocking callback after this frame's command buffer is submitted. */
+  afterSubmit(callback: () => void): void;
   /** Begin the render pass described by the pass's attachments. The callback must `end()` it. */
   beginRenderPass(label?: string): GPURenderPassEncoder;
   /** Begin a timestamped compute pass (when enabled/supported). The callback must `end()` it. */
@@ -409,10 +411,11 @@ export class RenderGraph {
     const encoder = device.createCommandEncoder({ label: "forge.frame" });
     const timing = this.beginGpuTimingFrame();
     const viewCache = new Map<string, GPUTextureView>();
+    const afterSubmit: (() => void)[] = [];
     try {
       for (const pass of live) {
         encoder.pushDebugGroup(pass.desc.name);
-        const ctx = this.contextFor(pass, encoder, physical, viewCache, timing);
+        const ctx = this.contextFor(pass, encoder, physical, viewCache, timing, afterSubmit);
         try {
           pass.desc.execute(ctx);
         } finally {
@@ -427,6 +430,7 @@ export class RenderGraph {
       }
       device.queue.submit([encoder.finish()]);
       stats.submits++;
+      for (const callback of afterSubmit) callback();
       if (timing) {
         if (timing.queryCount > 0) void this.readGpuTimings(timing, onGpuTimings);
         else timing.slot.busy = false;
@@ -813,6 +817,7 @@ export class RenderGraph {
     slots: { texture: PooledTexture | null }[],
     importedViews: Map<string, GPUTextureView>,
     timing: GpuTimingRecorder | null,
+    afterSubmit: (() => void)[],
   ): RenderGraphPassContext {
     const resources = this.resources;
     const texture = (handle: RenderGraphHandle): GPUTexture => {
@@ -884,7 +889,7 @@ export class RenderGraph {
       if (!c) throw new UsageError(`RenderGraph pass "${pass.desc.name}" has no colour attachment ${index}`);
       return resources[c.texture]!.desc.format;
     };
-    return { encoder, passName: pass.desc.name, beginRenderPass, beginComputePass, texture, view, size, colorFormat };
+    return { encoder, passName: pass.desc.name, afterSubmit: (callback) => afterSubmit.push(callback), beginRenderPass, beginComputePass, texture, view, size, colorFormat };
   }
 
   private push(node: ResourceNode): RenderGraphHandle {
