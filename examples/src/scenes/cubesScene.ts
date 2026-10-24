@@ -37,7 +37,15 @@ export interface DemoSceneHandle {
    * for that frame and the camera entity is placed at `eye` looking at `target`; `null` hands the
    * camera back to the orbit controller.
    */
-  cameraOverride?: () => { eye: [number, number, number]; target: [number, number, number] } | null;
+  cameraOverride?: () => {
+    eye: [number, number, number];
+    target: [number, number, number];
+    /**
+     * Camera orientation as a quaternion (x, y, z, w); when present it is used instead of looking from
+     * `eye` at `target` (which cannot express a view straight down or a roll). `target` is then ignored.
+     */
+    rotation?: [number, number, number, number];
+  } | null;
   /** `parkingBrake` is 0/1; the vehicle playground drives it from the PARK toggle / `P`. */
   vehicleState?: () => {
     speed: number;

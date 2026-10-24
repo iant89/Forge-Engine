@@ -243,6 +243,25 @@ group("frame structure", () => {
     await f.dispose();
   });
 
+  test("a renderable whose geometry was released is skipped instead of drawn with an unset vertex buffer", async () => {
+    // Regression (Mars Orbit return-to-orbit black screen): a Renderable left in the scene after its
+    // geometry's GPU buffers were released made the main pass call setVertexBuffer(0, null) and
+    // drawIndirect, which WebGPU rejects and invalidates the whole frame's command buffer.
+    for (const objectCulling of ["cpu", "gpu"] as const) {
+      const f = await fixture({ renderer: { objectCulling, shadows: false, bloom: false, ssao: false } });
+      f.renderer.renderScene(f.scene);
+      assert.deepEqual(f.mock.errors, [], `${objectCulling}: a normal frame is clean`);
+      const drawsBefore = f.renderer.stats.drawCalls;
+      assert.ok(drawsBefore >= 2, "the ground and the box are drawn");
+
+      f.boxGeometry.release();
+      f.renderer.renderScene(f.scene);
+      assert.deepEqual(f.mock.errors, [], `${objectCulling}: a released geometry does not fail the frame`);
+      assert.equal(f.renderer.stats.drawCalls, drawsBefore - 1, `${objectCulling}: only the released batch is dropped`);
+      await f.dispose();
+    }
+  });
+
   test("HDR: cascades, forward pass into rgba16float, a bloom chain and the tonemap resolve", async () => {
     const f = await fixture();
     f.scene.settings.shadow.cascades = 2;

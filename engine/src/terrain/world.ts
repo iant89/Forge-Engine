@@ -1046,14 +1046,25 @@ export class TerrainWorld extends SceneObject {
 
   override dispose(): void {
     const scheduler = this.lastScheduler;
+    // The chunk and horizon entities live in the scene's entity world, not in this object. Releasing their
+    // geometry below while leaving the entities behind hands the renderer Renderables whose vertex buffers
+    // are gone: it still batches them and submits `drawIndirect` with slot 0 unset, which is a WebGPU
+    // validation error that invalidates the whole frame. A scene torn down as a whole never noticed (the
+    // world goes too); removing a TerrainWorld from a live scene, as the Mars Orbit return does, did.
+    const entityWorld = this.scene?.world;
+    if (entityWorld) {
+      for (const id of this.activeEntities.values()) entityWorld.destroyEntity(id);
+      if (this.horizonEntityId !== null) entityWorld.destroyEntity(this.horizonEntityId);
+    }
+    this.activeEntities.clear();
     for (const chunk of this.chunks.values()) {
+      chunk.entityId = null;
       if (scheduler && chunk.taskKey) {
         scheduler.cancel(chunk.taskKey);
       }
       chunk.dispose();
     }
     this.chunks.clear();
-    this.activeEntities.clear();
     this.sampledCells.clear();
     this.populationSurfaces.clear();
     this.completed.length = 0;

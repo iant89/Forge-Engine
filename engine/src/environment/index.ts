@@ -37,3 +37,6 @@ export * from "./windBuffet.js";
 export * from "./snowMelt.js";
 export * from "./moistureField.js";
 export * from "./snowCover.js";
+export * from "./planetFrame.js";
+export * from "./planetSpin.js";
+export * from "./planetWeather.js";

@@ -28,6 +28,7 @@ export const DEMO_SCENE_NAMES = [
   "hurricane",
   "thaw",
   "offroad",
+  "mars-orbit",
   "scripting",
   "ui",
 ] as const;
@@ -63,6 +64,7 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
     case "hurricane":
     case "offroad":
     case "thaw":
+    case "mars-orbit":
     case "scripting":
     case "ui":
       return requestedScene;
@@ -88,6 +90,10 @@ export function resolveDemoSceneName(requestedScene: string | null): DemoSceneNa
       return "terrain";
     case "realistic-terrain":
       return "realistic";
+    case "orbit":
+    case "mars-orbital":
+    case "planet":
+      return "mars-orbit";
     case "mars-port":
     case "mars-generator-port":
       return "mars-generator";

@@ -228,7 +228,7 @@ runs under the Mars preset with exp² dust haze coloured by the model's horizon.
   ambient remains one colour. The procedural anti-solar moon is always full and has no orbital
   inclination or calendar phase.
 * **The sun disc is a look control**, not a physical radiance.
-* **Mars' blue sunset aureole** needs a wavelength-dependent Mie lobe; the preset has one `g`.
+* **Mars' blue sunset aureole** is a second, tighter per-channel Mie lobe (`mieAureole`), tuned rather than measured, and absent from the multiple-scattering LUT (see `docs/KNOWN-ISSUES.md`).
 
 ## 7. Weather, clouds, water, lightning (Phase 8b)
 
@@ -395,8 +395,8 @@ ground) and sun elevation by `sqrt(|μ|)` around the terminator. `texelValue` re
   whose sun has not moved. On the sky demo at noon, switching the term off darkens 156 062 of
   468 000 pixels by up to 10 luma levels and brightens none.
 * **Limits.** No ground bounce (the planet is black to the table: at 20 km an albedo-0.1 ground would
-  add 1.5–2.2× to the mean, which the table does not have); the higher orders are isotropic, so no
-  wavelength-dependent aureole (Mars' blue sunset); the terminator columns are good to an
+  add 1.5–2.2× to the mean, which the table does not have); the higher orders are isotropic, so the
+  wavelength-dependent aureole (Mars' blue sunset, `mieAureole`) is a direct-scatter-only effect; the terminator columns are good to an
   order of magnitude rather than a few percent — the source changes by orders of magnitude inside one
   column and a 48-direction mean cannot resolve the spike; and the CPU path is opt-in, so a scene
   that wants MS in its derived ambient must assign the field itself. `docs/KNOWN-ISSUES.md` §Environment

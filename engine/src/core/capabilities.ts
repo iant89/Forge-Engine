@@ -1183,6 +1183,23 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     notes: "SceneSkySettings.aerialPerspective defaults off, serializes, maps to perFrame flag bit 6, and is verified by a real-WebGPU geometry A/B; the CPU reference integrates direct and optional multiple scattering.",
   },
 
+  {
+    id: "environment.marsAureole",
+    phase: "17.1",
+    status: "verified",
+    summary: "Wavelength-dependent forward Mie lobe (AtmosphereParams.mieAureole): the blue glow around the setting Mars sun",
+    evidence: ["tests/environment/planetOrbit.test.ts", "tools/wgsl-check.mjs", "docs/PLANET-ORBIT.md"],
+    notes: "The sky shader, aerial perspective and the CPU twin share one per-channel phase (mieChannelPhase); absent or zero keeps every Earth scene bit-for-bit single-lobe. The weights are tuned to imagery and the LUT's higher orders stay isotropic.",
+  },
+  {
+    id: "environment.planetOrbit",
+    phase: "17.1",
+    status: "verified",
+    summary: "Reusable planet-viewer systems: planet frames and calendar, globe spin/inertia controller, season-driven PlanetWeatherSystem with polar caps, progressive PlanetGlobe, DustDevilField",
+    evidence: ["tests/environment/planetOrbit.test.ts", "tests/examples/marsOrbitScene.test.ts", "docs/PLANET-ORBIT.md"],
+    notes: "Unit-tested on the mock device; the ?scene=mars-orbit pixels were checked by hand in headless SwiftShader screenshots, and there is no check:browser section for it yet.",
+  },
+
   // ---------------------------------------------------------------- world / content
   {
     id: "world.population",
@@ -1427,7 +1444,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
     id: "api.publicSurface",
     phase: "27.1",
     status: "verified",
-    summary: "Root-only @forge/engine API with a complete 2,219-symbol public review and exact-contract drift gates",
+    summary: "Root-only @forge/engine API with a complete 2,274-symbol public review and exact-contract drift gates",
     evidence: [
       "engine/api-surface.json",
       "engine/api-approvals.json",
@@ -1441,7 +1458,7 @@ const ENTRIES: readonly CapabilityEntry[] = Object.freeze([
       "engine/README.md",
       ".github/workflows/ci.yml",
     ],
-    notes: "The audit resolves all 2,228 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,219 public candidates have exact approvals across 29 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
+    notes: "The audit resolves all 2,283 package-root exports through TypeScript, rejects deep package exports and leaked @internal symbols, classifies the nine explained @experimental exports separately, and fingerprints each body-free declaration plus its transitive engine-local dependencies. All 2,274 public candidates have exact approvals across 27 subsystem reviews; approval policy v2 rejects pending additions and stale decisions, and runtime namespace linkage is complete. The consumer docs, extension contract and 1.0.0 release are tracked by api.onePointZero.",
   },
   {
     id: "api.onePointZero",

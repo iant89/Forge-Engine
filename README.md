@@ -22,6 +22,7 @@ npm run check:browser:mars-workers  # focused native-worker / Mars upload gate
 npm run check:browser:terrain-layers # focused four-layer PBR pixels / showcase A/B
 npm run check:browser:rescue # focused Alpine rescue mission / physics / weather smoke
 npm run check:browser:amazon # focused Amazon scene / boat-controls smoke
+npm run check:browser:mars-orbit # focused Mars Orbit Explorer globe / drag / dive / return smoke
 npm run check:browser:gltf-skin # focused imported skinned glTF (Khronos SimpleSkin, CC0) animation gate
 npm run check:browser:ui # focused UI gallery: forge.ui pass, real input, skins/themes, compact layout
 npm run pr:checks -- 68 --watch --interval 15 # live, colorized pull-request check dashboard

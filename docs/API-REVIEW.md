@@ -1,7 +1,7 @@
 # Phase 27.1 public API review record
 
 > **1.0 status:** The Phase 27.1 review recorded here is now part of the released `@forge/engine`
-> 1.0.0 contract. The current surface is 2,228 exports (2,219 public, 9 experimental, 0 deprecated),
+> 1.0.0 contract. The current surface is 2,283 exports (2,274 public, 9 experimental, 0 deprecated),
 > including the reviewed 1.0 extension contract and the Phase 14 population additions. Consumer guidance is in
 > [API-REFERENCE.md](API-REFERENCE.md), [MIGRATION-1.0.md](MIGRATION-1.0.md), [VERSIONING.md](VERSIONING.md),
 > [DEPRECATION.md](DEPRECATION.md), and [EXAMPLES.md](EXAMPLES.md).
@@ -14,8 +14,8 @@ Phase 27.1 preserved **all 2,171 public candidates** as supported Engine API 1.0
 released surface adds the 16 public extension-contract exports plus the reviewed Phase 13 contact-depth
 shader export, for **2,188 approved public exports**. Phase 14 adds a separately reviewed population
 batch of 13 canonical sampling, worker-task, and resident-raycast exports, and Phase 16 adds ten glTF,
-morph-animation, and secondary-UV contracts across three follow-up batches, for **2,219 approved public
-exports** out of 2,228 total across 29 review batches. Each approved row has an exact declaration kind,
+morph-animation, and secondary-UV contracts across three follow-up batches, for **2,211 approved public
+exports** out of 2,220 total across 29 review batches; the fe-39 planet-viewer batch (`environment/2`, 55 exports) plus the eight additions recorded below bring the surface to **2,274 approved public exports** out of 2,283. Each approved row has an exact declaration kind,
 direct declaration hash, transitive contract hash, and subsystem review. The nine exports already marked
 experimental remain experimental and are not approvals. There are no deprecated exports and no pending
 public candidates.
@@ -91,7 +91,8 @@ The audit is declaration-complete and runtime-link-complete. Behavioral tests ar
 | `ui/1` | 355 | core tree/context, layout/style/input/text/rendering, data binding, widgets, manager, world space | ten UI suites |
 | `vehicles/1` | 67 | chassis, drivetrain/electric, tires/ground/loads, damage, rig and vehicle system | four vehicle suites |
 | `vehicles/2` | 3 | dynamic chassis options and fixed-step vehicle-system coupling, preserving the kinematic default | vehicle-physics and Mars showcase suites |
-| **Total** | **2,219** | **827 type, 1,015 value, 386 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
+| `environment/2` | 55 | planet frames and calendar, globe spin controller, planet weather and polar caps, Mars globe sampler, `PlanetGlobe`, `DustDevilField`, the optional sky aureole lobe and the external sun | planet-orbit and Mars-orbit demo suites |
+| **Total** | **2,274** | **848 type, 1,044 value, 391 type-and-value declarations** | **complete namespace linkage plus subsystem suites** |
 
 ## Deliberately accepted compatibility costs
 
@@ -101,6 +102,6 @@ Preserving the complete candidate set is a consequential compatibility choice, n
 - Large implementation-rich terrain, environment, rendering, and UI surfaces remain public. Their nested option/state types are part of the transitive contracts captured by the ledger.
 - Existing naming, including specialized suffixes and narrowly scoped reset/registration helpers, is accepted rather than renamed or hidden during this audit.
 - Mutable engine objects, externally supplied GPU/audio handles, and explicit resource-lifecycle methods remain caller-visible contracts; backend behavior is bounded by the focused evidence and future reference documentation.
-- The breadth of 2,219 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
+- The breadth of 2,274 public approvals increases future semver and deprecation obligations. Policy v2 makes that cost visible by rejecting an unapproved addition or any drift from an approved declaration.
 
 The nine experimental physics exports retain their separate classification and can change without being represented as supported approvals. The Phase 14 population review specifically covers the new public names `GridPopulationSurfaceSampler`, `POPULATION_CHUNK_TASK`, `POPULATION_SURFACE_RESOLUTION`, `POPULATION_TASK_NAMES`, `PopulationChunkTaskEntry`, `PopulationChunkTaskPayload`, `PopulationChunkTaskResult`, `PopulationRaycastInfo`, `PopulationSurfaceGrid`, `executePopulationChunk`, `generatePopulationChunk`, `installPopulationTaskHandlers`, and `transferablesForPopulationChunk`. Their exact declaration and transitive hashes are recorded under `population/2` in the approval ledger. See [`docs/API.md`](API.md) for the current consumer-facing status and the linked 1.0 migration, release, deprecation, extension, and example guidance.

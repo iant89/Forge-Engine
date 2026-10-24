@@ -103,6 +103,13 @@ export class DayNightCycle extends SceneObject {
   driveSky: boolean;
   observerHeight: number;
   readonly nightAmbient: Color;
+  /**
+   * When set, the sun is this unit vector (engine axes: +X east, +Y up, +Z north) instead of the
+   * calendar's — for a world whose sun is computed elsewhere (a planet-scale scene that knows the
+   * site's frame). The calendar fields keep ticking but no longer move the sun; `null` (default)
+   * restores them. Elevation and azimuth in `position` follow the vector.
+   */
+  externalSunDirection: Vec3 | null = null;
   readonly atmosphere: AtmosphereModel;
   readonly schedules: readonly DayNightSchedule[];
 
@@ -282,7 +289,7 @@ export class DayNightCycle extends SceneObject {
    * against). The sun light is a scene component, the atmosphere and schedules construction data.
    */
   override snapshotState(): StateRecord {
-    return captureState(this, { skip: ["scene", "sun", "schedules", "atmosphere"] });
+    return captureState(this, { skip: ["scene", "sun", "schedules", "atmosphere", "externalSunDirection"] });
   }
 
   override restoreSnapshotState(state: StateRecord): void {
@@ -317,6 +324,15 @@ export class DayNightCycle extends SceneObject {
     this.applied = true;
     const pos = solarPosition(this.julianDay, this.latitude, this.longitude, this.position);
     sunDirection(pos, this.sunDirection);
+    const external = this.externalSunDirection;
+    if (external) {
+      const length = Math.sqrt(external.x * external.x + external.y * external.y + external.z * external.z) || 1;
+      this.sunDirection.set(external.x / length, external.y / length, external.z / length);
+      pos.trueElevation = DMath.asin(Math.max(-1, Math.min(1, this.sunDirection.y)));
+      pos.elevation = pos.trueElevation;
+      const azimuth = DMath.atan2(this.sunDirection.x, this.sunDirection.z);
+      pos.azimuth = azimuth < 0 ? azimuth + 2 * Math.PI : azimuth;
+    }
     const atmo = this.atmosphere;
     const rgb = this.rgb;
 

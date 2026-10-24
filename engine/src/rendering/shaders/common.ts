@@ -225,7 +225,7 @@ fn applyAerialPerspective(surfaceRadiance: vec3<f32>, surfacePosition: vec3<f32>
   let sunDir = normalize(sky.sunDirection);
   let cosTheta = dot(dir, sunDir);
   let phaseR = rayleighPhase(cosTheta);
-  let phaseM = miePhase(cosTheta, sky.mieAnisotropy);
+  let phaseM = vec3<f32>(miePhase(cosTheta, sky.mieAnisotropy)) + sky.mieAureole * miePhase(cosTheta, sky.mieAureoleAnisotropy);
   var viewOd = vec3<f32>(0.0);
   var sumR = vec3<f32>(0.0);
   var sumM = vec3<f32>(0.0);

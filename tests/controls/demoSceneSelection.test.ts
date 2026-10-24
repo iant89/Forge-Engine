@@ -44,6 +44,10 @@ group("demo scene routing", () => {
     assert.equal(resolveDemoSceneName("alpine-rescue"), "alpine-rescue");
     assert.equal(resolveDemoSceneName("amazon"), "amazon-river");
     assert.equal(resolveDemoSceneName("river"), "amazon-river");
+    assert.equal(resolveDemoSceneName("mars-orbit"), "mars-orbit");
+    assert.equal(resolveDemoSceneName("orbit"), "mars-orbit");
+    assert.equal(resolveDemoSceneName("planet"), "mars-orbit");
+    assert.equal(resolveDemoSceneName("mars-orbital"), "mars-orbit");
   });
 
   test("falls back to the rover showcase for unknown query values", () => {

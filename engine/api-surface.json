@@ -6,14 +6,14 @@
   "signatureFormat": "forge.typescript-declaration-signature/1",
   "typescriptVersion": "5.9.3",
   "counts": {
-    "total": 2228,
-    "public": 2219,
+    "total": 2283,
+    "public": 2274,
     "experimental": 9,
     "deprecated": 0,
     "internal": 0,
-    "type": 827,
-    "value": 1015,
-    "typeAndValue": 386
+    "type": 848,
+    "value": 1044,
+    "typeAndValue": 391
   },
   "exports": [
     {
@@ -217,7 +217,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:9415ee2f5d28921d160364d459d8902d6b0f478fbf9643a5947eec22cb9ea574",
-      "contractHash": "sha256:cd986dccd6f8914ad956b43df2cf57ff31695d284995be295ffebcb76bb5fb3e"
+      "contractHash": "sha256:28fc153c58f7d10cd92db3ba260f1779db4dbcc16b1fb4b699bad65d7284db01"
     },
     {
       "name": "AnimationTrack",
@@ -308,14 +308,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:45d7d7c2816c19b79ccedbc6074eb7b6c63f7f5ffade61935db742d91532292e",
-      "contractHash": "sha256:b4bd46bc0fa68f5f6ef06b23d4e8902df033576acf57c5e0dd8fa0fe271d2d66"
+      "contractHash": "sha256:6bab0791bab3f4c0d42d71fe43dde505c3d7d2daef3cf6d2c537c72958502ce7"
     },
     {
       "name": "AtmosphereParams",
       "kind": "type",
       "stability": "public",
-      "declarationHash": "sha256:05ff4c80dc8678469790bddded1982adc9ea763b5e15e6559c73c1f96f813e16",
-      "contractHash": "sha256:5229bbcfee97ac1b960409f923668f07298ee0b768c18b1f1c56a0936535f6f0"
+      "declarationHash": "sha256:241a1223d017bfcdbe90f4dc1726b56e19ae75d8f6c98a5cc16d870a4221be37",
+      "contractHash": "sha256:20794ff18e0e683913b595fd95c8fac76b6a2a32025f79002ffca47304eb85a3"
     },
     {
       "name": "AudioBank",
@@ -1379,7 +1379,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:d7e22006ce74aa0fd4d97e5609396727ab49a0574c21644a4336c296a45078c2",
-      "contractHash": "sha256:2225185ab355a16a46b0c41b5c8767a6f28e239bde6017bd21269757fa93ae9d"
+      "contractHash": "sha256:c5883005109fee82305645c378564d1702e193aadca8f8ccf7370580da70ea98"
     },
     {
       "name": "CoordinateSpaceOptions",
@@ -1400,7 +1400,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:feb129c6ed8ecd55f29048a4aaa0e94d9f4c82018ad6d784f1221712dac0fdb5",
-      "contractHash": "sha256:f265b2ab984621683072b4eec61c09c9c54774068c1e3a0f1c80fed1ee022797"
+      "contractHash": "sha256:2561c4c963f16492a3c6664cb9b3aa5027e226021d2e70cdc0396c106a4dc8d3"
     },
     {
       "name": "CoroutineClock",
@@ -1498,7 +1498,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:45985e9e3a2deb3d34338e8f3da8290a7998fdc905da69dc130e597cc3420115",
-      "contractHash": "sha256:11af0cb5769ff98bf0e42b4e41941ebac1be243170ab1d65ab257a158aa5ceb8"
+      "contractHash": "sha256:b077280c12754c379eecdb4731d07c8b710600713539ac16543ad40a3590abd2"
     },
     {
       "name": "CycloneSystemOptions",
@@ -1548,6 +1548,13 @@
       "stability": "public",
       "declarationHash": "sha256:8c59367fcdd8d3b6335b3b3100bc093f9439a9f376fc4564975d3455e54f69ba",
       "contractHash": "sha256:06fbe34328472cd7cd95df45299df6eb1292907492f2cbdf775fe626b89b6a26"
+    },
+    {
+      "name": "DEFAULT_AUREOLE_ANISOTROPY",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:42a25f7bde3165834ee147261dfc3ed6cebcb88e59723dd0ac0e88ac6d064fbf",
+      "contractHash": "sha256:b410e66b8cc4ee108d8f6b88f25439f0b33fec481102cfd7071915c84808561c"
     },
     {
       "name": "DEFAULT_BREAKPOINTS",
@@ -1728,8 +1735,8 @@
       "name": "DayNightCycle",
       "kind": "type-and-value",
       "stability": "public",
-      "declarationHash": "sha256:42ccf4d2e8621882e53ecdcfd3ecd52511eeb6aa2f007a81b593d1132cd7acc1",
-      "contractHash": "sha256:6379b12d8dc14f39f4ca1908d6b2b48ece1a829c55c16ab40f67eeef1b3b1aec"
+      "declarationHash": "sha256:25676d11ea7a1ec349afc14ffd467f5c6d7bbe1a6d43fc35132444c5286e889d",
+      "contractHash": "sha256:d6b1a8a6082d1f6c5d297d09dcd671812364c73a0d57bd2579bc193ba3867ccc"
     },
     {
       "name": "DayNightDebugInfo",
@@ -1743,21 +1750,21 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:2efe56daa957ece8cb7ff866e6f597a0175e351c8a101877596622f1ec50add0",
-      "contractHash": "sha256:ff100b481ffc948635edd1bbaf6e1ba02719ba8f704ce3e1cb8e9ceb1b8b98c9"
+      "contractHash": "sha256:6a27e5c5be4eb6e33b90dec62e8f2ccb5ace6bb928a627a9aa1bec36452bab0f"
     },
     {
       "name": "DayNightSchedule",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:de430b687110ab806b6820e1de1c943c5c7bfa87515c9e0d6d7cdcc540578f45",
-      "contractHash": "sha256:38c7581afd564cf6e0dfe945311a0604e3d8735b9072919d39268b8f63a51f6c"
+      "contractHash": "sha256:25de0fa6c6c4def2e1ee1fd7476c7459408abe527e1c97f3f6724c095e9ce435"
     },
     {
       "name": "DayNightScheduleState",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:9364451a069787d114a3ffb895ed13d7c406ed238247e6e70ec5e48dd0a36a24",
-      "contractHash": "sha256:c3b6656d211ddea8e7d3bab7867cc6421cd706588ef931752cebd90dba64f3ed"
+      "contractHash": "sha256:e815ee4ec3f14a62a04df6c988ac83e94e94f21d85d7bc1b632fba6b0cdd2042"
     },
     {
       "name": "DebugOverlayOptions",
@@ -1946,21 +1953,21 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:66237f53044e3e25815e950aad291d9444aec685c3a75a75a87815a5a2fccbcb",
-      "contractHash": "sha256:cd26bfe5693a2958a4c32307fc3be689e535ae72361ba23f9bc2b98577b2bb44"
+      "contractHash": "sha256:2a566c6627c7f4688f27996da9879508a8e0a403235f136ab58479302dceb97e"
     },
     {
       "name": "DeveloperConsoleCommand",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:7800f94d34f92c78537e568cdcf35432887d2bde150f244663c7d8e7eb08eefd",
-      "contractHash": "sha256:468fa9a3f7779a3c196592fbf936934489a5a54e558fe1cf666afbf78cbc21f3"
+      "contractHash": "sha256:3aa8d8ca1feae0e681f4128eff9410f78193fefcb955aa6e95bb51ac758e278a"
     },
     {
       "name": "DeveloperConsoleCommandContext",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:df1713924d340938d50cf106f1aca3b827b4cc75207b79165d0c10345cecf25a",
-      "contractHash": "sha256:181991c8940cad0b438a87e120a15e2f2bc1b0cfc390511b259a161d5a0cda29"
+      "contractHash": "sha256:3bfff9df2224ff00cf430677fcb4a4549bfc9c97f77a1143dbdc1eb0b962bc8d"
     },
     {
       "name": "DeveloperConsoleEntry",
@@ -1974,7 +1981,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:e5ce67ea5ffd53c6cd741a690dee3b43c8e21dbe8144ffb90fe123b7c00426db",
-      "contractHash": "sha256:eb378f3e8d424657fbcdc94abff660d43e0e48bc7fd020f31b1cd735ca2ea451"
+      "contractHash": "sha256:f1027894ecc42799736eaa7fc81b499cd3fd588d2b1062300aa1d6a8c79b9d74"
     },
     {
       "name": "DeveloperConsoleOptions",
@@ -2138,6 +2145,27 @@
       "contractHash": "sha256:034b3cac578edd4b21516fee5371188fb6aad50fd2848362ba4c423141d3acec"
     },
     {
+      "name": "DustDevilField",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:38f96c23246b6263105dc95bf023e152f7db4aaceb55352f445197b9f735b592",
+      "contractHash": "sha256:51d0e1ea56572ca95dede9f426001d4b845fb2dc62b36b1a3c9981e3ba762e37"
+    },
+    {
+      "name": "DustDevilFieldOptions",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:50db6c797333dbd8f3a8770781450f91f1d75bbdf791ff502652d22335f2ec26",
+      "contractHash": "sha256:08240af5c9811a8a9b7bd107e7670365e89bdbb0cb84edfe0f1d99a832473f1d"
+    },
+    {
+      "name": "DustDevilFieldState",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:122445fba8d2e13007980aa27af64638b6db9830c5921e10a12fac4cee06627b",
+      "contractHash": "sha256:c8e916ceaecb9429e99a5eee3cf2fef6e2be4d0497046dfb25d77fde7b5441b6"
+    },
+    {
       "name": "DynamicGlyphFace",
       "kind": "type-and-value",
       "stability": "public",
@@ -2149,7 +2177,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:bf2b00266ece3047bef1f5870c6dfc0d6cedfeed379689972a00128a0912a286",
-      "contractHash": "sha256:0ad0d3d62683aaa5a07778abcc3e20438ed0c13f5b52853710d4e3b00a2fff08"
+      "contractHash": "sha256:1faaff97ef4109d8e91f5281f316e834ebcc9be691d3860d2342c50fa1114530"
     },
     {
       "name": "EASINGS",
@@ -2254,7 +2282,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:4ffb19284cacf6c21dc15aed5e3b1b1c55b63449ff3663f37c6c7f9c3308119c",
-      "contractHash": "sha256:f7764957e0c5c6428321bf02adfd6f844cfcdb45e3e11799d50f9c42a492897f"
+      "contractHash": "sha256:35a788dcbba900f767ed4b460246ef4bf83611adb08399ae9f1dc69044ca922c"
     },
     {
       "name": "EngineConfig",
@@ -2310,7 +2338,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:faa2ff2631277a7fd2e87c58fa025dcd86f824466680031c0f6262e1735784e5",
-      "contractHash": "sha256:e0d099db8c2c8976198735a41db0257f987fd16a562f3433cc143181381ef100"
+      "contractHash": "sha256:05b5aa3ea30abd33dfe60ea87f227e80c378498193d3b2fca991c57d49ef00f2"
     },
     {
       "name": "EntityId",
@@ -2324,7 +2352,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:79b809bc5b2937db881443345302e6c2df17d039ef28d407b115f2094cb2f2cb",
-      "contractHash": "sha256:64ee322fac1094ff73f24c928db1a2489937d290f5d2771ce56b4d047b3c0806"
+      "contractHash": "sha256:69129a43a7d08ffaa6309921ae1891bd866de0114916bb62fbebe86a85a9bbcc"
     },
     {
       "name": "EnvironmentDebugLine",
@@ -2352,7 +2380,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:d49ad49e76d52d3a9bb1b6a6db5b877fd0fb06790e1240db21cb05b5b6997429",
-      "contractHash": "sha256:c8d66275b3b9996dda959a031d5faf0880f77d8c3eef0eb5737a4a9e76b2f30e"
+      "contractHash": "sha256:2313c613caeebb8de669b78e378d77ca54bab7827e91bebed614ec88280ce443"
     },
     {
       "name": "EnvironmentSoundscape",
@@ -2541,7 +2569,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:78b0ace67beb2d5ff20c440f715322de61ede8b91b372780cfd3b3f9487ce610",
-      "contractHash": "sha256:ea2a54b9d80f739c1fdc88ceb877ddeb924760f541b717c7057632e3215020a9"
+      "contractHash": "sha256:bf439e51d73b067117c5576f56c3076285ab5ce777e945dfae23da89508c8411"
     },
     {
       "name": "FlashEnvelope",
@@ -2611,7 +2639,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:2162588386e986ebbc8d04075d2d55a600c5983367ff1ac03f3c0824367a315f",
-      "contractHash": "sha256:2d474735f3a1f76cb5569a1c17fcfc4a1791f870a3e19afd354fb94eb0544cdb"
+      "contractHash": "sha256:ec9b0cc0e2e498ac629343ae8a45bbf575229b568760adef35753c7218d3ba71"
     },
     {
       "name": "ForgeExtensionCategory",
@@ -2625,14 +2653,14 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:280f629fee436ca7933dec29b4d22683ee4c4d5a81ce0b869c9f0a630fea0fb3",
-      "contractHash": "sha256:25498956721f657a842edc5daf947564b42dbc75f64f53acbfdaaeb4ab8d3b48"
+      "contractHash": "sha256:1a0f4cd2b90b2bd1e6a99a10247c8ba20dc2bac411e06f62a69fd4ee2c0d0e63"
     },
     {
       "name": "ForgeExtensionDebugVisualizer",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:70514f1dfe516da8cd20091ced9c26348ab234ef4f41bf1928d37002956a6b13",
-      "contractHash": "sha256:11814182908c6d0a9f0c08d7be6894dc0ec8b6162d529cf8ef17d4dced25e303"
+      "contractHash": "sha256:ee6b32d8b4814da31c628904a99888c2a124ab7cc6ef5604cdd31f9964d559bd"
     },
     {
       "name": "ForgeExtensionImportContext",
@@ -2681,7 +2709,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:035e13abb64b4e5cef1535177f9cf6ed379c151c31433c61ed3df29928f31b2f",
-      "contractHash": "sha256:31ed2f9667958715a9b2a737ec990ebca7e5cbcc8e9600bcdd190302987d2609"
+      "contractHash": "sha256:2dfec4b0e2e603c2cf40da723c8d52846ddef307807543429e122f57d5d55b61"
     },
     {
       "name": "ForgeExtensionRegistrySnapshot",
@@ -2695,14 +2723,14 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:a2b8e129bedf714e906e44e9150278968e87b5bc9a677feb8b86722759de571f",
-      "contractHash": "sha256:778b436bd10e5fbbde9c284e236a7974d22ce85400e3b47487a9e953a8c5fc0b"
+      "contractHash": "sha256:a14e0be17fd40b6b9b85f3329f2ec2625cab30641e7ec6b2b6786e968e5913a4"
     },
     {
       "name": "ForgeExtensionSystemFactory",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:c05a0a60b0026240425a8ac30f0776c1188fe906957a2bf95e9c8364b4b00059",
-      "contractHash": "sha256:645f14b6a715af25ee2d98add9e0f273e0d5dd7a9949d795fc501c1286cffad1"
+      "contractHash": "sha256:3a3b240a2468e5a0f8579f1676f5aba2c95760bbebee32f38a4b22fa7b2e55d8"
     },
     {
       "name": "ForgeExtensionTerrainGeneratorFactory",
@@ -2905,7 +2933,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:dc5e1ba0d699173654fe5d6f56f93fbb792c1083bf40590d6e39339c66d7c398",
-      "contractHash": "sha256:1be6d280ff9a3fac88ce83366a66b12ef5f3f98df0d402a3927763e0b420f772"
+      "contractHash": "sha256:59ae4931a9239ca2af378494394f40997e8a8dcf33b31f044d1b0b404c33fdd3"
     },
     {
       "name": "GltfTextureColorSpace",
@@ -3031,7 +3059,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:ee4c67246716d376d71de4564abaddfa0a81e10e747a98cbf8eb098c1c1d14a6",
-      "contractHash": "sha256:b989daf5274c7e4a56db6b3384976f3df224fbb0e80a590180ccc8185c8c10ae"
+      "contractHash": "sha256:8b8914d20167962c5a92b975f4ed0483552340cf1f3804e4f6b0ff3d6613f4b0"
     },
     {
       "name": "GpuParticleWorldOptions",
@@ -3444,7 +3472,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:f66d8316c0a6a8b0df16099b219f5c6429bce60b438617471e4a7d1d2fb3dad6",
-      "contractHash": "sha256:be17d4391913a38907cb0c6fc3bd7bb609f0cb6a761f1d24869fc8448b147e79"
+      "contractHash": "sha256:15041ff2455699cd673c1a18c3b4341738399ee24df2878de51870344d1b2391"
     },
     {
       "name": "Icon",
@@ -3605,7 +3633,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:04762b12e833fa6322caebe57c8d7584db0ddfc01f10d0932f7fa3cfc93612b4",
-      "contractHash": "sha256:364c19b67cd119dee8f9d4b9f041b26ac07bd0560726d025d431a3d579a38161"
+      "contractHash": "sha256:d7940318115caffa1e5cb81cd38c33ddeb23b51cc45e3acbf1e4ec23cec05f0b"
     },
     {
       "name": "IntStack",
@@ -3920,7 +3948,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:b09d929d08d9a5ee6298e7e13c776889355e7dd471f832c9d5b57972aac5833e",
-      "contractHash": "sha256:50ad8d45c916c51748e6ae11969aced1a462a37e60c8cea94b44d33f6187c071"
+      "contractHash": "sha256:fdcfa70de0f834545a260c6223a9ae3814ec1e0d607f6ccff0ea021190dc1a4e"
     },
     {
       "name": "LightBlock",
@@ -3948,14 +3976,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:79168e4a8055b7c828ef856b7cdbba57ed353d631d896034970585546c50aad5",
-      "contractHash": "sha256:dd2a93b2e8f558cd229822eecb5d8b4a72baab18e8d77539f89098b4abc9d8a3"
+      "contractHash": "sha256:7cf98989a58121421598a1a002067453b03a1ddbe3378e87090847196e997415"
     },
     {
       "name": "LightningBoltVisualOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:509cba220f417ebc75570f06ab383198acdc6a17a4de4a95c8e81027b05792d1",
-      "contractHash": "sha256:6dd6e83517091e4ce5b3711c9ce239541714a45aad265a6dc68e2c0793392b60"
+      "contractHash": "sha256:0e866e203ab913942b9d4097e76751aa9d2801798d9cb54521760ccfcf5dba16"
     },
     {
       "name": "LightningDebugInfo",
@@ -3990,7 +4018,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:fa4e8ae6f38e72cb8ff25a70b0838123b845e2520b68b8802b2b873ce8182579",
-      "contractHash": "sha256:45e0debe2704fe3bc07bac1dbe910a4e07e976c436da24b24f85c6bfdc647181"
+      "contractHash": "sha256:86be053d280cee08bc2aa4ed803e927888ab6c4b8a6f40a248afafc7dd451305"
     },
     {
       "name": "ListBox",
@@ -4123,7 +4151,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:256ac7bfd42afa81ab6a5b0d2580f2dc850c6c60675939b7bd6af0637936389b",
-      "contractHash": "sha256:66a45654004a5abbac6c40e2e4f89f2821d35cc240e2172af1acbd3b861a839d"
+      "contractHash": "sha256:1677a73de24ad15c7a34177a82e99c74a4c3f52750f15cc5fc1851f9600d725d"
     },
     {
       "name": "MARS_CRATER_SCALES",
@@ -4208,6 +4236,13 @@
       "stability": "public",
       "declarationHash": "sha256:a0bba833758cae7cd11c65959a568d234609f482c87c82292d27b1fb2483630a",
       "contractHash": "sha256:60b2ea20c65df682127b9f44b69038123b1bbc639d572aa1453f61a7ba8a90cf"
+    },
+    {
+      "name": "MARS_ORBIT",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:8120c68c39daa05bd67f721edad561290fb2549fd5a4c13fae22c814b67c418c",
+      "contractHash": "sha256:acd88f0217e0b6fb2103fdb3fd518d260f45748414c67eb02795bd5cec3aad59"
     },
     {
       "name": "MARS_RADIUS_M",
@@ -4518,6 +4553,20 @@
       "contractHash": "sha256:109c1a9ad65da346788c2ff641234cda216b1173cf3fe5e2f73adb4b1e0950c6"
     },
     {
+      "name": "MarsGlobeSample",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:7a58d0210c03923bd953f7eb50f16d3760fbd2397580502571753babb1f5e255",
+      "contractHash": "sha256:93c86152747a8f0cb9b601fc0b7831b94230cc8d33bfd37e8fc4e291821830de"
+    },
+    {
+      "name": "MarsGlobeSampler",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:57375ea48c02a7fef0aec3ddf606de8517589f60f3a40c714aed5a5084dea5c6",
+      "contractHash": "sha256:c5ae5f5a202c28e911b5a14ec3650004127a5216674679442fa2daca9d09cd2b"
+    },
+    {
       "name": "MarsMaterial",
       "kind": "type-and-value",
       "stability": "public",
@@ -4669,7 +4718,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:d95d147b8b6a28cd41e2ebc15b88a8ff16e0f3044c4836aae1afb81e07a1a62e",
-      "contractHash": "sha256:8bf6ac84576892d4d852b6e451277bfc50208a1528cea8343a0dbab5538dd636"
+      "contractHash": "sha256:3fc0db88d891d0067b8c2fba8d4e4dd1390d3613ec94b6defd8b1a9e9ae96f33"
     },
     {
       "name": "MechanicalJointKind",
@@ -4690,21 +4739,21 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:908cdfd1c40dd9c92d5459116b68d00baa733a5320190ef31ec20521137d10f1",
-      "contractHash": "sha256:5508bff65f6598f4d09548ba525eedfaf621edcd75870e5b0b9df48baf414d0a"
+      "contractHash": "sha256:a1213bd61155ebe5960757368bc2c03c5eb19364255365e612b4034d7a8f105a"
     },
     {
       "name": "MechanicalRigComponent",
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:806d8395f9bf4f87ca1df1e214ff961332c6dc29369ca53957c4cf7b8cea5fbc",
-      "contractHash": "sha256:7de31bbe3116a0db3fd9e75d5b8d9016330901400db01e6f4f19a44c3108d00c"
+      "contractHash": "sha256:21f4f5b4094d8fa6e9e6e2feddaf196366b951d56a03d5a61326b29afaa21656"
     },
     {
       "name": "MechanicalSystem",
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:94572e6047ffdb1e248eca400d93d7595bd5adf79a2b120f9eb48bb03261e190",
-      "contractHash": "sha256:55a42c0b2ab2a9d2bd4a57827ff9f8035e78085c3f5b53816a034d050c0872e0"
+      "contractHash": "sha256:eb257c54181d3ab44502d6b7e66e268e2d35ea1bd82c60efa0d88fcbb860c9e1"
     },
     {
       "name": "MeltEnvironment",
@@ -4963,7 +5012,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:9d120affff95d3a29dc950af3214b70adbdf35542976f2ac9d6175730d513118",
-      "contractHash": "sha256:bd56d3c231c0ca1125912a4b72d499b9a74d407c8a6cb08234f8e0fba8a3cd63"
+      "contractHash": "sha256:29adf400a566921dc7fd35710f11e4c6195ab60dfc1dd83f4585444d871599e0"
     },
     {
       "name": "NODE_STRIDE",
@@ -5824,7 +5873,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:ed9114352f1638b33f606c942e2f679832a00cf7f720b790c0734d8f0c39a8bc",
-      "contractHash": "sha256:23fb59a4ecd3ada5df5670bcac2578b5e42039d9e02522dd78b26960ff113d34"
+      "contractHash": "sha256:e176897406cc3c75c3d18b7b875beb3f6171761dd07693373d14cfb88dfe9b0d"
     },
     {
       "name": "ParticleTrails",
@@ -5838,7 +5887,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:35f75028f6f04ce5689214ceaba0f4385d9e3c45471e06f71e6509809f60e49b",
-      "contractHash": "sha256:53761c9e449bb0bda28f88789e962228802a6ff5d6877ee1f82b4645d8b5dd1d"
+      "contractHash": "sha256:2e95c9efc8c61193755e1fdc502ca4287cf2e6946297af746179ebab40424167"
     },
     {
       "name": "ParticleWorldDebugInfo",
@@ -5908,7 +5957,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:b0386ecbc7179b50435d752b9162971868d86868258818a36773ff4c433c0933",
-      "contractHash": "sha256:65ce9b68393de12af0389ab2112e986a400bf366d13ea67e7ef762c11c03aab6"
+      "contractHash": "sha256:91c36e76be2f11b941f6180324160575c26df368a08e0b4ddac41df6fe33de62"
     },
     {
       "name": "PhysicsSystemOptions",
@@ -6007,6 +6056,153 @@
       "stability": "public",
       "declarationHash": "sha256:ce64fbda9b9813db960642cccca29c08cf1f9227a753c44fc6bdf7221e9ceb0a",
       "contractHash": "sha256:9f25a7e875fa88b81b797ebe87d86418a3f799bda5c06e275429eb3e0b77f99e"
+    },
+    {
+      "name": "PlanetActiveEvent",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:0f524fb504a703048682fa2d87b3ada33563dd8e8b0025c2203871ec433117f2",
+      "contractHash": "sha256:225e3ea5eb0d48146661de5f7f259d3909e714f491a98305bad41f020f910ece"
+    },
+    {
+      "name": "PlanetAtmosphereFill",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:c239192ded2deb667921f9de2e4e0e7ee476a6b82231cb0abbf5d78fd641662f",
+      "contractHash": "sha256:c1cea3a7d2b06a5b58317baf9eef8c9426603a9591fde8bac8bd7a3db14dedb8"
+    },
+    {
+      "name": "PlanetGlobe",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:d3ed7ad677a81ef0b5e311ac3c8b998003905a12860bd96d153c4f39db0ec643",
+      "contractHash": "sha256:29efcd7462ee8218ce3af2f9fb3d95af2a4f967130106c23dce4ad1bb48b5f70"
+    },
+    {
+      "name": "PlanetGlobeOptions",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:ee41345b3f37c9a0b6a3f09f1940d3e428e2a647b956f5efdf16e15d8aade857",
+      "contractHash": "sha256:3a540de16d1bbbaea60a61baf1a0820c211cb71da0943685061a935f66899318"
+    },
+    {
+      "name": "PlanetOrbit",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:88991209fd4396a877a39a4b3aaa3dccbe073b77d3150b6a3f156a18609890ac",
+      "contractHash": "sha256:7566ee7acc97659ae6b735683c593086c00e2820c5a07dc9fe53b5f5c4e0a617"
+    },
+    {
+      "name": "PlanetOrientation",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:4ff3a7481bb60c64003a8ea0416676cf4e6482f0f10aa808094c9a009877ae58",
+      "contractHash": "sha256:73d6ff07d96e33bf2e737019c2e8dc1412e0d2f741dfcc6d585b6c19a65b99a5"
+    },
+    {
+      "name": "PlanetOverlayTexel",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:d031adb519f9ae6e6a787b027c019215ed1badb04e6a15c36f60a1bfc133e576",
+      "contractHash": "sha256:b03ec50972342c73fd4e690f1b1bd38860fe1a5657beffb724af4caa5d77763e"
+    },
+    {
+      "name": "PlanetPolarCapOptions",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:16f23dc788d12f40b6fa88a02eff5342db35be9876c50f834c8e01b1606caea5",
+      "contractHash": "sha256:b37c537ecf6085a9398007357b832a8cbabc6c2f6c4c907c2ff9f19dbd258c87"
+    },
+    {
+      "name": "PlanetPolarCaps",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:c8af4c2b607b82b84a158361f2a22840e0326a8b04264d2b028cafe1f1c8c427",
+      "contractHash": "sha256:df41ec85952c6bb6b6857cc38805ec4b8f84c255f004bb837248b7cbab0cea6b"
+    },
+    {
+      "name": "PlanetSiteBasis",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:9e8ca3eb374676263edec73eabb713a9f5807caeef946743709b16a2186d6424",
+      "contractHash": "sha256:b6176886d991bd7521f8a65dae120f72f43dc3ba44b72deb8cb15182eebd01bd"
+    },
+    {
+      "name": "PlanetSpinController",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:50263354f0c1b0ecf69acc0587b0dca09078935273e52f90293ce6924f62f580",
+      "contractHash": "sha256:419fe3b2a13ef490aa3f207d0f44195dc2e4d257408babd0a52179922ac33b31"
+    },
+    {
+      "name": "PlanetSpinOptions",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:2c1183cc7a3d3aca893c48b7cf2a27e597dc97e2ce1d0c8609eb6021b2a24c3f",
+      "contractHash": "sha256:c02166264e9e798cdcdddddb703cc45daf58e0f3eceff4cf6eecb7325b797202"
+    },
+    {
+      "name": "PlanetSpinPhase",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:ffd27557e6a353fc734575ec81fb3a65d610425f3ee97fb4dc737aab01bd176d",
+      "contractHash": "sha256:7f577569cd1a2cd0eb6455292dfe91898161cc7fe71dd1d681d5fc9ee3722b87"
+    },
+    {
+      "name": "PlanetSurfaceOverlay",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:b6f71ac63a712eb1261c7c3e01c87a600911b530ce203c4a1c5d6a78f9517161",
+      "contractHash": "sha256:d801a0b49a42dac2a00b4e5b06b003a046b02c7177d40bf0b2f5d7d508ce38dd"
+    },
+    {
+      "name": "PlanetSurfaceSample",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:f7050b32874a77d5a0a8c3bd3b9eb94996830afd12c5509b8303fce9dd5c8d8e",
+      "contractHash": "sha256:51b4d2bb16e62bdec454eeedcf30fdcb3dac62c89b0e2fd8aabfd03c86c5196b"
+    },
+    {
+      "name": "PlanetSurfaceSampler",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:39c5970ae94be351804c1f88e4bfb6b8c88a94bc9f04b79ebe507a556de2003c",
+      "contractHash": "sha256:09bf6f7a343066b68119752901440a44a99f12a351c34930275f85793f38fafb"
+    },
+    {
+      "name": "PlanetWeatherEventDef",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:ec4cf9eabbf876360de7c380ae603f9d5ccc09586eb3ecd903363074d926f11f",
+      "contractHash": "sha256:bb7dd6d38e92721c736b601ebd00509d8bb7bcf92754a3c547646f84f9fd0d1f"
+    },
+    {
+      "name": "PlanetWeatherKind",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:4348f88cca5c2f6db43638e542214b51ca9345888b1d83b7d8e08d4804d36e92",
+      "contractHash": "sha256:32856193e3bef6493864f5dc83e7247307bf66db803721a62cb301ec485f01e7"
+    },
+    {
+      "name": "PlanetWeatherSample",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:910ce426aecd632f19b73a1808f7589b4d50ee1cbfe83a90f34325057f517708",
+      "contractHash": "sha256:0bc0777eb23d4234b10e84ea477e3ff521e54e8169e726cc2c71b722f5bf5df8"
+    },
+    {
+      "name": "PlanetWeatherSystem",
+      "kind": "type-and-value",
+      "stability": "public",
+      "declarationHash": "sha256:db3094426e6a59cf6d00f3c99657d11d64d05fadaa63bc5420379d3b142f83b8",
+      "contractHash": "sha256:6e96eabfdec4e5a1b0ffe3b225c5bf27788f7d3b588a586312c7a49d10632164"
+    },
+    {
+      "name": "PlanetWeatherSystemOptions",
+      "kind": "type",
+      "stability": "public",
+      "declarationHash": "sha256:468587ae4c72411e4a5ad86fe67df3a3460c97315e7c62b4247fb5cc4bb5de9b",
+      "contractHash": "sha256:232434c5cdd0837657877921fa1e0460cbe08e58ebb3dc9776bfe4b1cb5a8f4d"
     },
     {
       "name": "PlatformInfo",
@@ -6216,14 +6412,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:26ba3d8c5b44b394a165cd1d2f0a097e831427d0b8eab0b8dda5671f429b5d9b",
-      "contractHash": "sha256:b55936f880080bfe2f25d5f357acf7b81d889f557ed019b73afdc2638d5d0bd7"
+      "contractHash": "sha256:5f6f8ce32c9f198f180b04311959975a0cd6e679158c9901f1c37e3ee209c9bf"
     },
     {
       "name": "PopulationWorldOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:12ebfae32e8559e737a9877c0a67a3339438511fbc3e57fe3335e314408fdc0e",
-      "contractHash": "sha256:0b2a2c67436a9eb2bfde55b3c5e25d2d07adb4c848cc1f85df7ce3a01f0c4568"
+      "contractHash": "sha256:bcd064844fdb2070f6b6f4c8b28fac6f7cfe7ffb65bf11537e296349fd5df04d"
     },
     {
       "name": "Popup",
@@ -6251,7 +6447,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:4260ece92b22774a41f7fa07d5c4ba6c939eb1240feec9145956355d83e7a9a6",
-      "contractHash": "sha256:5ed558e95a9e5cfc172040b94d51c785db545c4a2140d44be1c2290c99bb7ec0"
+      "contractHash": "sha256:1f4f210e3cf88e42802a8910fe949dfdc93a6b49afe86be14b4eec87655d015f"
     },
     {
       "name": "PrecipitationFieldOptions",
@@ -6545,7 +6741,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:8efeb4700eac75c5bef9c7001ba5560c11b3fe9ddaa93b9b0ec8a0346eeba514",
-      "contractHash": "sha256:c833a3456d9a22b01ce9be32b0cad842f4e8e97f88b5463789c999f1abd19312"
+      "contractHash": "sha256:934d485d5cbfa3eb6a02a1c13c96319f3c10d668ae590e5ace10f0b20ae08b11"
     },
     {
       "name": "RealisticHeightGenerator",
@@ -6622,7 +6818,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:04362c9ef5ca10c4566fd6d854fcec491c5ab7cad6a31874978d42559aea043c",
-      "contractHash": "sha256:d09d69258090dc399e7bea1bf4916b5d611ed112fa66601d5697cf4766c6323d"
+      "contractHash": "sha256:dbca3e7767a36cc069f56229435161225309a4439c4099ae1c7e0024538a8074"
     },
     {
       "name": "RenderGraph",
@@ -6783,7 +6979,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:918ee3b956cae11a359a97991391b30448252989a2529439e8dda4889dfeba5b",
-      "contractHash": "sha256:00196b321a1966cc5edf14b27aac6a952ffd49685ad5f7e7026208008aa93af3"
+      "contractHash": "sha256:93c7a43568780b4b85f9ceceb73a4ee0df5d128e30db4a642d0309938d4f39c4"
     },
     {
       "name": "RendererOptions",
@@ -6860,7 +7056,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:cd23c88ed198370bad11c0dde81de1b3c05feaa1b51e245bb502961649c6a2a9",
-      "contractHash": "sha256:84632951960cb783c13aa2f03bf6202429c9f711694e350aaf8e61d222a21bb0"
+      "contractHash": "sha256:f56056a803724ff1df1a5850019b25e3427414c88faa89d1d7bddf6be6f9c8d6"
     },
     {
       "name": "ReplayPlayerOptions",
@@ -6874,7 +7070,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:45be635078c9dcb6c0057ee709a2daf308bd2a00d66d7f968f8c951811da975b",
-      "contractHash": "sha256:e2b68bd120f836cb4f4d990b56cb7198ce05ee3c25654f2ca99513e4727aedfa"
+      "contractHash": "sha256:33341109ffd98bbc6178415e00eb2aab2042a3c041d6cb45114d4cdef6f9d915"
     },
     {
       "name": "ReplayRecorderOptions",
@@ -7350,7 +7546,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:470ce2fd638d9a4dd5cc87433dee154d08e9498ec77afab2dc3ad8405229992e",
-      "contractHash": "sha256:85e239dd6be17fa57f8c980e358c82146b12a4d9567d45a7d47efcdebe44be8c"
+      "contractHash": "sha256:2eb2929046c998e8aa98bfe11e0be9b0bd5f65af175041db490765fde43ff83c"
     },
     {
       "name": "SceneCloudSettings",
@@ -7385,7 +7581,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:565957b41afaa1c22d20dd2a38938ad60721a2266dd9179e5b9d8fb46e8f1d44",
-      "contractHash": "sha256:6251a5a04b0439b0221fd2176211194c715d513957f9e08d7162085f4290faff"
+      "contractHash": "sha256:5bb377a9cc8cb70ec9165fccd8cac6330c3dfc3e4b14829d2e21bea11892b3b1"
     },
     {
       "name": "SceneSave",
@@ -7441,7 +7637,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:940adb232f7917f680d63af4135295c90081f8e45c42cb2f054259ebbd2ca500",
-      "contractHash": "sha256:705a1f4cc9b140c250f19ee43a30c6dbda9d308a6c850a267b3a96ef762e595f"
+      "contractHash": "sha256:f6536b2b2ae39483d5c61518aa0479ae73475184dec854d3e285b7e38ba941b3"
     },
     {
       "name": "SceneShadowSettings",
@@ -7455,7 +7651,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:e192d564a0b2d7a0460bd371bbde466d3a35e9c1c9ad55a1f1c94cd7659cfacb",
-      "contractHash": "sha256:9ea9d514a0752c5c1be76b8b4b14e9ca716beb265564c23cded234575bf5a885"
+      "contractHash": "sha256:8f8c06672a638bc8f57d06ff1b9a065c3942f6aea400a565de7eaebd80583f7d"
     },
     {
       "name": "SceneSnapshot",
@@ -7504,14 +7700,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:0c319914142b6ba0970de04d68afa7743522e2744d8e23542746beda926a54b9",
-      "contractHash": "sha256:0cd70c87161d23d3c129f5181c3220f7becd3cafc3462cf26de776b728acdec5"
+      "contractHash": "sha256:23973b81ed4271d052db8e12788f8df5aa18bce3ace6f338756801d7937f3716"
     },
     {
       "name": "ScriptComponent",
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:fcb58d7f9201fe6d701420c808563f960d5faacdaea8e4c2fe5605bdb30399d9",
-      "contractHash": "sha256:62d217bbd95da025c4e6e469824502b560e123cd549965bd9bee14ca349274a1"
+      "contractHash": "sha256:7dc63f73ca979ae9a7e2913309ef6b042ec6feb53a6430b97c20859618698007"
     },
     {
       "name": "ScriptComponentView",
@@ -7525,21 +7721,21 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:d2be6faac3793f8d6789c8d42cf0fad8d6907f378a4a362beb17a1e77039fc0b",
-      "contractHash": "sha256:1f407d649968a5fa827213f90ddfd862e661026a21932df1885362b121a88e09"
+      "contractHash": "sha256:3adfd67bc27e28fe921c7d830a69c892e768abe4596d5780b9cc066c055f5d61"
     },
     {
       "name": "ScriptContext",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:56273b8bb2e8e7490b137637fe156579512fe869b0ef1446c50ee1a7a60ab958",
-      "contractHash": "sha256:0f66eb7c504e2abd9d47e2e9dcb0274d6e36573d4cf62a78bbe818afce95494f"
+      "contractHash": "sha256:e3a99750bb3148df7549810906067c5075092069f14c257a3406d83cbcbf0a0d"
     },
     {
       "name": "ScriptEntity",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:537c637990fad91def04adeb8196dc941f7348f34b250d37edea9d360800e557",
-      "contractHash": "sha256:ebb943686434af59324b0eab38085c945ca315cb4e8c168e678512cb3f1c97b2"
+      "contractHash": "sha256:4a3b0fca290e16b10c9f4b2b4c101264bbad62446dd51f3b07a2982e68f7b9f1"
     },
     {
       "name": "ScriptErrorRecord",
@@ -7553,7 +7749,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:19d52a2f221d7dca544dbf6de253d0f2edc1d59dc61e2fbd38d5b22cfefbe32b",
-      "contractHash": "sha256:a7e4753d4bad52f0d9b75ff8aa7ea096a75df0bdb7cbf8e07bfbbc2261dd0c1e"
+      "contractHash": "sha256:3b4e54aef9922d3eb877e9f3c01d68389a86ae165c188d4a55e4343141f5452b"
     },
     {
       "name": "ScriptEvents",
@@ -7581,7 +7777,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:3dd36cce991e20e122267be243d3ba4dc3d3f524aa966acc5e78d07cb5339cc1",
-      "contractHash": "sha256:4f7726b971f5a5fdfbced48b9fade77b422bcf13764da1aa16ead69697eae116"
+      "contractHash": "sha256:e6b01b8fdbc31c95ad5a406af41f6a71843164fac3397c0abee6ada617f0e960"
     },
     {
       "name": "ScriptRuntimeOptions",
@@ -7616,7 +7812,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:7995b1799da21cfbd279f160b529a01bef5a5022cfc82f5455b6a3ce6a231e00",
-      "contractHash": "sha256:1cab27571b1a053346c3251c057da2597d2a0652716d0ee09b5b13d490c8ce9d"
+      "contractHash": "sha256:f41826a1778ac561a2531320e9ae7a272d4cce89f5f193dae49816ee6b726e7d"
     },
     {
       "name": "ScriptedFrame",
@@ -7798,14 +7994,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:bd79ff7a5bd9a31b1c9ef8a0fbb57785a3a2d68cc1e5e183188ba00036a79a01",
-      "contractHash": "sha256:a1db9c512734687830ad6e9216f784ea3d6253c9dba7ce7e92d5e35d2a27f780"
+      "contractHash": "sha256:aafcd3f4a703f315f6712e3223e9010b9906aaf6ba3de9cc623f6d076f6e4bd0"
     },
     {
       "name": "SkyParams",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:36a0b76b96f6d51f83e9a88782ba15bed13ff483f3c4a1c14f2d536eb7b83726",
-      "contractHash": "sha256:c9cc06869b941b6a7abd64c06a791f58e0ec558af95e40460da15a2a69a2e48a"
+      "contractHash": "sha256:0c2b55e70c77fbe57f0c328f7a261d0e0b54614c1ec1872879d6be819e802e05"
     },
     {
       "name": "SkyQuality",
@@ -7882,14 +8078,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:adf521478895d35563799d606c34bc8eee22052d5f04698388920757b3287fbb",
-      "contractHash": "sha256:d7ad3a667f47d4fc76734345b15ad4ec90f5aab6223ff559889c77ebaf4e9431"
+      "contractHash": "sha256:57a1789f3c25fe8be07dc8b263978cb83a83c642a7c9e00d09b150536d6317dc"
     },
     {
       "name": "SnowMeltSystemOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:a5d62ca61d23bcfde9fe5bb43d4e33b79296f8fbad93d54a0d8671b5da702d27",
-      "contractHash": "sha256:9e32e91ece9a616b3b350867e3c29a4c1c5206411fd244e0772d28ccab1a7cd8"
+      "contractHash": "sha256:0fbf0d61d9b447c86cce426824d981d994d369e32f639a9974e35b7fdc410ebe"
     },
     {
       "name": "SnowPose",
@@ -7973,7 +8169,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:afcb4639add657e9ea0bf18a8e99672d403a90e508e60d896bc70a7c3db60a22",
-      "contractHash": "sha256:0ffeca37e6c06b1805bd2aae2235e0b69a754a557cde19ffd01355c03f68e2b6"
+      "contractHash": "sha256:877b206da14a4ca182c0495a9048119e58b41a2e7dad1da51423b874e3cb7815"
     },
     {
       "name": "SpatialAudioSystemOptions",
@@ -8120,7 +8316,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:2ea6a1b39cf754cd786d8bdd178be6229a5a170265e65d2d07f7281be4bc51e8",
-      "contractHash": "sha256:d92d57288245fc5c48cfdb16ffc78d7abdecbdd0bf52a4d069a223991376b34b"
+      "contractHash": "sha256:4c5322d9aca925064ef05a904048d74f375e7f4278999396abf4c7a63c01c900"
     },
     {
       "name": "StateHasher",
@@ -8225,7 +8421,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:9636ecdd23c056cc89810e373039238505ba47a80ef294872c18f99d889fbd85",
-      "contractHash": "sha256:4a2fab567058d74d41291cf2a47ec9ff6457cd7ab880fa37e799b718fbc604d2"
+      "contractHash": "sha256:56c3b9c799559cf2cc490529d2191edeaa69b8cb24beb5bff455b88489f7df97"
     },
     {
       "name": "StreamingDebugOptions",
@@ -8386,14 +8582,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:98b7317f98e7f28612ab4b441081e546d60fc0b618c0356a3389c27b2ea7a679",
-      "contractHash": "sha256:278dc44843e3fcfab154c744aaf9f0d8b6854b191a6692a826b104e126d39f0c"
+      "contractHash": "sha256:d98965d8d2dd41907bf31623f536db3603bfed2fc0edf8cc45f3960ba0120a67"
     },
     {
       "name": "SystemContext",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:34355936ff70c8530a6d0fdab0f905b5866735483993d7a55268d09893b1ee1c",
-      "contractHash": "sha256:1c7a627e0de515166dfe600a795c0be02e7f05ab4d083b953597b3c340fad864"
+      "contractHash": "sha256:810a8fbaba2cf0e5559734edb074665e53b1a48f2c22154b91fe71ca50be754b"
     },
     {
       "name": "SystemScratch",
@@ -8806,7 +9002,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:38f5cfd4998d52fbce7b92ad23b1df7ba4fa8ee659a1fe09167e9a5ac1282372",
-      "contractHash": "sha256:8e567a2e1e012e619cd849e588d3d9ce6ff83f1939567a61002e6cf66f83c821"
+      "contractHash": "sha256:73526608336ff9080cde6ebdba4ca3eea9779f3db9a85c1753b4e8ead84208ed"
     },
     {
       "name": "TerrainWorldOptions",
@@ -9079,7 +9275,7 @@
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:1c4ed1188997b3881732dc0c4635d0a1cfad8d2e83923f3b77dabfa70dedcc9d",
-      "contractHash": "sha256:df87b30c855c186fb154f44cb948db75e4017939dd935fbb14c97c636f0de9aa"
+      "contractHash": "sha256:fb63d69eab7782c1e13636deba85b329e757b7f24f5816169f1418921fcc1186"
     },
     {
       "name": "TimerClock",
@@ -9121,7 +9317,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:2c0145a372fca19881db504e6285b22cb9fa4d9292278c94efaacf320d0aa56c",
-      "contractHash": "sha256:8765063bfc298e3aa48ba2d82ec058915ac93e7a25d72bb30fc5dc7675b5b26e"
+      "contractHash": "sha256:e95be3fa0aa6aa6c3a45427e030f9ebb528b2fd5435fef77fdc750efaab58a3b"
     },
     {
       "name": "TireTrackLayerOptions",
@@ -9359,14 +9555,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:5cdcc78aac40e9f946ce7b79ab09d265aff08c5ef6b10fdb65c03d8cf1d5a0a1",
-      "contractHash": "sha256:8f83d9bb95e1d59de939b3fbcccf07c2cce9fe5cacfd440fab20be9029ebd5b3"
+      "contractHash": "sha256:1329128dd2ab7170d6f33281f0400298603c92927bd83de53f7347b832b4a108"
     },
     {
       "name": "TransformHandle",
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:a6dca33feae0fc0a39b7fb4615b6bfd2c8f7d2dcb5a2e47286b5fac67a783581",
-      "contractHash": "sha256:e96993e078747e0f71ae373302fbaf0a1e3f8d72d9be50bd0d9e6f91675ac43c"
+      "contractHash": "sha256:709d6c4a921b4b9ced02d6fd76fde882cbadc62d343fb19287ff0603742c560e"
     },
     {
       "name": "TransformStore",
@@ -9380,7 +9576,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:d2ba7148501084511adb6a09f4796f8473e0f339298abe2f81e75528f0ee948e",
-      "contractHash": "sha256:34e5fecea4b04a1d6571b540522a2c58a5ac8201169ba25ac539b9d0e80fe38d"
+      "contractHash": "sha256:b57f4bef288b069945d557f79942663f6b3ad82f7804fa56b2d8ad6263835d21"
     },
     {
       "name": "TransitionCondition",
@@ -9929,6 +10125,13 @@
       "contractHash": "sha256:733c67ada36850bbd56e549ce3e6202d0dab045326c8659b832205201bc61f2a"
     },
     {
+      "name": "VORTEX_DUST_LOOK",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:33a0b459b9e74f776317151778479344f8a7ccbe0789d24afbe68471ec3b7a85",
+      "contractHash": "sha256:28b0033801974fe87eed85445ab8aad11d3313321fbb5e2e539d996c52ccd81a"
+    },
+    {
       "name": "VORTEX_WATER_LOOK",
       "kind": "value",
       "stability": "public",
@@ -10003,7 +10206,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:920bb558d69823cefc3e9f3019867973ca50e96218590b78296cd3d49bc0a301",
-      "contractHash": "sha256:23c55c228f808150a65b63723ba5a956c9d2d0ebb41015e6cee18a6f9dc9d1b6"
+      "contractHash": "sha256:db80f35d9846635d03160958478a728698fb09cfe2bf1aea7096f6c93aaa3011"
     },
     {
       "name": "VegetationFieldOptions",
@@ -10185,7 +10388,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:eda5573eb2d23d918f855ca4381255bb72fd09284ca16187a31be68071cf2623",
-      "contractHash": "sha256:6b908fa48aa3de92d0e4cc32c8636019f90c122ecce08cf29c6b22f135bff567"
+      "contractHash": "sha256:ddea54fc80a1d09d2c55b45ca07b84b040041f99b352a297fb5a3683076def78"
     },
     {
       "name": "VehicleTelemetry",
@@ -10206,7 +10409,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:f03ee896341b8eab52896a93a4af4f787b9ea907c2f076b87bdb5f77a567f85d",
-      "contractHash": "sha256:d75120ffae3275cda7159eda34370424a6e9b5d8794e4aa9073310acad2a8297"
+      "contractHash": "sha256:d7737d67933d37b461c4a648990ee715e1aade3e45555d472f109d6eb1b60e2d"
     },
     {
       "name": "VirtualizedGrid",
@@ -10248,7 +10451,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:f4f1dd3ef6ccaf48a21728fc1cc84d2e1a0927291ce56ad7e12e7256e3b007c2",
-      "contractHash": "sha256:0bc60f6ab8c43968f34851e31427d1f1dc5b8d12a959eaf7008492d5a6f1932e"
+      "contractHash": "sha256:f61d8491ee262052aa11b35000fb823603d60ac6bcc1b06e26df27b91e52f917"
     },
     {
       "name": "VortexColumnPose",
@@ -10451,7 +10654,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:81a16ba6624df7b816e0ce90e88da599d6a18d602dfd3c786dfff6c70d8a378f",
-      "contractHash": "sha256:87a02d6bd7f3382966f27bdeff9be09cb5a41f8062f8e4f4b4a764f0b8ed4809"
+      "contractHash": "sha256:90f8dd87ee3e6e256c301680e21c3f341457982310b5e8db2f9093004f805904"
     },
     {
       "name": "WaterSurfaceOptions",
@@ -10493,7 +10696,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:c5e4249d127a849544a365ea6abadebeefcb50dfb918270a9d699ddbe5ef114f",
-      "contractHash": "sha256:80abb0e2efda067ccabd242b7ff24bfde5c349588c04e2d84c141bb0f5226d65"
+      "contractHash": "sha256:6db161966fd3042c265a380a013caef02c50b7fe2cda5fd89b038212b348d79c"
     },
     {
       "name": "WaterspoutSystemOptions",
@@ -10507,14 +10710,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:310091eb1efdd76db958ccd318a1cf004df8e91f1ed81ad5ae4b04cb29bfb993",
-      "contractHash": "sha256:d8beef87f64bb49c96abb1ad66aaf9d71fcfec0f34a252db3197cb038c96dde9"
+      "contractHash": "sha256:70a41ff9a721b42834c4382f371d8bd7440b8955c37120c2b9ce39fe816deff3"
     },
     {
       "name": "WaterspoutVisualOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:7d28e849bdb3ed990d0ba9db1636cdb3dacb7e785dc403eeef55d25241c24179",
-      "contractHash": "sha256:40f765749d2a68b35e8a421922f9e1e6529ccf98919a45bc4bde646d54714508"
+      "contractHash": "sha256:f12eab1a1dfefa75b04b3901f61b8d95dbcd6f1ccb8313348e1617da6df453dc"
     },
     {
       "name": "WeatherChannel",
@@ -10556,7 +10759,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:ff47a0e181feff641da0ef83117e5f22e403a74e6c9cb76f8f51c3f95e94ecab",
-      "contractHash": "sha256:0f81a1a1a391f5033fa2239e60b4ac65c53c9f57b81b038ca15ccbf398f99b28"
+      "contractHash": "sha256:d6d0b82b048458b42f1411b17080bc24f56a3f6814cb99af28421f852b3ab1b1"
     },
     {
       "name": "WeatherTimeConstants",
@@ -10633,7 +10836,7 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:3e150388dd2c8fe7b56d04abb29fd31c129c4e35be7bcd245d93baeaf3e7a785",
-      "contractHash": "sha256:495f01d75410066a86fea3b02934eaa05d6a976d6acd7c6bb59b6f6ef256a13d"
+      "contractHash": "sha256:680d25fb4ef63015a9e0a02af75fe56635809bf67132c64c4c488956ebbcb7e4"
     },
     {
       "name": "WindBlownFieldOptions",
@@ -10874,6 +11077,13 @@
       "contractHash": "sha256:67298c419e05a4011844f4669eeb41687feeffb64032cde779df17e1032552e1"
     },
     {
+      "name": "angleBetweenDirections",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:706b505125705fede0607add044eaef9bdd8bb46b5985450b7014d7a47edc67b",
+      "contractHash": "sha256:8913877dfd818cb594dc0eaf80bc886834bab58d0cb3deb07de09d0cac60d970"
+    },
+    {
       "name": "applyBodyDamage",
       "kind": "value",
       "stability": "public",
@@ -10885,7 +11095,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:84cc43b8aada2c6e9bb144c834ad8673b75c28e437f8cf0e7c35c0dd60208205",
-      "contractHash": "sha256:45bf6e89b23948994ec47a8c5d4973444782007c4cc99152758a06b76f391a1f"
+      "contractHash": "sha256:0bd69b92b97fb7e2a24491bd963b186a983205ad49d6953605201987323a04ca"
     },
     {
       "name": "applyRoverImpactDamage",
@@ -11242,7 +11452,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:177ae7f5be485ae704a686e42cb0b99acd72f2a7221cd9c48d713e1430e56c63",
-      "contractHash": "sha256:9912b1cc61cb24d18bf337fc132a227eecf6020151627457542bab1d6bdd70c4"
+      "contractHash": "sha256:3287f937e8cf05ea9ea06dc9271f882fbe7765484922a36da977f48de1ea7674"
     },
     {
       "name": "captureState",
@@ -11837,7 +12047,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:ce5f8dc1971edabf887d935fe264c3f79d6f1e200f0819bb06cb7ffefbcf7302",
-      "contractHash": "sha256:eaa4174c796c9add6202b13df4ce74079ed51734ada2c270cc29d36559dde9f7"
+      "contractHash": "sha256:501cd5c9204385e50657e1fbf38c71f8afe7dff952543ac6ca416ae76800a331"
     },
     {
       "name": "createBox",
@@ -11879,7 +12089,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:9c0d13402d4cd63a62e0fef82253c46dfdbc3682ff804256ef98b7441738fbb5",
-      "contractHash": "sha256:30a3b32f261b9154412d9037348ca5260d67e9dd6db9bcc63f780d31bbf7ea34"
+      "contractHash": "sha256:1d389e7331043a0086124b7e0d60277b6ce3ac1603ee140dc100a19d0570ac99"
     },
     {
       "name": "createGrassBermTextures",
@@ -11922,6 +12132,13 @@
       "stability": "public",
       "declarationHash": "sha256:5208e030d5c182ea1e1ac102002ec24b963d3e890383e6c3901c8273ba8f35df",
       "contractHash": "sha256:898f2a0660e5d12bb25b7138a580dcec9c21c4ebb0cb8f5e4d8bd280f4ae0830"
+    },
+    {
+      "name": "createMarsGlobeSampler",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:4572750d8c40eb0604bfad03bea35a221f12e63ebd2bd4b2698feb02a6012f08",
+      "contractHash": "sha256:ac3f09200349b28278b0f765da933b083331c5efa6185cb7488be9d7edd2ca64"
     },
     {
       "name": "createMarsPipeline",
@@ -11992,6 +12209,13 @@
       "stability": "public",
       "declarationHash": "sha256:94ea9a7790ebab7888c533ad52aa5d6f3486b28bb530ed788e833e651dfd6326",
       "contractHash": "sha256:a2e4a0f9d08ee59c437695ba1d07f5da6496b6a1610a285347ce0d666948f080"
+    },
+    {
+      "name": "createPlanetWeatherSample",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:7901025207b5969a9c72ba081ba82988c431e7bae26a32dea9f2beb087ff8f77",
+      "contractHash": "sha256:0564f3e96a2b91057dca82278cea36a5b29d5b32e7c50b226939e162d25bc40a"
     },
     {
       "name": "createPointShadowFaces",
@@ -12124,7 +12348,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:612b54af3859edebd12b5ce913713611cad47946addbcaa623d91bf5582b8399",
-      "contractHash": "sha256:7dc7f8c7d612bf8a988dc3279ce99f8ea4bf8d86ea2a4d29bcd2bfb00b00a103"
+      "contractHash": "sha256:8da75003e247a8bc0caf15e90f288646f7dedbfecc60fa02bea09557d14135b6"
     },
     {
       "name": "createWaterSample",
@@ -12369,14 +12593,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:f0fbcf50fed58d0d5d21d916ccdd9aa908049d20772afcae9a1b0bf2b934d713",
-      "contractHash": "sha256:05d5abb557260914dbb6c75c33555e5f51b8e5d5c2d65bcef740fe62b64e0457"
+      "contractHash": "sha256:f591aba13995a4bfa3d0b948aeb142825a56b079be75ea5b4fb77b68924f40c1"
     },
     {
       "name": "defaultSkySettings",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:07b6c861bf5bec70c42379307028d5957862039f719f02689f8e5e1656f6732e",
-      "contractHash": "sha256:1d55de2d79833b9c4c631a53579ee1e4082fa57207a419b232539d5cae986b96"
+      "contractHash": "sha256:c8953834d2dc1e8c1d0f00e60b4e3ce9d2d3236781e7d06673433ddf9881b7cb"
     },
     {
       "name": "defaultWaterSettings",
@@ -12498,6 +12722,13 @@
       "contractHash": "sha256:cc6c3aada1d63f25fcd4f368c07431e2a2353f10dcc9dd73b60b7b33c38d72ef"
     },
     {
+      "name": "directionToLatLon",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:0c2bfd2a55fb7c36e26cce34be2a392c8618083b1a283f80b559d6eacd8ab85e",
+      "contractHash": "sha256:da8e539acb160eefd2d20751ae9f5c2d50c01eb0e8fbe45ba21dd135d604a3e1"
+    },
+    {
       "name": "discGeometrySource",
       "kind": "value",
       "stability": "public",
@@ -12551,14 +12782,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:ee544dda3e07c945001d0163e62944f3c3309a47933354666643796958607c44",
-      "contractHash": "sha256:1df044d4e623a0dbb167491caceecb058999acf213c42c27e5b0b005f6573cd9"
+      "contractHash": "sha256:c272d5c1b6c08111ded28fe19bced50f8d4728bf795085de46a55a930727bf0a"
     },
     {
       "name": "drawParticleDebug",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:dc652b2db7a4246abf3c7e44640f3dca0860d1ccbeb0c253c7fbf5ee0bf060af",
-      "contractHash": "sha256:820d36eb7d060d3f01edc795aac925e64015813e9f7b24c814188855dc54f641"
+      "contractHash": "sha256:a715daf821c393f887f6934a617387a2fe7267192864dc06c78b7090742db0d9"
     },
     {
       "name": "drawPhysicsDebug",
@@ -12572,7 +12803,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33",
-      "contractHash": "sha256:69bdbf3a598b75a9cf9431b4fd1e86bb6dc96834c38fd27d82eb0eb56089cfe2"
+      "contractHash": "sha256:5222f3b9d8d83ccfa19a8e234fa3e8c385886683ae655827fa388244c0e0156c"
     },
     {
       "name": "elevationAzimuthOf",
@@ -12628,7 +12859,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:dfb6941f61655a0ed6f331125ddc046bc341b9ec5db54e427c79221fe4d13d89",
-      "contractHash": "sha256:b79600d220bd4b685b0512879298fba201c78699d3c77165c074873afad36081"
+      "contractHash": "sha256:fb9becc0ca90c1ea3f784c2e51719f2b9e401b73382ec1b8be68529d9f816046"
     },
     {
       "name": "environmentReverb",
@@ -12712,14 +12943,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:de5aac682512aa1557276be4e5c158d97d13a6ef45dc137f19c4e9f9c6cd61af",
-      "contractHash": "sha256:0b9571a27397e6aa8f3ed449358ef32f1eae29e1fd61f740538f7e4918522c66"
+      "contractHash": "sha256:3683ad7519931c7517248804b30d23605bb94592a62557b58acf46a317f8a90e"
     },
     {
       "name": "findGpuParticleWorlds",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:26dec10cf42bb557eb9ecc25c695439744cdacbffec29b5ab4199017dc3f60fc",
-      "contractHash": "sha256:4b06faefdb2160743c74457b2bafb0ecdb62cea9054216ce74ff4ce846b2f806"
+      "contractHash": "sha256:bdd0b14bdaabef9c7442cd68cde773c2259ef2b6698da91518c310ffea9b20aa"
     },
     {
       "name": "fitShadowMapSize",
@@ -13090,7 +13321,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:a91943f565959903d9ab829f04b75ef41a270767325b7f8d8cac139f9ba56d2c",
-      "contractHash": "sha256:7ea32fe7fec6aa2f81e1ea3d20d8c2de8986806e008e26e660df9ff03d9965e8"
+      "contractHash": "sha256:5b2673f809b573e1f596fb04fb35240d6a205174eac22a3adff0e67fc26a6d45"
     },
     {
       "name": "hashState",
@@ -13209,21 +13440,21 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:9afe5d995389c76a5e42aa0f3f06fb31e5608189ac170b3bbd1c8df814b4fb45",
-      "contractHash": "sha256:4139ee40f8f8d5109a2754d50196b11ef495566685d1461c6d29ba8c991f4908"
+      "contractHash": "sha256:ad23fbb0e1ef83b1ff20f6b9574419ec83cd669c6bfef242a052ae39a3f36242"
     },
     {
       "name": "inspectEntity",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:24720e7497136d89462449562e1a586e9433b822ea8bc0daf3daa3e082ece2cb",
-      "contractHash": "sha256:36d3c4fbe3550e41f9e07693cf07f56278e413bcc685aa4dfd424b462a4d4c00"
+      "contractHash": "sha256:fe7acd1a357e1d3b2f87a8a2e55676149c35419b03699d579645705bf58ff47d"
     },
     {
       "name": "inspectEnvironment",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:14c1ba17df6174501c63aa798d02c0eb658bcc2cf817dd41f53da87541d1c6e8",
-      "contractHash": "sha256:5ad187f6339064e8184a9ea565e2c54ade539d2c87306d4425ce72e364c5f20e"
+      "contractHash": "sha256:27185b973e8bcee3707ef7bbfcccd4efaeae43f1570d9c44d6699af553bffc43"
     },
     {
       "name": "inspectGpuResources",
@@ -13237,7 +13468,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:ef746321a58c440c1c1507267e645d1bec4eb00800ebce810ec65f9b6417291c",
-      "contractHash": "sha256:49699b4c00b6cafb3dd5857f3fd1d51c75c224ef648dce85f09c80de9d63f697"
+      "contractHash": "sha256:608f68736814c3a2b916dc14ba8ae0178fdcae1c4fb7f2b86dccaa07ec9f44de"
     },
     {
       "name": "inspectRenderGraph",
@@ -13251,14 +13482,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:c3e41b6abe2815242ba5c83946e7abbed368809e0557ce5750a9990abd3254e8",
-      "contractHash": "sha256:0e944290a4f334d95b0b07eafc3554ba0441cdb5f1625fb2fa96b0e8325f76d4"
+      "contractHash": "sha256:7c854c78876017d720a953f3bdb4a417a90a5c03b84cb5671fab2b5dd9573c2d"
     },
     {
       "name": "inspectTerrain",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:f3889d83e02ecb31d144f06744450b624dcf5b6306ddfe6b8bdb7eaccc53a777",
-      "contractHash": "sha256:0a8413f54a29c1208ef4556c508770e3d81ab6445c44f6dc2d2ab23c0ed70960"
+      "contractHash": "sha256:e1abd825279188f6119d00fb6b1bd96c32e9c46a155a4bbd6cbd748decb1f820"
     },
     {
       "name": "installEngineErrorBridge",
@@ -13293,7 +13524,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:990ebe6ac634de8eb13e4816909a0da0af02021aa8f46fba5f98950d22282ecf",
-      "contractHash": "sha256:a192afc431d911e19325e1779623205a21358dc76033329d7c63ed142a12f4bc"
+      "contractHash": "sha256:1505f482aebb6ddbafa173aaf5592a1fac8f6b457263c328e3bec6f9dd32ae35"
     },
     {
       "name": "integrateParticle",
@@ -13399,6 +13630,13 @@
       "stability": "public",
       "declarationHash": "sha256:e616559b19bfe5155ad74688ea1ea2612aa0c2fb9a1c510c41925ec52373ab6b",
       "contractHash": "sha256:66870946e05e61f52692cb0b522bc6646d7b9af2b5aef04cb7819b6f597c4376"
+    },
+    {
+      "name": "latLonToDirection",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:d78708672c823740d076efa0d4d0e3ce674334dcd73d1732cb1b0a55d3d42f83",
+      "contractHash": "sha256:170cbd0128b3a2bf9351b76bc2100ef591a8d169f80b147bbafe5b434eedd71b"
     },
     {
       "name": "layoutText",
@@ -13545,7 +13783,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:c3a5ac0d3e366ecd552b1a403bc1cec32e2c7df4cd6c1a80da3d60082ee73379",
-      "contractHash": "sha256:f62b69cbaa95ee0bd197206f58d80723535552c4431d42f4c8811a285de0b8aa"
+      "contractHash": "sha256:e4f9f79927728b7e09fd16e0aa3b086b9695fe963076e3e7070b643bef09f5f0"
+    },
+    {
+      "name": "localSolarHours",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:4e925ac39858de9426cd65792506c1e28c6a2f46958122d714b13c96aadf08b1",
+      "contractHash": "sha256:e203209638a7b417d8fa2726f45200e3015f2a088a1c68374ad3cfcd9ad29246"
     },
     {
       "name": "makeEntityId",
@@ -13735,6 +13980,13 @@
       "stability": "public",
       "declarationHash": "sha256:063195520de94e199639363f4887312707087ebd555ed0e89a38ca691e3ddcd2",
       "contractHash": "sha256:666e3b6f06d7f6834dfdf56b32956adc2d2d3d96a16fabc5f323437ffecfa3fe"
+    },
+    {
+      "name": "mieChannelPhase",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:d8de61503425ff4f81f4ad2a87044661035560dc6e3ef48d5aa9ba81532a7acf",
+      "contractHash": "sha256:51ba9f1acfe731a3c46bb7d05fbe09abf3e5135123f100b2004b3c915bc71493"
     },
     {
       "name": "miePhase",
@@ -13972,7 +14224,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:28cd22552c75552a2489f54336d820674d42b0ff518db4a8174eaeaf40682b34",
-      "contractHash": "sha256:ca12809a4bd41d51a7ba86de6ee00f42bf3b43e22ed9b2ee2f07310b578b5865"
+      "contractHash": "sha256:c1c141aa13c548aad0cbcb64538a06461cb98910a07d3befecfc6539b7ea435c"
     },
     {
       "name": "particleSoundLevels",
@@ -14024,6 +14276,13 @@
       "contractHash": "sha256:6ec6706a1d78a6b55f319be64b1534759195dc7a83e806531baeddc78456d5bb"
     },
     {
+      "name": "pickPlanetDirection",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:e629888600e49800e08ad1c45e1fd8425f7cf23104c15d4023539343a42f79f1",
+      "contractHash": "sha256:4d52185ee61bbddccd7f56e0f169b1e2eacee8ea1865b7e2b4c48c08643e76ff"
+    },
+    {
       "name": "placeAnchored",
       "kind": "value",
       "stability": "public",
@@ -14036,6 +14295,41 @@
       "stability": "public",
       "declarationHash": "sha256:4195bc70c56585f4decd304a440dec16e1e514489fdb7686f0746ab9d8b588a8",
       "contractHash": "sha256:3a97081272b134ff788cc2733106fc03224051f228295736ef8c9b3cf64f65f6"
+    },
+    {
+      "name": "planetEventEnvelope",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:046e201e4edd96ff465320b5e0f9a8f37adfca0d318a398772eec32212c9e378",
+      "contractHash": "sha256:1560ef8819cc40641cb8cf6476331ab1b861a4c45ad0326e6303088f9e420d63"
+    },
+    {
+      "name": "planetGroundWeather",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:1acf2768ac98bb40e0485358c11325dd61ca73d6bdd67956e23bfe9cb3151ca6",
+      "contractHash": "sha256:539c9a3bd43dfbc27ebd5a196c78a425e9fd4853e225fca536fcf5e1b837335b"
+    },
+    {
+      "name": "planetOrientationForSite",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:8cf7d1291f92db57b01d5acd7c3bd40099f5be196c289e2cb54a97f052aec2eb",
+      "contractHash": "sha256:d13b99b127c9af70fbfa9eaccb982d994120d6d3ea471e82494ddbb2ffe1e0b5"
+    },
+    {
+      "name": "planetSiteBasis",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:736a7252a58cf80710468efa4056afac8977f86ed67e7fe84e43645fdfb06b58",
+      "contractHash": "sha256:e1138138716ee03b116ea34cd33f550368d197b67b17bae957f7d4d6a041a996"
+    },
+    {
+      "name": "planetSunDirection",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:48fb75cd5c91dc11d413bd68f5da222a5eeccc9b40dd72597c8bbe583dea6b03",
+      "contractHash": "sha256:cb887aae0cb4c0e5a909dfd21193195ca587ec76393bfda2d470d0aa4c609fa1"
     },
     {
       "name": "pmPeakWavelength",
@@ -14157,6 +14451,20 @@
       "contractHash": "sha256:ad78fe40f6bfe111412b200a7f7565591a5e3efa09d368c7fe29df0a736c82c2"
     },
     {
+      "name": "quatFromRows",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:891457f5977518c4cfddc9264f328c11283c98d49ff5d00496f304caf96bcfb4",
+      "contractHash": "sha256:aa41571e7274dcfe0ea52986691404f46c003676cc38a68cce69651ccc7918a6"
+    },
+    {
+      "name": "quatFromUnitVectors",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:7d053ed3adb75742d462b3ced03b78576bcbed6aba3822a2f86042e7ec51956c",
+      "contractHash": "sha256:c25f155814324467e129b34c9933f0ac21666ee78d7f899076dd49d04bc1342b"
+    },
+    {
       "name": "radToDeg",
       "kind": "value",
       "stability": "public",
@@ -14190,6 +14498,13 @@
       "stability": "public",
       "declarationHash": "sha256:76f9e26f3c7cb350ce40fff6d799d83f7d4d41b642587ab9a968b78fcbc1c6a8",
       "contractHash": "sha256:2655603ebb844ebb5adfaccb59bfe1df7e8b9dd0727e0951b119a5b5f73de997"
+    },
+    {
+      "name": "raySphereHit",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:fa2b5e8208e65e0282c80cf6ef6d6abe5e4afb8514f44320d888cfc8299a6c17",
+      "contractHash": "sha256:13c888a8662e6a108eca2843275476a3ef4d67e28c1b74d9f00608277578f964"
     },
     {
       "name": "raycastHeightfield",
@@ -14266,7 +14581,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:211c64fddcd307c3f3b3dd9bb99b557591500bd51101978b6faadac17852e469",
-      "contractHash": "sha256:e2109481af652040d1199d4c9ae7413e7fd12d498f57f10653985e533f0f1606"
+      "contractHash": "sha256:fe3fdc95509da225caa69c987aab4edafafd0dfb9c32df48e07bb5d1add417ad"
     },
     {
       "name": "registerTaskHandler",
@@ -14315,7 +14630,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:a852ba065a75d2daa12ebf0faf4ab41c6e1cbf85ed374569bccf74f952277cf5",
-      "contractHash": "sha256:f23d98cbf7ca02d5660e0cc451db996fd12c8a31fb4dfc9c4347017a5475a9f4"
+      "contractHash": "sha256:20e85a8cf3f2caec7d223d30e27fb7bb3554513d5bd6d7001a2714a491b1687b"
     },
     {
       "name": "reservedWordIssues",
@@ -14371,7 +14686,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:86e48d8a1c229fa6a705ae25408debbf8ee557027519b0e775451c39feb30513",
-      "contractHash": "sha256:0087441f5dd9abcc8bf5417c4a05956c9b0d53d4a136a0fc6f3c098302347885"
+      "contractHash": "sha256:44b80568b15828d9ba5d15c9f45178d3653894b5f439b0046624005d5091297f"
     },
     {
       "name": "restoreState",
@@ -14414,6 +14729,20 @@
       "stability": "public",
       "declarationHash": "sha256:0ed1d12c8820992491b74f0a1a52d55e6d1ca100a7db08c988cd71c68447e6d0",
       "contractHash": "sha256:0ecb9bd6fed98b8dc4223084090236c7a57267646a285e8f88a59941356ab4cc"
+    },
+    {
+      "name": "rotateByQuat",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:bbc3ccdf5c9d79b5a7bf3090336799a7b5a153ea4ea26d0083172789f433565a",
+      "contractHash": "sha256:ad555232bbc5c8c2ef42d9015598ce80453745a053ac0085cbfe9c810c23a4d1"
+    },
+    {
+      "name": "rotateByQuatInverse",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:1fc8927a40eb628177ff284d7f16d819ad3b6b7a6f5fa0a6de53b42d5a6377b6",
+      "contractHash": "sha256:cf707cafa15833860ea6a38c66f57d037e256de0a9a9fd34f7c066d5121502b3"
     },
     {
       "name": "roundToMultiple",
@@ -14483,7 +14812,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:2933fe98631c6a879903b3a2746042c1855e6d098b751db168a4e5bb06b843c6",
-      "contractHash": "sha256:26f7afcd62c11d43e6b4baaacf0ee81f8a0cda50536730ddae3c1b81199f2003"
+      "contractHash": "sha256:30d470c16a5591ffa762f8c86caedda0f7fc9f0c6d00f101384c0088868dfc0c"
     },
     {
       "name": "sampleTrackValues",
@@ -14504,7 +14833,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:1c85e6e7348f273d4e04e896d013892e9dde090b010a4d27eced89287a5d6d4a",
-      "contractHash": "sha256:1c55707c65c55450729120d019401da446734503236975da1ba7d80a4aca40f9"
+      "contractHash": "sha256:296c0753065032b39c7ea03e354b139daeefcd4a3924eaad1c4f23a215428e06"
     },
     {
       "name": "scatterAlongTrack",
@@ -14602,14 +14931,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:f25f20e06c1a3fd3a4156e3438ac5209ed1084b5c1dfebac16538e6678011fe0",
-      "contractHash": "sha256:f17fa877ed96c1f18054939577f5eeded13382fae2990e9f8c8015dce3aedd89"
+      "contractHash": "sha256:20e48b443f7ea848594a0d67df0d9f1abd6b315e62c338bdbbd1fb865584034b"
     },
     {
       "name": "setWorldSurfaceGripField",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:b65f966003644bc48c0e85eaf33cd014e40a1e392525df5ee1164039b72cbcf8",
-      "contractHash": "sha256:d171cb6d30ad568b3817fd746f172961ba8c2352e345f5c9bb78d0660814f99d"
+      "contractHash": "sha256:c1dd70a0f97cf6fc9bd1bd7c137bd97041d3f46f1122d3aea68095f6c260a88c"
     },
     {
       "name": "settlePopulationBlockWithPhysics",
@@ -14703,6 +15032,13 @@
       "contractHash": "sha256:a4a3f4679878dc648de8b7d38639aebaddeaa2fa06bfe8cc9be5d37b79fb3eb2"
     },
     {
+      "name": "slerpQuat",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:ae227067b94597e1673c8a7018102ed79384cd672192443fbe2d92925ade885f",
+      "contractHash": "sha256:c8870203b82ece0b30c9f557915772740e022b43829151942805b93061c1fab2"
+    },
+    {
       "name": "slopeGround",
       "kind": "value",
       "stability": "public",
@@ -14773,6 +15109,13 @@
       "contractHash": "sha256:2bcce406ca998d0d860b42c64560a80a5ab280bdc7557447be35906b6fe41cca"
     },
     {
+      "name": "solFraction",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:10cba1d8d7843d38ba8fcce060d7613b273dfe8f3821b3a91bd655ee6aca11a1",
+      "contractHash": "sha256:58b06dbfc177d48f68e8dcba944dc18698484303c4d7e242a3fb0fb37733a074"
+    },
+    {
       "name": "solarCoordinates",
       "kind": "value",
       "stability": "public",
@@ -14780,11 +15123,39 @@
       "contractHash": "sha256:9f2a4da984825409c5be99353e99bdd6b400724f7e69f8af796e9a94168b13d0"
     },
     {
+      "name": "solarDeclinationDeg",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:3e3335fb7b94e5ab2c0348c3ca96c4ea28834a73b535a9b7dc4a8eec50730293",
+      "contractHash": "sha256:ad3bb3c93b875a0b0a6b372afbd95d15f03ec19eaf11d467c879ba66479e4a5e"
+    },
+    {
+      "name": "solarLongitudeDeg",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:6092b21c003e2ac388251d8417214520c44616084180de061d96252b9e764953",
+      "contractHash": "sha256:ba53662eb5771764e9b2439177c2a1883b0a41aeba021f1adad65b5453b6c708"
+    },
+    {
       "name": "solarPosition",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:d1ea0dcd08a125e45d8502d10727aa2f61d8cde0c0fee574438ae75adb964497",
       "contractHash": "sha256:5cd880657f6b649cba1daf736a0cde9e9db3ec57559c6acc98945b38b1f2e6cb"
+    },
+    {
+      "name": "solsForLocalHours",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:69dee91cfa38c9a606f443ec8a13b82e9b2fcc91baa02d3a7fd5c4b3493594a2",
+      "contractHash": "sha256:528ab4c5507fe0782c5f6a8b4b1a74417ecc124e5beccd41334256a77257ee0f"
+    },
+    {
+      "name": "solsForSolarLongitude",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:78e706f7a822397a24f2123532f9a8e29a4920edacd009e599a2632c62e7cc13",
+      "contractHash": "sha256:12f5bffe6189298fa5e0b81cd7ae6156a85edb30d4a667126675d1f529b63b6e"
     },
     {
       "name": "solveFABRIK",
@@ -14927,6 +15298,13 @@
       "contractHash": "sha256:7f30745693bf0903f8c85c133139cf7b74b3fbe7ae9669f983b671e30fd1976e"
     },
     {
+      "name": "subsolarLongitudeDeg",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:323b5aa008c5a9a79cd049c20dc83724588b0b7ac216a15196aaacb940b9a74c",
+      "contractHash": "sha256:ec99ef04c0898a83c06cf0ff0604bc9aac85d9009680a05d19968bd1753a3f42"
+    },
+    {
       "name": "substrateFlux",
       "kind": "value",
       "stability": "public",
@@ -15001,7 +15379,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:679c98d3af049ad03fd47a202d29595fcf022e29ecd8593245145625d872e837",
-      "contractHash": "sha256:2753df614f40a894d7b754b42a35da5c5263bf11dcc96add7f29c256d70a3574"
+      "contractHash": "sha256:bde8d4b24aa3cf90fcf2f1aff04607a533961887d59a51f3fa450f395dc9fb1a"
     },
     {
       "name": "terrainOptionsFromState",
@@ -15547,14 +15925,14 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:bf11eda8146e2c72435483f6a13f5fad5ea464a54c4229f55739b9d5dfd8d7c0",
-      "contractHash": "sha256:6144b81c3dd54a668d027faaee156fd205f3b66903bc3de216008d87cae4bdaf"
+      "contractHash": "sha256:5bc318486b9173cce59bab730cf5f28c30818e67b875f978d43477847bfb1328"
     },
     {
       "name": "worldSurfaceGripField",
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:1f9898ff4f7bcbc68497c32a4e2e3c18debec0a1021387ffb2ec6e7269ee296a",
-      "contractHash": "sha256:3808a88d51c81bc0d976a63a83cb78b595f02af7036687cc0439c0d4f5272c32"
+      "contractHash": "sha256:e63b070564c5dfd99e4bbeec0eab1f8906f2085bbb7c821c5af0286b5a34eb23"
     },
     {
       "name": "worldToChunk",
@@ -15590,6 +15968,13 @@
       "stability": "public",
       "declarationHash": "sha256:11024c18aec84a9e422e9e3046794af268c18e68a369b7f5ddbfa2f0ea6b855d",
       "contractHash": "sha256:9b8fe0299af18f6e95c3859deb229d7d9d0b12cd3edd622bf55ff83cebfb4207"
+    },
+    {
+      "name": "wrapLongitudeDeg",
+      "kind": "value",
+      "stability": "public",
+      "declarationHash": "sha256:85c61f4d1110f68fe78ae16677c17a9a0897d9c13e145c691c174162769dae77",
+      "contractHash": "sha256:67c8073489218c4bfa3776dbf042b52dddef6a1de58cc22f2860e0df32e58d1a"
     },
     {
       "name": "wrapSymmetric",

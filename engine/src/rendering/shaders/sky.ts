@@ -156,9 +156,13 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     hitsGround = tGround > 0.0;
     tGroundOut = max(tGround, 0.0);
     let tMax = select(tTop, tGround, hitsGround);
+    // An observer above the atmosphere (a planet seen from orbit) starts integrating where the ray
+    // enters the shell; below the top of the air this is 0 and nothing changes.
+    let tEnter = select(0.0, max(raySphereEntry(origin, dir, R + sky.atmosphereHeight), 0.0), sky.observerHeight > sky.atmosphereHeight);
+    let pathLength = max(tMax - tEnter, 0.0);
     let cosTheta = dot(dir, sunDir);
     let phaseR = rayleighPhase(cosTheta);
-    let phaseM = miePhase(cosTheta, sky.mieAnisotropy);
+    let phaseM = vec3<f32>(miePhase(cosTheta, sky.mieAnisotropy)) + sky.mieAureole * miePhase(cosTheta, sky.mieAureoleAnisotropy);
     let viewSamples = select(sky.viewSamples, max(sky.viewSamples, 64i), horizonBand);
     let invN = 1.0 / f32(viewSamples);
     var odR = 0.0;
@@ -166,12 +170,13 @@ fn fragmentMain(in: SkyOut) -> @location(0) vec4<f32> {
     var odO = 0.0;
     var sumR = vec3<f32>(0.0);
     var sumM = vec3<f32>(0.0);
-    var tPrev = 0.0;
+    var tPrev = tEnter;
     for (var i = 0; i < viewSamples; i++) {
-      // Cubic spacing (segment i spans tMax·[(i/N)³, ((i+1)/N)³]): dense where the air is, near the
-      // camera. Matches environment/atmosphere.ts sample for sample.
+      // Cubic spacing (segment i spans tEnter + pathLength·[(i/N)³, ((i+1)/N)³]): dense where the air
+      // is, near the camera (or where the ray enters the shell). Matches environment/atmosphere.ts
+      // sample for sample.
       let u = f32(i + 1) * invN;
-      let tNext = tMax * u * u * u;
+      let tNext = tEnter + pathLength * u * u * u;
       let ds = tNext - tPrev;
       let p = origin + dir * (0.5 * (tPrev + tNext));
       tPrev = tNext;

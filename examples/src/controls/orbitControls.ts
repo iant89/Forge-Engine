@@ -44,6 +44,11 @@ export interface OrbitCameraSetup {
    * (the vehicle playground) — both listeners sit on `window`, so leaving it on steals the drive input.
    */
   keyboard?: boolean;
+  /**
+   * `false` binds no pointer/wheel/key listeners at all: the scene reads the canvas itself (the Mars
+   * Orbit Explorer turns a planet, not a camera). Only honoured in the constructor.
+   */
+  pointerInput?: boolean;
   /** World surface height at an XZ position. Set it to stop the camera going under the surface. */
   groundHeight?: ((x: number, z: number) => number) | null;
 }
@@ -118,7 +123,7 @@ export class OrbitControls {
   ) {
     this.handle = cameraEntity.transform;
     this.canvas = canvas;
-    this.bindEvents();
+    if (initial?.pointerInput !== false) this.bindEvents();
     // Apply the scene's framing *before* the first `update`, so we never park the camera on the
     // default target (0, 1.2, 0) for a frame — that flash used to steal TerrainWorld's warm-up
     // focus and leave the opening Mars Showcase looking at empty sky.

@@ -1,0 +1,89 @@
+/**
+ * Pure helpers for the Mars Orbit Explorer's camera and transitions (kept DOM- and GPU-free so they
+ * are unit-tested). The engine owns the planet maths (`environment/planetFrame.ts`); this is only the
+ * demo's camera policy: how far back to hold the camera, how a dive eases, how thick the entry haze is.
+ */
+
+export const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
+
+/** Hermite smoothstep between `a` and `b` (a < b). */
+export function smoothstep(a: number, b: number, x: number): number {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Altitude (m above the surface) at which a planet of `radius` fills `fill` (0..1) of the shorter
+ * half-field of view: the framing that works in landscape and portrait alike.
+ */
+export function orbitFitAltitude(radius: number, fovYRad: number, aspect: number, fill = 0.82): number {
+  const halfY = fovYRad / 2;
+  const halfX = Math.atan(Math.tan(halfY) * Math.max(0.1, aspect));
+  const half = Math.min(halfY, halfX);
+  return radius / Math.sin(half * fill) - radius;
+}
+
+/** Orbit zoom limits as multiples of the fit altitude, plus an absolute floor so relief stays visible. */
+export function orbitAltitudeRange(fitAltitude: number, minAltitude = 900e3): { min: number; max: number } {
+  return { min: Math.min(fitAltitude * 0.9, minAltitude), max: fitAltitude * 2.4 };
+}
+
+/**
+ * Camera clip planes for a camera at `altitude` over a planet of `radius`: near scales with altitude
+ * (depth precision), far reaches just past the planet's far limb.
+ */
+export function orbitClipPlanes(radius: number, altitude: number): { near: number; far: number } {
+  const near = Math.max(200, altitude * 0.02);
+  const far = (altitude + 2 * radius) * 1.15 + near;
+  return { near, far };
+}
+
+/** Log-space interpolation between two positive heights; `u` in 0..1. */
+export function lerpLog(a: number, b: number, u: number): number {
+  return Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * clamp(u, 0, 1));
+}
+
+/**
+ * The butterscotch entry haze (0..1) that hides the swap between the baked globe and the ground
+ * world. Orbit-scale altitudes ramp up as the camera closes on the surface; once on the ground side of
+ * the swap the ground-relative height fades it out again.
+ *
+ * @param altitude metres above the surface
+ * @param groundSide true once the terrain world (not the globe) is what is drawn
+ */
+export function entryHaze(altitude: number, groundSide: boolean): number {
+  if (groundSide) return smoothstep(2.5e4, 3.8e5, altitude);
+  return 1 - smoothstep(3.5e5, 2.2e6, altitude);
+}
+
+/** Camera quaternion (x, y, z, w) for a ground view with compass heading `yaw` and look-up `pitch`, radians. */
+export function groundViewQuaternion(yaw: number, pitch: number, out: [number, number, number, number]): [number, number, number, number] {
+  // q = Ry(yaw) · Rx(-pitch): +Z forward, +X right, +Y up; positive pitch looks up.
+  const hy = yaw / 2;
+  const hx = -pitch / 2;
+  const sy = Math.sin(hy), cy = Math.cos(hy);
+  const sx = Math.sin(hx), cx = Math.cos(hx);
+  // Ry = (0, sy, 0, cy), Rx = (sx, 0, 0, cx); product Ry * Rx.
+  out[0] = cy * sx;
+  out[1] = sy * cx;
+  out[2] = -sy * sx;
+  out[3] = cy * cx;
+  return out;
+}
+
+/** The orbit camera is the ground view with yaw 0 and pitch −90°: straight down, north up the screen. */
+export const ORBIT_VIEW_PITCH = -Math.PI / 2;
+
+/** Pointer position (CSS px) → camera-space ray direction components for a symmetric perspective camera. */
+export function pixelRay(
+  px: number, py: number, width: number, height: number, fovYRad: number,
+): { x: number; y: number; z: number } {
+  const tanY = Math.tan(fovYRad / 2);
+  const tanX = tanY * (width / Math.max(1, height));
+  const nx = (px / Math.max(1, width)) * 2 - 1;
+  const ny = 1 - (py / Math.max(1, height)) * 2;
+  const x = nx * tanX;
+  const y = ny * tanY;
+  const l = Math.hypot(x, y, 1);
+  return { x: x / l, y: y / l, z: 1 / l };
+}

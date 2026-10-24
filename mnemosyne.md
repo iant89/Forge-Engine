@@ -3089,3 +3089,52 @@ approval batch for the canonical sampling, population task and raycast declarati
 checks), real-worker task (30 checks), runtime API (11 checks), API audit (9 checks), and selrun catalog
 (8 checks) runs also passed. Browser Chromium prerequisites and the real upstream Mars Stage A cache
 remain unavailable; no browser or external-cache fidelity claim is made, and Phase 10 remains skipped.
+
+## 2026-10-24 — fe-39 Mars Orbit Explorer (`?scene=mars-orbit`)
+
+A spinning Mars you can drag, then double-tap to land on. Everything generated/simulated is an engine
+system (`environment/planet{Frame,Spin,Weather}.ts`, `rendering/planetGlobe.ts`,
+`terrain/mars/globeSampler.ts`, `particles/dustDevilField.ts`); the demo (`examples/src/scenes/marsOrbit*.ts`)
+holds only the event script, HUD props and camera policy. Read `docs/PLANET-ORBIT.md` first.
+
+- **Frame trick:** the sky shader assumes the planet centre is straight below the camera, so the planet sits at
+  `(0,-R,0)`, the camera stays on `+Y`, and *dragging rotates the planet*. Site frame = `MarsSite` (+X east,
+  +Y up, +Z north); `planetOrientationForSite` rotates a site under the camera north-up.
+- **`Quat.premultiply` is `this·b`, not `q·this`** (same as `multiply`) — world-frame rotations composed with it
+  turn the planet the wrong way. `planetSpin.ts` has a local `premultiplyInPlace`.
+- **Eastward spin means the longitude under the camera *falls*:** features slide east (screen-right).
+- **The sky integral used to start at the camera,** so from orbit the atmosphere was unresolved (no limb glow).
+  `sky.ts` / `atmosphere.ts` now start at the shell entry when the observer is above the atmosphere. Full Mie +
+  multi-scatter in aerial perspective washes a globe flat butterscotch: the orbit view uses `sky.mie 0.28`,
+  `rayleigh 5.5`, `multiScattering false`; ground settings restore mie 1 / rayleigh 1 / MS on.
+- **`CloudSettings.scale` is a frequency (1/m), not a length.** `scale: 9000` made the noise sub-pixel and the deck
+  invisible; `0.00016` gives ~6 km cells. Cost an hour.
+- **Event drift is degrees per *sol*** and windows last 100+ sols: 0.9°/sol walked a storm 67° off its own table
+  centre so a site landed "inside" it saw no dust. Fractions of a degree per sol.
+- **Blue sunset:** `AtmosphereParams.mieAureole` (+ `mieAureoleAnisotropy`) adds a per-channel tight lobe to the
+  Mie phase in the sky shader, aerial perspective and the CPU twin. Defaults absent → Earth unchanged.
+- **tsx + `@forge/engine`:** scratch scripts must live under `tests/` and run as
+  `TSX_TSCONFIG_PATH=tests/tsconfig.json node --import tsx file.ts`, otherwise the workspace link resolves to a
+  missing `dist`.
+- **Headless verification** runs SwiftShader at 4–10 fps and the main loop clamps `dt` to 0.05, so real-time dives
+  take minutes. `?moinstant=1` lands transitions at once and `?mobake=<ms>` raises the bake budget; the
+  `check:browser:mars-orbit` gate uses both. Editing engine/example sources while a screenshot run is live makes
+  Vite reload the page mid-run.
+- **Not verified:** real iOS Safari/GPU performance and the real-time easing; the globe texture is ≈10–21 km/texel.
+- API: 55 new exports → `environment/2` in `engine/api-approvals.json` (author self-review; wants a maintainer pass).
+
+### fe-39 follow-up — return-to-orbit black screen (`Vertex buffer slot 0 ... was not set`)
+
+- **Root cause:** `TerrainWorld.dispose()` released every chunk's `Geometry` and cleared `activeEntities`, but never
+  destroyed the chunk / horizon-skirt *entities*, which live in the scene's entity world rather than in the
+  object. A whole-scene teardown hid it (the world goes too). `scene.removeObject(terrain)` on a live scene, as the
+  Mars Orbit return does, left ~10–120 Renderables with `vertexBuffer === null`; the renderer still batched them
+  and issued `setVertexBuffer(0, null)` + `drawIndirect`, which invalidates the whole frame's command buffer, so
+  every frame after was black. Not specific to `?mola`.
+- **Fix:** dispose destroys its entities first (engine); the renderer also skips renderables whose geometry is
+  `released` (defence in depth, so one stale object can never again blank a frame).
+- **Why the gate missed it:** `?moinstant=1` ran the ground world's teardown but only ever in the same call as the
+  swap; the gate now also does a real-time dive + return (no `moinstant`) and requires 0 GPU errors + a lit frame.
+- Unit tests import `engine/dist`: run `npx tsc -b engine` after editing engine sources before running a single
+  test file with `npx tsx tests/...`.
+- Anything that creates entities in `scene.world` from a `SceneObject` must destroy them in `dispose()`/`onDetach`.
