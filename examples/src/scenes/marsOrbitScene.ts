@@ -508,7 +508,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     #mo-slider input{width:min(34vw,180px);accent-color:#e9a566}
     #mo-ground{display:none;font-size:12px}
     #mo-dest{pointer-events:auto;background:rgba(34,22,16,.78);color:#fbeee0;border:1px solid rgba(255,214,176,.35);border-radius:9px;padding:9px;font:600 13px system-ui,sans-serif;min-height:40px}
-    @media (max-width:640px){#mo-right{top:52px;width:min(260px,58vw)}#mo-events .mo-ev:nth-child(n+4){display:none}#mo-bottom{bottom:40px;gap:6px}.mo-btn{padding:8px 10px}}
+    @media (max-width:640px){#mo-right{top:52px;width:min(260px,58vw)}#mo-events .mo-ev:nth-child(n+4){display:none}#mo-bottom{left:6px;right:64px;transform:none;width:auto;max-width:none;bottom:92px;gap:6px}#mo-slider{flex:1 1 100%;justify-content:center}#mo-slider input{width:26vw}.mo-btn{padding:8px 10px}}
   `;
   document.head.appendChild(css);
   const hud = document.createElement("div");
