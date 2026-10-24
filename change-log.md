@@ -30935,7 +30935,7 @@ JSON array below; agents maintain it by hand until then.
     "model": "Arena Agent Mode",
     "modelVersion": null,
     "file": "engine/src/terrain/world.ts",
-    "what": "TerrainWorld.dispose() now destroys the chunk and horizon-skirt entities it created in the scene world (new private destroyEntities) before releasing their geometry",
+    "what": "TerrainWorld.dispose() now destroys the chunk and horizon-skirt entities it created in the scene world before releasing their geometry",
     "why": "Removing a TerrainWorld from a live scene (Mars Orbit return-to-orbit) left Renderables pointing at released geometry; the renderer drew them with vertex slot 0 unset, which invalidated every frame (black screen)"
   },
   {
