@@ -31,6 +31,9 @@ import { Texture, boxFilterRgba8 } from "../resources/texture.js";
 import { Geometry, computeNormalsAndTangents } from "./geometry.js";
 import { Material } from "./material.js";
 import { maxMipLevels } from "../gpu/formats.js";
+import type { PlanetAtmosphereFill, PlanetOverlayTexel, PlanetSurfaceOverlay } from "../environment/planetWeather.js";
+
+export type { PlanetAtmosphereFill, PlanetOverlayTexel, PlanetSurfaceOverlay };
 
 export interface PlanetSurfaceSample {
   /** Metres above the reference sphere. */
@@ -48,23 +51,6 @@ export interface PlanetSurfaceSampler {
   /** Cheap albedo multiplier around 1 for texel-level variation; omitted = none. */
   detail?(dx: number, dy: number, dz: number): number;
 }
-
-/** Colour a surface overlay writes for one texel (sRGB bytes) and how strongly it covers the base. */
-export interface PlanetOverlayTexel {
-  coverage: number;
-  r: number;
-  g: number;
-  b: number;
-}
-
-export interface PlanetSurfaceOverlay {
-  /** Only texels with |latitude| ≥ this are asked (degrees). */
-  minAbsLatDeg: number;
-  texel(latDeg: number, lonDeg: number, out: PlanetOverlayTexel): PlanetOverlayTexel;
-}
-
-/** Fill rows `[row0, row1)` of an RGBA8 atmosphere layer (sRGB colour, straight alpha) of `width×height`. */
-export type PlanetAtmosphereFill = (row0: number, row1: number, width: number, height: number, rgba: Uint8Array) => void;
 
 export interface PlanetGlobeOptions {
   sampler: PlanetSurfaceSampler;
