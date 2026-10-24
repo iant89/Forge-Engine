@@ -97,6 +97,7 @@ export const linkedSuites = [
   ["tests/ui/uiWidgetsGame.test.ts", () => import("./ui/uiWidgetsGame.test.ts")],
   ["tests/ui/uiManager.test.ts", () => import("./ui/uiManager.test.ts")],
   ["tests/ui/uiGpu.test.ts", () => import("./ui/uiGpu.test.ts")],
+  ["tests/terrain/marsHeightAtlas.test.ts", () => import("./terrain/marsHeightAtlas.test.ts")],
   ["tests/terrain/marsTerrain.test.ts", () => import("./terrain/marsTerrain.test.ts")],
   ["tests/terrain/realisticTerrain.test.ts", () => import("./terrain/realisticTerrain.test.ts")],
   ["tests/terrain/terrain.test.ts", () => import("./terrain/terrain.test.ts")],
@@ -173,4 +174,4 @@ export const linkedSuites = [
   ["tests/controls/weatherTouch.test.ts", () => import("./controls/weatherTouch.test.ts")],
 ] as const;
 
-report(169);
+report(170);
