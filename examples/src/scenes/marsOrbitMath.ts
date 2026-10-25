@@ -99,6 +99,19 @@ export function descentGroundHeight(A: number, siteElevation: number, swap = ENT
   return A - siteElevation * clamp(A / swap, 0, 1);
 }
 
+/**
+ * The ground's ice cover (`scene.settings.surface.snow`, 0..1) at a site, from the planet weather's
+ * `frost` and `cap` (0..1) and the sun's elevation (the sine of its altitude).
+ *
+ * The two are different ice. Morning frost is thin, and the sun sublimates it off by mid-morning (at
+ * most 0.5, a dusting). Polar-cap ice (the seasonal CO₂ cap and the residual water/CO₂ caps) is metres
+ * thick: it stays all day at full strength, so only slopes too steep to hold it show bare ground.
+ */
+export function groundIceCover(frost: number, cap: number, sunElevation: number): number {
+  const morning = clamp(frost, 0, 1) * (1 - smoothstep(0.02, 0.32, sunElevation)) * 0.5;
+  return clamp(Math.max(morning, clamp(cap, 0, 1)), 0, 1);
+}
+
 /** Camera quaternion (x, y, z, w) for a ground view with compass heading `yaw` and look-up `pitch`, radians. */
 export function groundViewQuaternion(yaw: number, pitch: number, out: [number, number, number, number]): [number, number, number, number] {
   // q = Ry(yaw) · Rx(-pitch): +Z forward, +X right, +Y up; positive pitch looks up.

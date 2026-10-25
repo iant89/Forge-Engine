@@ -94,6 +94,7 @@ import {
   detailFocusRadius,
   descentFogDensity,
   descentGroundHeight,
+  groundIceCover,
   ENTRY_SWAP_ALTITUDE,
   groundPointerDirection,
   isSkyPick,
@@ -1187,11 +1188,10 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       devils.focusX = camX;
       devils.focusZ = camZ;
     }
-    // Frost is a morning thing: the sun sublimates it off by mid-morning.
-    const sunElevation = groundSun(scratchB).y;
-    const target = sample.frost * (1 - smoothstep(0.02, 0.32, sunElevation));
+    // Morning frost sublimates off by mid-morning; polar-cap ice stays all day (groundIceCover).
+    const target = groundIceCover(sample.frost, sample.cap, groundSun(scratchB).y);
     frost += (target - frost) * (snap ? 1 : 0.35);
-    scene.settings.surface.snow = clamp(frost * 0.5, 0, 0.5);
+    scene.settings.surface.snow = frost;
   }
 
   // ------------------------------------------------------------------ transitions
@@ -1369,7 +1369,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
         `${describeWeather(w)}<br>` +
         `wind ${weather?.state.windSpeed.toFixed(0) ?? "?"} m/s · ${weather?.state.temperatureC.toFixed(0) ?? "?"} °C` +
         (devils && devils.activity > 0.05 ? ` · devils ${devils.state().alive}` : "") +
-        (frost > 0.05 ? " · frost" : "");
+        (frost > 0.05 && w.cap < 0.2 ? " · frost" : "");
     }
     // Status line
     if (atlasInfo.status === "loading" && !globe) elStatus.textContent = "loading elevation data…";

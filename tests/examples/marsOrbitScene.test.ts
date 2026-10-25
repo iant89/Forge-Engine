@@ -45,6 +45,7 @@ import {
   ENTRY_SWAP_ALTITUDE,
   ENTRY_VEIL_PEAK,
   entryHaze,
+  groundIceCover,
   groundPointerDirection,
   groundViewQuaternion,
   isSkyPick,
@@ -242,6 +243,22 @@ group("orbit camera maths", () => {
         last = h;
       }
     }
+  });
+});
+
+group("ground ice", () => {
+  test("polar-cap ice stays all day at full strength; morning frost is a dusting that burns off", () => {
+    const night = -0.2, morning = 0.05, noon = 0.6;
+    // A site on the cap: covered at noon as at night (the old policy sublimated the cap away by mid-morning).
+    for (const sun of [night, morning, noon]) assert.equal(groundIceCover(1, 1, sun), 1, `cap at sun ${sun}`);
+    assert.ok(Math.abs(groundIceCover(0.6, 0.6, noon) - 0.6) < 1e-12, "a cap edge keeps its partial cover");
+    // Frost alone: a dusting before sunrise, gone by mid-morning, never more than half cover.
+    assert.equal(groundIceCover(1, 0, night), 0.5);
+    assert.equal(groundIceCover(1, 0, noon), 0);
+    assert.ok(groundIceCover(1, 0, morning) < 0.5 && groundIceCover(1, 0, morning) > 0);
+    // Bare ground stays bare; inputs are clamped.
+    assert.equal(groundIceCover(0, 0, night), 0);
+    assert.equal(groundIceCover(3, 2, noon), 1);
   });
 });
 
