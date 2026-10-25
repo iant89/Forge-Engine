@@ -112,6 +112,8 @@ export interface MarsOrbitSceneOptions {
   bakeBudgetMs?: number;
   /** `false` turns the zoomed-in detail patch off (`?modetail=0`, for A/B comparisons). Default on. */
   detail?: boolean;
+  /** Ground draw distance as a multiple of the tier's (`?modraw=1|2|4`); default the viewer's last choice, else 1. */
+  drawDistance?: number;
   /** Skip the descent animation (tests): `diveTo` lands immediately. */
   instantTransitions?: boolean;
   /**
@@ -140,6 +142,8 @@ export interface MarsOrbitState {
   globeReady: boolean;
   globeProgress: number;
   globeBakedColumns: number;
+  /** Ground terrain draw distance: the multiple of the tier's distance, and metres. */
+  drawDistance: { scale: number; metres: number };
   /** Landmark markers: switched on, the ids drawn on screen now, and the one whose card is open. */
   landmarks: { on: boolean; visible: string[]; selected: string | null };
   /** The zoomed-in detail patch: shown, baking, and the shown cap radius in degrees. */
@@ -177,6 +181,8 @@ export interface MarsOrbitHandle extends DemoSceneHandle {
   setDiagnostics(visible: boolean): void;
   /** Multiply the orbit altitude (zoom). */
   zoomOrbit(factor: number): void;
+  /** Ground draw distance as a multiple of the tier's terrain view distance (1, 2 or 4; capped per tier). */
+  setDrawDistance(scale: number): void;
   /** Pick the planet under a screen position (CSS px): lat/lon or null if the ray misses. */
   pickAt(clientX: number, clientY: number): { latDeg: number; lonDeg: number } | null;
 }
@@ -214,6 +220,16 @@ const DEG = Math.PI / 180;
 const R = MARS_ATMOSPHERE.planetRadius;
 const ORBIT_FOV = 40 * DEG;
 const GROUND_FOV = 62 * DEG;
+/** Base exp2 fog density on the ground at the tier's draw distance (thinned in proportion as it grows). */
+const GROUND_FOG_DENSITY = 0.0014;
+/** Ground draw-distance choices, as multiples of the tier's terrain view distance. */
+const DRAW_DISTANCES = [
+  { scale: 1, label: "Normal" },
+  { scale: 2, label: "Far" },
+  { scale: 4, label: "Very far" },
+] as const;
+const DRAW_STORAGE_KEY = "forge.marsOrbit.drawDistance";
+
 /** Displacement multiplier of the globe's relief (orbit-scale relief is otherwise invisible). */
 const GLOBE_EXAGGERATION = 2.2;
 
@@ -670,6 +686,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       <div id="mo-hours" style="display:none;align-items:center;gap:8px"><label for="mo-h">Time</label><input id="mo-h" type="range" min="0" max="24" step="0.1" value="14" style="width:min(34vw,180px);accent-color:#e9a566"><span id="mo-h-val"></span></div>
       <select id="mo-dest" aria-label="Fly to"><option value="">Fly to…</option>${MARS_ORBIT_DESTINATIONS.map((d) => `<option value="${d.id}">${d.label}</option>`).join("")}</select>
       <button class="mo-btn on" id="mo-landmarks" type="button" aria-pressed="true">Landmarks</button>
+      <button class="mo-btn" id="mo-draw" type="button" style="display:none">Draw distance: Normal</button>
       <button class="mo-btn" id="mo-diag" type="button">Touch diagnostics</button>
     </div>`;
   document.body.appendChild(hud);
@@ -691,6 +708,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   const elHoursVal = $("mo-h-val");
   const elDest = $<HTMLSelectElement>("mo-dest");
   const elDiag = $<HTMLButtonElement>("mo-diag");
+  const elDraw = $<HTMLButtonElement>("mo-draw");
   const elMarks = $("mo-marks");
   const elCard = $("mo-card");
   const elLandmarks = $<HTMLButtonElement>("mo-landmarks");
@@ -801,6 +819,11 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     setSeasonRate(next * DEFAULT_SEASON_RATE);
   }, { signal: sig });
   elDiag.addEventListener("click", () => setDiagnostics(!(diagnostics?.visible ?? false)), { signal: sig });
+  elDraw.addEventListener("click", () => {
+    const choices = DRAW_DISTANCES.filter((d) => d.scale <= maxDrawScale);
+    const i = choices.findIndex((d) => d.scale === drawScale);
+    setDrawScale(choices[(i + 1) % choices.length]!.scale);
+  }, { signal: sig });
   elDest.addEventListener("change", () => {
     const d = MARS_ORBIT_DESTINATIONS.find((x) => x.id === elDest.value);
     elDest.value = "";
@@ -888,19 +911,55 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     );
   }
 
+  // ------------------------------------------------------------------ draw distance
+  const maxDrawScale = cfg.viewDistance <= 2048 ? 2 : 4; // the low tier stops at "Far": 4x is 16x the chunks
+  const storedScale = ((): number | null => {
+    try { return Number(globalThis.localStorage?.getItem(DRAW_STORAGE_KEY) ?? "") || null; } catch { return null; }
+  })();
+  let drawScale = [1, 2, 4].includes(options.drawDistance ?? storedScale ?? 1) ? Math.min(maxDrawScale, options.drawDistance ?? storedScale ?? 1) : 1;
+  /** Angular radius of ground (and its atlas faces) the terrain may reach at the current draw distance. */
+  const groundRadiusRad = (): number => (cfg.viewDistance * drawScale * 1.6 + 10e3) / R;
+  function setDrawScale(scale: number): void {
+    drawScale = Math.min(maxDrawScale, scale);
+    try { globalThis.localStorage?.setItem(DRAW_STORAGE_KEY, String(drawScale)); } catch { /* private mode */ }
+    terrain?.setViewDistance(cfg.viewDistance * drawScale);
+    weather?.setBaseFogDensity(GROUND_FOG_DENSITY / drawScale);
+    // Farther ground may reach atlas faces that are not loaded yet: fetch them, then rebuild once.
+    if (site && mode === "ground") {
+      const token = groundToken;
+      void atlasCtl.loadGround(terrainSiteDir, groundRadiusRad()).then(() => { if (token === groundToken) maybeUpgradeTerrain(); });
+    }
+    syncDrawButton();
+  }
+  queueMicrotask(() => syncDrawButton());
+  function syncDrawButton(): void {
+    const d = DRAW_DISTANCES.find((x) => x.scale === drawScale) ?? DRAW_DISTANCES[0];
+    elDraw.textContent = `Draw distance: ${d.label}`;
+    elDraw.title = `${((cfg.viewDistance * drawScale) / 1000).toFixed(1)} km`;
+  }
+
   // ------------------------------------------------------------------ ground world
   // The terrain's tiles are generated over time from whatever atlas faces are loaded *then*: a terrain
   // that outlives the arrival of the finer faces under its site would mix two height levels, tens of
   // metres apart on a volcano flank (its skirts standing up as walls along the seams). So remember the
   // level it was built from, and rebuild it once if a finer one arrives (`maybeUpgradeTerrain`).
-  let terrainAtlasRes = 0;
+  let terrainAtlasSig = "";
   const terrainSiteDir = new Vec3();
+  /** Which atlas faces cover the ground out to the draw distance, and at what resolution. */
+  const groundAtlasSignature = (): string => {
+    const atlas = atlasCtl.atlas;
+    if (!atlas) return "";
+    const levels = [...atlas.resolutions].sort((a, b) => b - a);
+    return atlas.facesNear(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z, groundRadiusRad())
+      .map((f) => `${f}:${levels.find((res) => atlas.hasFace(f, res)) ?? 0}`)
+      .join(",");
+  };
   let groundTile: { tile: { chunkSize: number; resolution: number }; advice: ReturnType<typeof adviseMarsTile> } | null = null;
   function makeTerrain(s: SiteState): TerrainWorld {
     const { tile, advice } = groundTile!;
     latLonToDirection(s.latDeg, s.lonDeg, terrainSiteDir);
-    terrainAtlasRes = atlasCtl.atlas?.resolutionAt(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z) ?? 0;
-    return new TerrainWorld({
+    terrainAtlasSig = groundAtlasSignature();
+    const world = new TerrainWorld({
       seed: 1337,
       chunkSize: tile.chunkSize,
       chunkResolution: tile.resolution,
@@ -916,13 +975,16 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       material: apron!,
       layeredMaterial: layered!,
     });
+    // Built at the tier's distance (its budgets are the base), then drawn at the chosen one.
+    if (drawScale !== 1) world.setViewDistance(cfg.viewDistance * drawScale);
+    return world;
   }
 
-  /** Rebuild the terrain from the finer atlas level if it arrived after the terrain was built. */
+  /** Rebuild the terrain if finer (or more) atlas faces under it arrived after it was built. */
   function maybeUpgradeTerrain(): void {
     const atlas = atlasCtl.atlas;
     if (!terrain || !site || !atlas || !groundTile) return;
-    if (atlas.resolutionAt(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z) <= terrainAtlasRes) return;
+    if (groundAtlasSignature() === terrainAtlasSig) return;
     scene.removeObject(terrain);
     terrain.dispose();
     site.elevation = sampler.sample(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z, { elevation: 0, r: 0, g: 0, b: 0 }).elevation;
@@ -1039,7 +1101,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene.settings.sky.mie = 1;
     scene.settings.sky.rayleigh = 1;
     scene.settings.sky.multiScattering = true;
-    scene.setFog("exp2", { density: 0.0014 });
+    scene.setFog("exp2", { density: GROUND_FOG_DENSITY / drawScale });
     scene.settings.exposure = 0.95;
     // Water-ice cloud deck high over the site: its coverage is the weather's ice-cloud cover.
     scene.setClouds({ enabled: true, coverage: 0.05, density: 0.55, height: 9000, thickness: 3500, scale: 0.00016, layers: 2, silverLining: 0.6, surfaceShadows: true, shadowStrength: 0.6 });
@@ -1090,7 +1152,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     // otherwise the dive waits at the end of the approach, and gives up waiting after 12 s.
     const token = ++groundToken;
     const siteDir = latLonToDirection(site.latDeg, site.lonDeg, new Vec3());
-    const groundRadiusRad = (cfg.viewDistance * 1.6 + 10e3) / R;
+    const groundRadius = groundRadiusRad();
     const buildNow = (): void => {
       if (!site) return;
       // Faces may have arrived since `siteFor` read the base level.
@@ -1098,22 +1160,23 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       groundY = site.elevation;
       buildGround(site);
       applyGroundSettings();
+      weather?.setBaseFogDensity(GROUND_FOG_DENSITY / drawScale);
       groundPending = false;
       if (solar) solar.externalSunDirection!.copyFrom(groundSun(scratchB));
       solar?.apply();
     };
     groundPending = false;
-    if (!instant && !atlasCtl.groundReady(siteDir, groundRadiusRad)) {
+    if (!instant && !atlasCtl.groundReady(siteDir, groundRadius)) {
       groundPending = true;
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, 12000));
-      const load = atlasCtl.loadGround(siteDir, groundRadiusRad);
+      const load = atlasCtl.loadGround(siteDir, groundRadius);
       void Promise.race([load, timeout]).then(() => {
         if (token === groundToken && mode === "dive" && groundPending) buildNow();
       });
       // If the wait gave up, rebuild the terrain from the finer faces when they do arrive (once).
       void load.then(() => { if (token === groundToken) maybeUpgradeTerrain(); });
     } else {
-      if (instant) void atlasCtl.loadGround(siteDir, groundRadiusRad).then(() => { if (token === groundToken) maybeUpgradeTerrain(); });
+      if (instant) void atlasCtl.loadGround(siteDir, groundRadius).then(() => { if (token === groundToken) maybeUpgradeTerrain(); });
       buildNow();
     }
     // The ground world's sun is the planet's, expressed in the site frame; the cycle is only the clock.
@@ -1222,6 +1285,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     elReturn.style.display = mode === "ground" || (mode === "dive" && phase.includes("descent")) ? "block" : "none";
     elGround.style.display = mode === "ground" ? "block" : "none";
     elHoursWrap.style.display = mode === "ground" ? "flex" : "none";
+    elDraw.style.display = mode === "ground" ? "" : "none";
     elDest.style.display = mode === "orbit" ? "" : "none";
     elLandmarks.style.display = mode === "orbit" ? "" : "none";
     if (mode !== "orbit" && selectedLandmark) selectLandmark(null);
@@ -1433,7 +1497,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     camera.fovY = ORBIT_FOV + (GROUND_FOV - ORBIT_FOV) * smoothstep(5e4, 2e3, groundHeight) * 1;
     if (groundHeight > 5e4) camera.fovY = ORBIT_FOV;
     camera.near = clamp(groundHeight * 0.01, 0.3, 4000);
-    camera.far = Math.max(6000, groundHeight * 12, cfg.viewDistance * 1.6);
+    camera.far = Math.max(6000, groundHeight * 12, cfg.viewDistance * drawScale * 1.6);
     scene.settings.sky.seaLevel = groundY;
     sunToSceneGround();
   }
@@ -1489,6 +1553,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       globeReady: globe?.ready ?? false,
       globeProgress: globe?.progress ?? 0,
       globeBakedColumns: globe?.bakedColumns ?? 0,
+      drawDistance: { scale: drawScale, metres: cfg.viewDistance * drawScale },
       landmarks: { on: landmarksOn, visible: [...visibleLandmarks], selected: selectedLandmark?.id ?? null },
       globeDetail: { visible: globe?.detailVisible ?? false, busy: globe?.detailBusy ?? false, radiusDeg: globe?.detailRadiusDeg ?? 0 },
       atlas: { ...atlasInfo },
@@ -1555,6 +1620,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     setSeasonRate,
     setDiagnostics,
     zoomOrbit: (factor) => zoomBy(factor),
+    setDrawDistance: (scale) => { if ([1, 2, 4].includes(scale)) setDrawScale(scale); },
     pickAt: (x, y) => (mode === "orbit" ? pointerLatLon(x, y) : null),
     dispose: () => {
       disposedScene = true;

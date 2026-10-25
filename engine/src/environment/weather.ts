@@ -20,10 +20,13 @@
  *  - `driveClouds`: `scene.settings.clouds.coverage` follows the weather's cloud cover;
  *  - `driveLighting`: cloud/storm cover attenuates directional and ambient light with safe floors.
  * The base values the drives add onto are captured on attach; only the *deltas* are owned here, so
- * a scene's art direction survives and `driveFog: false` leaves the fog alone entirely.
+ * a scene's art direction survives and `driveFog: false` leaves the fog alone entirely. A scene that
+ * changes its own base fog later (say, drawing terrain farther and thinning the fog to match) says so
+ * with `setBaseFogDensity`; writing `scene.settings.fog.density` directly would be overwritten.
  */
 
 import { captureState, restoreState, type StateRecord } from "../core/snapshot.js";
+import { UsageError } from "../core/errors.js";
 import { SceneObject, type Scene } from "../scene/scene.js";
 import type { SystemContext } from "../scene/systems.js";
 import { fbm2 } from "../math/noise.js";
@@ -435,6 +438,18 @@ export class WeatherSystem extends SceneObject {
     }
     this.apply();
     return this;
+  }
+
+  /**
+   * Replace the base fog density the weather adds its rain/storm haze onto (captured from the scene on
+   * attach), and push it now. Must be finite and ≥ 0.
+   */
+  setBaseFogDensity(density: number): void {
+    if (!(Number.isFinite(density) && density >= 0)) {
+      throw new UsageError(`WeatherSystem.setBaseFogDensity: density must be a finite number >= 0 (got ${density})`);
+    }
+    this.baseFogDensity = density;
+    this.apply();
   }
 
   /** Push the driven scene settings (idempotent for the current state). */

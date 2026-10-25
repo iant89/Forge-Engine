@@ -28,6 +28,7 @@ import { Ray, RayHit } from "../math/geometry.js";
 import type { EntityId } from "../scene/entityId.js";
 import type { GraphicsDevice } from "../gpu/device.js";
 import { TaskPriority, TaskCancelledError, type TaskScheduler } from "../core/tasks/scheduler.js";
+import { UsageError } from "../core/errors.js";
 import {
   cellFromResult,
   terrainCellKey,
@@ -111,7 +112,14 @@ export class TerrainWorld extends SceneObject {
   readonly seed: number;
   readonly chunkSize: number;
   readonly chunkResolution: number;
-  readonly viewDistance: number;
+  /** How far chunks are selected around the focus, metres; change it with {@link setViewDistance}. */
+  get viewDistance(): number {
+    return this.currentViewDistance;
+  }
+  private currentViewDistance: number;
+  /** The construction distance and budgets `setViewDistance` scales from. */
+  private readonly baseViewDistance: number;
+  private readonly baseBudgets: TerrainBudgets;
   readonly maxLOD: number;
   readonly budgets: TerrainBudgets;
   /** @deprecated Prefer `budgets.visibleChunks`. */
@@ -190,9 +198,11 @@ export class TerrainWorld extends SceneObject {
     this.chunkSize = options.chunkSize ?? 256;
     this.chunkResolution = options.chunkResolution ?? 33;
     this.populationSurfaceResolution = Math.max(POPULATION_SURFACE_RESOLUTION, this.chunkResolution);
-    this.viewDistance = options.viewDistance ?? 1024;
+    this.currentViewDistance = options.viewDistance ?? 1024;
+    this.baseViewDistance = this.currentViewDistance;
     this.maxLOD = options.maxLOD ?? 4;
     this.budgets = resolveTerrainBudgets(options);
+    this.baseBudgets = { ...this.budgets };
     this.maxChunksLoaded = this.budgets.visibleChunks;
     this.maxGenerationsPerFrame = this.budgets.generationsPerFrame;
     this.warmUpChunks = options.warmUpChunks ?? 0;
@@ -253,6 +263,32 @@ export class TerrainWorld extends SceneObject {
       pipelineHash: this.pipelineHash,
       pipeline,
     };
+  }
+
+  /**
+   * Draw farther (or nearer) from now on: chunks are selected out to `metres` around the focus. The
+   * number of chunks grows with the area of that disc, so unless `budgets` says otherwise the
+   * visible-chunk and memory budgets scale with it too — by `(metres / constructionDistance)²` from the
+   * construction budgets, so setting the construction distance again restores them. Far chunks use the
+   * coarsest LOD the bands allow (bands are fixed multiples of the chunk size). Chunks beyond a smaller
+   * distance are evicted by the normal budget eviction; the horizon skirt follows the new edge.
+   * Generation and upload rates are unchanged unless given.
+   */
+  setViewDistance(metres: number, budgets: Partial<TerrainBudgets> = {}): void {
+    if (!(Number.isFinite(metres) && metres > 0)) {
+      throw new UsageError(`TerrainWorld.setViewDistance: metres must be a finite number > 0 (got ${metres})`);
+    }
+    for (const [key, value] of Object.entries(budgets)) {
+      if (value !== undefined && !(Number.isFinite(value) && value > 0)) {
+        throw new UsageError(`TerrainWorld.setViewDistance: budgets.${key} must be a finite number > 0 (got ${value})`);
+      }
+    }
+    const area = (metres / this.baseViewDistance) ** 2;
+    this.currentViewDistance = metres;
+    this.budgets.visibleChunks = budgets.visibleChunks ?? Math.max(1, Math.round(this.baseBudgets.visibleChunks * area));
+    this.budgets.memoryBytes = budgets.memoryBytes ?? Math.max(1, Math.round(this.baseBudgets.memoryBytes * area));
+    if (budgets.generationsPerFrame !== undefined) this.budgets.generationsPerFrame = budgets.generationsPerFrame;
+    if (budgets.uploadsPerFrame !== undefined) this.budgets.uploadsPerFrame = budgets.uploadsPerFrame;
   }
 
   override loadState(saved: Record<string, unknown>): string[] {

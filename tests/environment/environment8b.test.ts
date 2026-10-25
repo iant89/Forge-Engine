@@ -161,6 +161,28 @@ group("weather state", () => {
     assertCloseTo(Math.min(converged, 2 * Math.PI - converged), 0, 6);
   });
 
+  test("setBaseFogDensity re-bases the fog the weather adds its haze onto", () => {
+    // A scene that draws farther thins its base fog; writing the setting directly would be overwritten.
+    const scene = new Scene({ name: "fog-rebase" });
+    const w = new WeatherSystem({
+      initial: { precipitation01: 0, storm01: 0.5 },
+      target: { precipitation01: 0, storm01: 0.5 },
+      stormFogDensity: 0.004,
+      driveSurface: false,
+      driveVehicles: false,
+    });
+    scene.add(w);
+    w.setBaseFogDensity(0.0007);
+    assertCloseTo(scene.settings.fog.density, 0.0007 + 0.5 * 0.004, 12);
+    scene.settings.fog.density = 0.05;
+    w.apply();
+    assertCloseTo(scene.settings.fog.density, 0.0007 + 0.5 * 0.004, 12, "the weather owns the density it drives");
+    for (const bad of [-0.001, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => w.setBaseFogDensity(bad), /setBaseFogDensity/);
+    }
+    assertCloseTo(scene.settings.fog.density, 0.0007 + 0.5 * 0.004, 12, "a rejected value changes nothing");
+  });
+
   test("supports dry storm haze independently from precipitation fog", () => {
     const scene = new Scene({ name: "dry-storm-haze" });
     const baseFog = scene.settings.fog.density;

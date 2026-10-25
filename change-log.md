@@ -31547,6 +31547,126 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Mixed-atlas-level walls and the skirt-rim bug, with the bisect recipe",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2536",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/terrain/world.ts",
+    "what": "TerrainWorld.setViewDistance(metres, budgets?): runtime draw distance, budgets scaled by disc area from construction; viewDistance becomes a getter",
+    "why": "User request: an engine option to increase terrain draw distance"
+  },
+  {
+    "id": "2537",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/environment/weather.ts",
+    "what": "WeatherSystem.setBaseFogDensity(density)",
+    "why": "Let a scene thin its base fog as it draws farther; direct writes are overwritten by the weather each frame"
+  },
+  {
+    "id": "2538",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/api-surface.json",
+    "what": "api:update for TerrainWorld and WeatherSystem",
+    "why": "Deliberate surface change; approvals pending maintainer review"
+  },
+  {
+    "id": "2539",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Draw distance button (Normal/Far/Very far, low tier capped at Far), ?modraw, remembered choice, fog thinned in proportion, atlas faces fetched to the new radius with a one-time rebuild, camera far plane follows",
+    "why": "Expose the draw distance in the Mars Orbit Explorer"
+  },
+  {
+    "id": "2540",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/main.ts",
+    "what": "?modraw and __forge.marsOrbitDrawDistance",
+    "why": "URL knob and gate hook"
+  },
+  {
+    "id": "2541",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/terrain/terrain.test.ts",
+    "what": "setViewDistance: farther chunks load, budgets scale by area and restore, invalid input rejected",
+    "why": "Coverage for the new engine option"
+  },
+  {
+    "id": "2542",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/environment/environment8b.test.ts",
+    "what": "setBaseFogDensity re-bases the driven fog; invalid input rejected",
+    "why": "Coverage for the new engine option"
+  },
+  {
+    "id": "2543",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tools/browser-check.mjs",
+    "what": "mars-orbit: Far doubles the draw distance and thins the fog without GPU errors; Normal restores it",
+    "why": "Real-browser coverage"
+  },
+  {
+    "id": "2544",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Draw distance section with its honest limit",
+    "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2545",
+    "date": "2026-10-25T03:29:43Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Draw distance notes and the docs:check KNOWN-ISSUES rule",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

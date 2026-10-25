@@ -50,6 +50,20 @@ frost, clouds and devils are all read from the same `PlanetWeatherSystem` the or
 and mapped by `planetGroundWeather`. Frost is `surface.snow` and burns off as the sun climbs; devil activity follows
 the sun elevation.
 
+## Draw distance
+
+On the ground, **Draw distance** in the bottom bar cycles Normal / Far / Very far: 1×, 2× and 4× the tier's terrain view distance
+(2, 3 or 5 km). `?modraw=1|2|4` picks it from the URL, and the choice is remembered in the browser. The low tier stops at Far, since 4× is
+~16× the chunks and draw calls. It calls the engine's `TerrainWorld.setViewDistance` (which scales the visible-chunk and memory budgets
+with the disc's area) and thins the base fog in proportion through `WeatherSystem.setBaseFogDensity`, so the extra terrain is not just
+hidden in haze; dust storms still add their haze on top. Atlas faces out to the new radius are fetched and the terrain is rebuilt once if
+new ones arrive. `marsOrbitState().drawDistance` reports `{ scale, metres }`.
+
+**Limit, honestly:** chunks are a fixed size (256 m here; LOD only lowers their vertex count), so 4× the distance is ~16× the chunks,
+draw calls and generation work, and the far terrain fills in at one chunk per frame. Even Normal is budget-limited (the medium tier's 3 km
+disc is ~450 chunks against a 180-chunk budget, so the ground fills in the direction you face). A far horizon needs a coarse far-field —
+larger far chunks, or one heightfield ring built from the atlas out to tens of kilometres — which the engine does not have yet.
+
 ## Landmarks
 
 Markers for twenty well-known places sit on the globe in orbit (`examples/src/scenes/marsOrbitLandmarks.ts`): the big volcanoes

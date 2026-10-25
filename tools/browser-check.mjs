@@ -1044,6 +1044,15 @@ async function checkMarsOrbit() {
   }
   if (!(ground.state.weather.dust > 0.5)) throw new Error(`the storm site has no dust: ${JSON.stringify(ground.state.weather)}`);
   if (ground.state.landmarks.visible.length !== 0) throw new Error(`landmark markers drawn on the ground: ${JSON.stringify(ground.state.landmarks)}`);
+  // Draw distance: Far doubles the terrain view distance and thins the base fog; back to Normal restores both.
+  const fog1 = await page.evaluate(() => window.__forge.marsOrbitScene().settings.fog.density);
+  await page.evaluate(() => window.__forge.marsOrbitDrawDistance(2));
+  await sleep(1500);
+  const far = await page.evaluate(() => ({ d: window.__forge.marsOrbitState().drawDistance, fog: window.__forge.marsOrbitScene().settings.fog.density, stats: window.__forge.stats() }));
+  if (far.d.scale !== 2 || !(far.fog < fog1) || far.stats.gpuErrors !== 0) throw new Error(`draw distance Far did not apply: ${JSON.stringify({ fog1, ...far, stats: undefined })}`);
+  await page.evaluate(() => window.__forge.marsOrbitDrawDistance(1));
+  const normal = await page.evaluate(() => window.__forge.marsOrbitState().drawDistance);
+  if (normal.scale !== 1 || normal.metres !== far.d.metres / 2) throw new Error(`draw distance did not return to Normal: ${JSON.stringify(normal)}`);
   await sleep(1500);
   await page.screenshot({ path: "tools/.browser-check-mars-orbit-ground.png", timeout: 60000 });
 

@@ -3213,3 +3213,9 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
 - Bisect recipe that worked: `settings.fog.mode = "none"` reveals what fog hides; hide entity groups by name
   (`terrain_horizon_skirt`, `terrain_<cx>,<cz>`) via `componentsOf(id)` → `visible = false`; then measure seam heights from
   `scene.objects.find(o => o.chunks)` tiles' `heightmap.getHeight` on both sides of a shared edge.
+- **Draw distance (2026-10-25):** `TerrainWorld.setViewDistance(m, budgets?)` scales `visibleChunks`/`memoryBytes` by area from the
+  construction values; `WeatherSystem.setBaseFogDensity` re-bases the fog the weather drives (writing `fog.density` directly gets
+  overwritten every frame). Chunks are fixed-size, so distance costs quadratically — at 4× (12 km) only ~191 chunks of ~7,000 had
+  streamed after 5 min headless. Even Normal is budget-limited (selection is facing-prioritised, which is why turning loads chunks).
+  The real far horizon needs a far-field ring/coarse chunks — not built. `docs:check` rejects KNOWN-ISSUES entries tagged with a
+  *verified* capability, so engine limits on verified features go in the feature's own doc.

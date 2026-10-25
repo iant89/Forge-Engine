@@ -474,6 +474,7 @@ async function main(): Promise<void> {
         mola: query.get("mola"),
         bakeBudgetMs: query.get("mobake") !== null && Number(query.get("mobake")) > 0 ? Number(query.get("mobake")) : undefined,
         detail: query.get("modetail") !== "0",
+        drawDistance: query.get("modraw") !== null ? Number(query.get("modraw")) : undefined,
       });
     } else if (name === "ui") {
       // The engine-native UI framework (docs/UI.md): drawn by the WebGPU UI overlay pass.
@@ -1175,6 +1176,10 @@ async function main(): Promise<void> {
     },
     marsOrbitDiagnostics: (visible: boolean) => {
       if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.setDiagnostics(visible);
+    },
+    /** Mars Orbit Explorer: ground draw distance as a multiple of the tier's (1, 2 or 4). */
+    marsOrbitDrawDistance: (scale: number) => {
+      if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.setDrawDistance(scale);
     },
     marsOrbitZoom: (factor: number) => {
       if (activeSceneName === "mars-orbit") (currentHandle as MarsOrbitHandle | null)?.zoomOrbit(factor);

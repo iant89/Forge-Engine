@@ -62,6 +62,7 @@ import {
   GeneratorPipeline,
   TerrainTile,
   TerrainWorld,
+  UsageError,
   TerrainLOD,
   resolutionForLod,
   geomorphHeight,
@@ -403,6 +404,48 @@ group("Terrain - Phase 10 LOD meshes", () => {
 });
 
 group("Terrain - Phase 10 cache, priority, workers, horizon, materials", () => {
+  test("setViewDistance draws farther at runtime, scales the budgets with the disc, and restores them", () => {
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({ seed: 3, chunkSize: 64, chunkResolution: 9, viewDistance: 128, maxLOD: 3, visibleChunks: 20, memoryBytes: 8e6, syncGeneration: true, horizonSkirt: false });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "draw-distance" });
+    scene.add(terrain);
+    terrain.focusPosition.set(0, 10, 0);
+    const farthest = (): number => {
+      let max = 0;
+      for (const c of terrain.chunks.values()) {
+        if (c.state !== "ready") continue;
+        max = Math.max(max, Math.hypot((c.cx + 0.5) * 64, (c.cz + 0.5) * 64));
+      }
+      return max;
+    };
+    for (let i = 0; i < 30; i++) terrain.update(ctx, 0.016);
+    const near = farthest();
+    assert.ok(near > 0 && near <= 128 + 64, `near ${near}`);
+
+    terrain.setViewDistance(384);
+    assert.equal(terrain.viewDistance, 384);
+    assert.equal(terrain.budgets.visibleChunks, 180, "9x the disc area: 9x the visible chunks");
+    assert.equal(terrain.budgets.memoryBytes, 72e6);
+    for (let i = 0; i < 80; i++) terrain.update(ctx, 0.016);
+    const far = farthest();
+    assert.ok(far > 256, `chunks out to ${far} m after drawing farther`);
+
+    // Explicit budgets win; the construction distance restores the construction budgets.
+    terrain.setViewDistance(256, { visibleChunks: 50 });
+    assert.equal(terrain.budgets.visibleChunks, 50);
+    terrain.setViewDistance(128);
+    assert.equal(terrain.budgets.visibleChunks, 20);
+    assert.equal(terrain.budgets.memoryBytes, 8e6);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => terrain.setViewDistance(bad), UsageError);
+    }
+    assert.throws(() => terrain.setViewDistance(256, { visibleChunks: 0 }), UsageError);
+    assert.equal(terrain.viewDistance, 128, "a rejected call changes nothing");
+    scene.dispose();
+    world.dispose();
+  });
+
   test("the horizon skirt follows the loaded terrain, not the camera height, where its rim is not loaded", () => {
     // The skirt's rim sits at the edge of the loaded disc, so many rim points fall in chunks that are not
     // resident. Those used to take the camera's height: on a slope (or with the eye raised) the skirt

@@ -6517,14 +6517,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:26ba3d8c5b44b394a165cd1d2f0a097e831427d0b8eab0b8dda5671f429b5d9b",
-      "contractHash": "sha256:5f6f8ce32c9f198f180b04311959975a0cd6e679158c9901f1c37e3ee209c9bf"
+      "contractHash": "sha256:b1a08efe25c3914b0cf3a957eb2a34ea9aaf1ed4e41da1f9087685aaa34f3c71"
     },
     {
       "name": "PopulationWorldOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:12ebfae32e8559e737a9877c0a67a3339438511fbc3e57fe3335e314408fdc0e",
-      "contractHash": "sha256:bcd064844fdb2070f6b6f4c8b28fac6f7cfe7ffb65bf11537e296349fd5df04d"
+      "contractHash": "sha256:eb70b4adfb3037fe84aee5837c33c1d897651410a205214cf2a8123e52b7b459"
     },
     {
       "name": "Popup",
@@ -8183,14 +8183,14 @@
       "kind": "type-and-value",
       "stability": "public",
       "declarationHash": "sha256:adf521478895d35563799d606c34bc8eee22052d5f04698388920757b3287fbb",
-      "contractHash": "sha256:57a1789f3c25fe8be07dc8b263978cb83a83c642a7c9e00d09b150536d6317dc"
+      "contractHash": "sha256:803bc8d42d081087d43ce9654062ca7e0452285e0f638a8af184e73c4c7ff6f7"
     },
     {
       "name": "SnowMeltSystemOptions",
       "kind": "type",
       "stability": "public",
       "declarationHash": "sha256:a5d62ca61d23bcfde9fe5bb43d4e33b79296f8fbad93d54a0d8671b5da702d27",
-      "contractHash": "sha256:0fbf0d61d9b447c86cce426824d981d994d369e32f639a9974e35b7fdc410ebe"
+      "contractHash": "sha256:b64b76fa8b237553b174dea43fbbf6b2a135f14f0520d0c48e3bc55297fa5aa5"
     },
     {
       "name": "SnowPose",
@@ -9106,8 +9106,8 @@
       "name": "TerrainWorld",
       "kind": "type-and-value",
       "stability": "public",
-      "declarationHash": "sha256:38f5cfd4998d52fbce7b92ad23b1df7ba4fa8ee659a1fe09167e9a5ac1282372",
-      "contractHash": "sha256:73526608336ff9080cde6ebdba4ca3eea9779f3db9a85c1753b4e8ead84208ed"
+      "declarationHash": "sha256:151a6c0fc8580dbf5131b6a658496e0b5c838573b1a2108d022cd81ac1d84a60",
+      "contractHash": "sha256:e2e7ab402b42e964a37056f861b5399d9709a77b3082b18a1d53d4d6b064b259"
     },
     {
       "name": "TerrainWorldOptions",
@@ -10863,8 +10863,8 @@
       "name": "WeatherSystem",
       "kind": "type-and-value",
       "stability": "public",
-      "declarationHash": "sha256:ff47a0e181feff641da0ef83117e5f22e403a74e6c9cb76f8f51c3f95e94ecab",
-      "contractHash": "sha256:d6d0b82b048458b42f1411b17080bc24f56a3f6814cb99af28421f852b3ab1b1"
+      "declarationHash": "sha256:b8bc540e2c8da1aded219b6c32cf88f7d849fbbbec6dd943c7bd1e456aee4682",
+      "contractHash": "sha256:62a4e682942310fd5982c0b75c5e7c1a5c40c2abef9a0a7c85848c0fe05c92b8"
     },
     {
       "name": "WeatherTimeConstants",
@@ -12929,7 +12929,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:43b9c49c9b1e8e374b2c80537bb686f0b0b6f059db9fa5c60f2d530044438c33",
-      "contractHash": "sha256:5222f3b9d8d83ccfa19a8e234fa3e8c385886683ae655827fa388244c0e0156c"
+      "contractHash": "sha256:e2d04aca7aae409b6be9aad8eee3ee9e08964a6c20a9d23b25b1966dfe4e1ec6"
     },
     {
       "name": "elevationAzimuthOf",
@@ -13615,7 +13615,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:f3889d83e02ecb31d144f06744450b624dcf5b6306ddfe6b8bdb7eaccc53a777",
-      "contractHash": "sha256:e1abd825279188f6119d00fb6b1bd96c32e9c46a155a4bbd6cbd748decb1f820"
+      "contractHash": "sha256:fa46217620bf245b39f0382e02d5c0f62fae7188797db92976839afcbfdbd4f8"
     },
     {
       "name": "installEngineErrorBridge",
@@ -15029,7 +15029,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:2933fe98631c6a879903b3a2746042c1855e6d098b751db168a4e5bb06b843c6",
-      "contractHash": "sha256:30d470c16a5591ffa762f8c86caedda0f7fc9f0c6d00f101384c0088868dfc0c"
+      "contractHash": "sha256:c28095c26a1393ac2af37978b4d1ab6d597ce02bb4b94deb176d22a31bb55ddd"
     },
     {
       "name": "sampleTrackValues",
@@ -15596,7 +15596,7 @@
       "kind": "value",
       "stability": "public",
       "declarationHash": "sha256:679c98d3af049ad03fd47a202d29595fcf022e29ecd8593245145625d872e837",
-      "contractHash": "sha256:bde8d4b24aa3cf90fcf2f1aff04607a533961887d59a51f3fa450f395dc9fb1a"
+      "contractHash": "sha256:dd229d00a7c37acf8746c44013730ceb68e77bb5faef96fe48bc4975858dd485"
     },
     {
       "name": "terrainOptionsFromState",
