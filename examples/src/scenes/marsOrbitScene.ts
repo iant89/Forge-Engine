@@ -241,6 +241,9 @@ const DRAW_DISTANCES = [
 ] as const;
 const DRAW_STORAGE_KEY = "forge.marsOrbit.drawDistance";
 
+/** Linear albedo multiplier of the globe's detail patch while it is the dive backdrop (matched to the terrain). */
+const BACKDROP_TINT = [0.62, 0.45, 0.36] as const;
+
 /** Displacement multiplier of the globe's relief (orbit-scale relief is otherwise invisible). */
 const GLOBE_EXAGGERATION = 2.2;
 
@@ -1513,8 +1516,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
    * ground to the horizon and not just the terrain's few-kilometre disc. In the site frame the globe sits
    * where the orbit view had it (centre `−R`, site up), lowered so its exaggerated relief stays under the
    * terrain: by the site's own exaggeration plus `backdropSink`, the most it rises above the site
-   * anywhere on the disc (sampled at the detail patch's resolution, which is what is drawn). It eases down from the swap so the hand-over does not jump, and hides once the
-   * terrain and the fog fill the view.
+   * anywhere on the disc (sampled at the detail patch's resolution, which is what is drawn). It eases
+   * down from the swap so the hand-over does not jump, and stays drawn to the end of the descent:
+   * beyond the terrain's disc it is the only ground there is.
    */
   let backdropSink = 0;
   const backdropBasis = { up: new Vec3(), east: new Vec3(), north: new Vec3() };
@@ -1540,10 +1544,11 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   let backdropLower = 0;
   function placeGlobeBackdrop(): void {
     if (!globe || !globeEntity || !site) return;
-    const show = globe.ready && groundHeight > Math.max(1500, 0.6 * cfg.viewDistance * drawScale);
+    const show = globe.ready;
     if (show) {
       const lower = (site.elevation * (GLOBE_EXAGGERATION - 1) + backdropSink) * (1 - smoothstep(SWAP_ALTITUDE / 3, SWAP_ALTITUDE, groundHeight));
       backdropLower = lower;
+      backdropTint(1 - smoothstep(SWAP_ALTITUDE / 3, SWAP_ALTITUDE, groundHeight));
       for (const e of [globeEntity, detailEntity]) {
         if (!e) continue;
         e.transform.position = scratchB.set(0, -R - lower, 0);
@@ -1567,9 +1572,25 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     if (dr) dr.visible = show && globe.detailVisible;
   }
 
+  /**
+   * The patch's albedo is baked for the view from orbit, and from a few km up it is far paler than the
+   * terrain's ground. Darken it toward the terrain as the camera comes down, and restore it on the way out.
+   */
+  let lastTint = 0;
+  function backdropTint(t: number): void {
+    if (!globe?.detailMaterial || Math.abs(t - lastTint) < 0.01) return;
+    lastTint = t;
+    const ch = (lin: number): number => Math.round(255 * Math.pow(1 + (lin - 1) * t, 1 / 2.2));
+    globe.detailMaterial.setColor((ch(BACKDROP_TINT[0]) << 16) | (ch(BACKDROP_TINT[1]) << 8) | ch(BACKDROP_TINT[2]));
+  }
+
   /** Put the globe back where the orbit view keeps it (and hidden, until `setGlobeVisible`). */
   function hideGlobeBackdrop(): void {
     backdropShown = false;
+    if (lastTint !== 0) {
+      lastTint = 0;
+      globe?.detailMaterial?.setColor(0xffffff);
+    }
     for (const e of [globeEntity, detailEntity]) {
       if (!e) continue;
       e.transform.position = scratchB.set(0, -R, 0);
