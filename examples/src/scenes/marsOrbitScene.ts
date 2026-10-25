@@ -949,7 +949,10 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   const groundFogDensity = (): number => (GROUND_FOG_DENSITY / drawScale) * groundFogScale();
   const groundFogScale = (): number => {
     const worst = GROUND_FOG_DENSITY / drawScale + GROUND_STORM_FOG_DENSITY;
-    return descentFogDensity(worst, groundHeight) / worst;
+    // On a dive the farthest ground below is the backdrop, `backdropSink` under the terrain; count it from
+    // a kilometre up (it is irrelevant, and must not thin the fog, at walking height).
+    const depth = groundHeight + (backdropShown ? backdropSink * Math.min(1, groundHeight / 1000) : 0);
+    return descentFogDensity(worst, depth) / worst;
   };
   let lastFogDensity = -1;
   function pushGroundFog(force: boolean): void {
@@ -1263,6 +1266,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     fallSwapT = fallT;
     divePitch0 = ORBIT_VIEW_PITCH;
     diveYaw0 = 0;
+    // Still looking straight down: the first ground frame renders before updateDive sets the pitch.
+    pitch = divePitch0;
+    yaw = diveYaw0;
     setGlobeVisible(false);
     measureBackdropSink();
     attachGroundSystems();
