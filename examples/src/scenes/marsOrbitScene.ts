@@ -225,6 +225,11 @@ const TIERS: Record<DeviceTier, TierConfig> = {
 
 /** The same four tints the other Mars scenes use, so one planet looks like one planet. */
 const SURFACE_TINTS = [0xc9784f, 0x5c5046, 0xd1a06b, 0x9a6549] as const;
+/**
+ * Mean linear value of each layer's detail albedo map (`createMarsSurfaceTextures`: grey sRGB shades
+ * of about 0.89, 0.83, 0.92 and 0.89), which multiplies the layer colour.
+ */
+const MARS_LAYER_MAP_MEAN = [0.77, 0.66, 0.83, 0.77] as const;
 
 const DEG = Math.PI / 180;
 const R = MARS_ATMOSPHERE.planetRadius;
@@ -1054,8 +1059,14 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     const south = s.latDeg < 0;
     const summerLs = ((south ? caps.southPeakLs : caps.northPeakLs) + 180) % 360;
     const residual = Math.min(1, caps.coverage(s.latDeg, s.lonDeg, summerLs) / cover);
-    const looks = polarLayerLooks(base.map((l) => ({ color: [l.color.r, l.color.g, l.color.b] as const, roughness: l.roughness })), cover, residual, south);
-    return base.map((l, i) => ({ ...l, color: new Color(looks[i]!.color[0], looks[i]!.color[1], looks[i]!.color[2], 1), roughness: looks[i]!.roughness }));
+    // The layer colour is multiplied by the detail map (grey, sRGB): divide by the map's mean so the
+    // rendered albedo is the measured one. Bare ground keeps its tuned look (the same scale both ways).
+    const mean = maps ? MARS_LAYER_MAP_MEAN : [1, 1, 1, 1];
+    const looks = polarLayerLooks(base.map((l, i) => ({ color: [l.color.r * mean[i]!, l.color.g * mean[i]!, l.color.b * mean[i]!] as const, roughness: l.roughness })), cover, residual, south);
+    return base.map((l, i) => {
+      const c = looks[i]!.color;
+      return { ...l, color: new Color(c[0] / mean[i]!, c[1] / mean[i]!, c[2] / mean[i]!, 1), roughness: looks[i]!.roughness };
+    });
   }
 
   function buildGround(s: SiteState): void {
