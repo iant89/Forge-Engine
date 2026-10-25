@@ -1004,7 +1004,11 @@ async function checkMarsOrbit() {
     throw new Error(`the ${picked} card did not show its name and description: ${JSON.stringify(card)}`);
   }
   await page.screenshot({ path: "tools/.browser-check-mars-orbit-landmark.png", timeout: 60000 });
-  await page.click("#mo-card-close");
+  // A mouse click at the button's box: page.click() waits for animation-frame "stability", which a
+  // software rasteriser at <1 fps rarely grants.
+  const closeBox = await page.locator("#mo-card-close").boundingBox();
+  if (!closeBox) throw new Error("the landmark card has no close button on screen");
+  await page.mouse.click(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2);
   await page.waitForFunction(() => window.__forge.marsOrbitState().landmarks.selected === null, null, { polling: 200, timeout: 30000 });
 
   // Zoomed in, the globe bakes a detail patch under the camera; zoomed back out it is dropped.

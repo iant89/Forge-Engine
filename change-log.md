@@ -31451,6 +31451,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Landmark projection note",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2528",
+    "date": "2026-10-25T01:46:21Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tools/browser-check.mjs",
+    "what": "Close the landmark card with a mouse click at the button's box instead of page.click()",
+    "why": "page.click() waits for animation-frame stability, which headless SwiftShader at <1 fps did not grant (30 s timeout)"
   }
 ]
 ```
