@@ -3232,3 +3232,5 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   site-frame heights in `marsOrbitState().backdrop` turned guesswork into one measurement — do that first next time.
   (4) `pgrep -f "<script>"` in a wait loop matches its own shell; wait on the PID (`kill -0`).
   (5) `tests/examples/marsShowcaseDamage.test.ts` fails on origin/main too (mock rover attach, device lost) — not ours.
+- **2026-10-25 — polar caps bare on the ground.** `PlanetWeatherSystem.sample` sets `frost = max(frost, cap)`, and the
+  ground burned all "frost" off by mid-morning (capped at 0.5). Keep cap and frost apart: `groundIceCover` in marsOrbitMath.ts.

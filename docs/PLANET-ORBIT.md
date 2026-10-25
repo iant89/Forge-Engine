@@ -64,7 +64,7 @@ frame line up. The sun is rotated into the world with the planet, so the termina
 
 On the ground, drag to look, wheel/pinch to change eye height (1.7–700 m), WASD to walk. The ground sky, dust haze,
 frost, clouds and devils are all read from the same `PlanetWeatherSystem` the orbit view draws from, sampled at the site
-and mapped by `planetGroundWeather`. Frost is `surface.snow` and burns off as the sun climbs; devil activity follows
+and mapped by `planetGroundWeather`. Ice is `surface.snow` (`groundIceCover`). Morning frost is a dusting that burns off as the sun climbs; polar-cap ice (the seasonal CO₂ cap and the residual caps) stays all day at full cover, so only slopes too steep to hold it show bare ground; devil activity follows
 the sun elevation.
 
 ## Draw distance

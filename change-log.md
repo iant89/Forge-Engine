@@ -31751,6 +31751,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/PLANET-ORBIT.md",
     "what": "Backdrop details and the MOLA-resolution limit below ~12 km",
     "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2553",
+    "date": "2026-10-25T12:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitMath.ts",
+    "what": "groundIceCover: cap ice all day at full strength, frost a dusting that burns off",
+    "why": "Polar-cap sites showed bare ground: the cap was treated as morning frost"
+  },
+  {
+    "id": "2554",
+    "date": "2026-10-25T12:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Ground ice from groundIceCover; HUD 'frost' only off the cap",
+    "why": "Same"
+  },
+  {
+    "id": "2555",
+    "date": "2026-10-25T12:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/examples/marsOrbitScene.test.ts",
+    "what": "Ground-ice policy test",
+    "why": "Pin cap vs frost"
+  },
+  {
+    "id": "2556",
+    "date": "2026-10-25T12:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tools/browser-check.mjs",
+    "what": "Real-time dive wait 600 s → 1200 s",
+    "why": "The dive is ~10 s of scene time; SwiftShader at 1280x720 runs the descent well under 1 fps"
+  },
+  {
+    "id": "2557",
+    "date": "2026-10-25T12:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Ground ice sentence",
+    "why": "Keep the scene doc truthful"
   }
 ]
 ```
