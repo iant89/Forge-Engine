@@ -1039,8 +1039,10 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     if (!terrain || !site || !atlas || !groundTile) return;
     if (groundAtlasSignature() === terrainAtlasSig) return;
     scene.removeObject(terrain);
+    // A TerrainWorld disposes the materials it was given: the new one needs its own.
     terrain.dispose();
     site.elevation = sampler.sample(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z, { elevation: 0, r: 0, g: 0, b: 0 }).elevation;
+    makeGroundMaterials(site);
     terrain = makeTerrain(site);
     scene.add(terrain);
   }
@@ -1069,6 +1071,16 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     });
   }
 
+  /** Fresh layered and apron materials for a terrain world (which takes ownership and disposes them). */
+  function makeGroundMaterials(s: SiteState): void {
+    layered = new LayeredTerrainMaterial({
+      label: "mars-orbit-layers",
+      layers: polarSiteLayers(s),
+      maps: maps ?? undefined,
+    });
+    apron = layered.toMaterial();
+  }
+
   function buildGround(s: SiteState): void {
     const tile = (() => {
       const wanted = { chunkSize: 256, resolution: 33 };
@@ -1076,12 +1088,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     })();
     const advice = adviseMarsTile(tile.chunkSize, tile.resolution);
     maps = gpu ? createMarsSurfaceTextures(gpu, cfg.surfaceTexture) : null;
-    layered = new LayeredTerrainMaterial({
-      label: "mars-orbit-layers",
-      layers: polarSiteLayers(s),
-      maps: maps ?? undefined,
-    });
-    apron = layered.toMaterial();
+    makeGroundMaterials(s);
     groundTile = { tile, advice };
     terrain = makeTerrain(s);
     scene.add(terrain);
