@@ -3226,3 +3226,9 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   attach at the swap (`attachGroundSystems`). Lesson: a horizontal ground fog is opaque from altitude — scale it with camera height
   (`descentFogDensity`). The fall now keeps the globe drawn under the terrain (sunk below its exaggerated relief) as the backdrop
   beyond the terrain disc; see docs/PLANET-ORBIT.md "Orbit → ground".
+- **2026-10-25 — dive backdrop lessons.** (1) `WeatherSystem.stormFogDensity`/`rainFogDensity` add onto the base fog: thinning only
+  the base leaves a storm white-out; scale all of them. (2) Never draw the coarse base globe under a low camera: its facets sit km
+  above crater floors and the camera ends up inside (back faces culled → bare sky). Draw the detail patch only. (3) Exposing
+  site-frame heights in `marsOrbitState().backdrop` turned guesswork into one measurement — do that first next time.
+  (4) `pgrep -f "<script>"` in a wait loop matches its own shell; wait on the PID (`kill -0`).
+  (5) `tests/examples/marsShowcaseDamage.test.ts` fails on origin/main too (mock rover attach, device lost) — not ours.

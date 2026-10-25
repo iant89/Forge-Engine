@@ -31727,6 +31727,30 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Orange-disc root cause and the ground-fog-from-altitude lesson",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2551",
+    "date": "2026-10-25T09:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Dive follow-ups: storm/rain haze thinned with height; backdrop draws only the detail patch, tinted toward the terrain and kept to eye height; fog counts the backdrop depth; straight-down pitch set at the swap; marsOrbitState reports the backdrop",
+    "why": "Headless dive frames at Gale showed a white-out from 40 to 4 km (storm haze), blank beige around the terrain disc (camera inside the coarse sphere; pale orbit albedo; 1.5 km cutoff) and a horizon flash at the swap"
+  },
+  {
+    "id": "2552",
+    "date": "2026-10-25T09:40:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Backdrop details and the MOLA-resolution limit below ~12 km",
+    "why": "Keep the scene doc truthful"
   }
 ]
 ```

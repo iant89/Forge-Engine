@@ -46,13 +46,20 @@ frame line up. The sun is rotated into the world with the planet, so the termina
    ground fog and sky would turn the globe into a flat orange disc during the approach.
 3. At the swap altitude (`ENTRY_SWAP_ALTITUDE`, 80 km) the sky settings change from "seen from space" to "standing in
    it", and a thin dust veil (`entryHaze`, at most 0.3 opacity) softens the change. Below the swap:
-   - The globe and its detail patch stay drawn as a backdrop under the terrain. They are lowered by the site's relief
-     exaggeration plus the most the exaggerated relief rises anywhere on the terrain disc, so they never poke through
-     it. They hide once the terrain and fog fill the view.
-   - The ground fog is thinned with height (`descentFogDensity`), so the ground below is always at the same fog depth.
+   - The globe's detail patch stays drawn as a backdrop under the terrain until the camera reaches eye height.
+     - It is lowered by the site's relief exaggeration plus the most the exaggerated relief rises anywhere on the
+       terrain disc, so it never pokes through.
+     - Only the patch is drawn, not the base sphere. The sphere's facets (~130 km on the low tier) put its surface
+       kilometres above a crater floor, and a camera falling to that floor ends up inside the sphere.
+     - The patch's orbit-baked albedo is tinted toward the terrain (`BACKDROP_TINT`) as the camera comes down.
+     - The fog counts the patch's extra depth from a kilometre up.
+   - The ground fog, including the weather's storm and rain haze, is thinned with height (`descentFogDensity`), so the
+     ground below is always at the same fog depth.
    - The ground sun follows the real height (`observerHeight` up to the swap altitude).
    - `descentGroundHeight` maps the datum-relative fall onto the site-relative ground camera, so the two cameras meet
      exactly at the swap.
+   - Limit: MOLA has no structure below a few km. Between about 12 km and 1 km, the terrain disc (2–5 km at Normal
+     draw distance) reads as a detailed patch on a smooth plain. A far-field terrain ring would close the gap.
 4. Return reverses it and frees the ground world's GPU memory.
 
 On the ground, drag to look, wheel/pinch to change eye height (1.7–700 m), WASD to walk. The ground sky, dust haze,
