@@ -31811,6 +31811,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/PLANET-ORBIT.md",
     "what": "Ground ice sentence",
     "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2558",
+    "date": "2026-10-25T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitMath.ts",
+    "what": "groundFrostCover, MARS_POLAR_ALBEDO, polarLayerLooks, siteExposureScale",
+    "why": "Realistic polar caps: measured ice albedos, layered deposits, camera exposure for the low polar sun"
+  },
+  {
+    "id": "2559",
+    "date": "2026-10-25T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Polar ground layers from the cap (divided by the detail-map mean); fresh materials on every terrain rebuild; site exposure; camera never below the terrain",
+    "why": "Caps read as white snow overlay; a terrain upgrade drew with destroyed materials (black screen); an instant landing could start the camera under the ground"
+  },
+  {
+    "id": "2560",
+    "date": "2026-10-25T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/examples/marsOrbitScene.test.ts",
+    "what": "Frost, polar layer and exposure tests",
+    "why": "Pin the polar policy"
+  },
+  {
+    "id": "2561",
+    "date": "2026-10-25T16:00:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Ground ice and exposure paragraph",
+    "why": "Keep the scene doc truthful"
   }
 ]
 ```

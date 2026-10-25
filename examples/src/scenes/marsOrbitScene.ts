@@ -1703,6 +1703,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     const targetY = Number.isFinite(th) ? th : groundY;
     groundY += (targetY - groundY) * (1 - Math.exp(-dt * (transitional ? 3 : 8)));
     if (!Number.isFinite(groundY) || !site) groundY = site?.elevation ?? 0;
+    // The smoothing may lag, but never below the ground: a site elevation read from coarse atlas data can
+    // start the camera hundreds of metres under the terrain, which then draws as sky from below.
+    if (Number.isFinite(th)) groundY = Math.max(groundY, th - groundHeight + 0.5);
     camera.fovY = ORBIT_FOV + (GROUND_FOV - ORBIT_FOV) * smoothstep(5e4, 2e3, groundHeight) * 1;
     if (groundHeight > 5e4) camera.fovY = ORBIT_FOV;
     camera.near = clamp(groundHeight * 0.01, 0.3, 4000);

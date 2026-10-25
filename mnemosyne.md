@@ -3234,3 +3234,8 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   (5) `tests/examples/marsShowcaseDamage.test.ts` fails on origin/main too (mock rover attach, device lost) — not ours.
 - **2026-10-25 — polar caps bare on the ground.** `PlanetWeatherSystem.sample` sets `frost = max(frost, cap)`, and the
   ground burned all "frost" off by mid-morning (capped at 0.5). Keep cap and frost apart: `groundIceCover` in marsOrbitMath.ts.
+- **2026-10-25 — realistic polar caps.** (1) Terrain layer colour × the grey sRGB detail map (mean linear ~0.66–0.83), so
+  divide target albedos by `MARS_LAYER_MAP_MEAN`. (2) At fixed exposure, a low polar sun makes 0.45-albedo ice render as dark as
+  equatorial dust; `siteExposureScale` exposes for the site's noon light. (3) `TerrainWorld.dispose()` disposes the materials it
+  was given: every rebuild needs fresh ones (`makeGroundMaterials`). (4) Coarse `site.elevation` can start the camera ~235 m
+  underground; `placeGroundCamera` now clamps to the terrain. (5) Waiting on "Error" in logs matches `gpuErrors`; wait on PIDs.
