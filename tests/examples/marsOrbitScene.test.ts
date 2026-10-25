@@ -39,7 +39,11 @@ import { GestureRecogniser } from "../../examples/src/controls/gestures.js";
 import { formatDiagPointer } from "../../examples/src/diag/touchDiagnostics.js";
 import {
   DETAIL_MAX_RADIUS,
+  descentFogDensity,
+  descentGroundHeight,
   detailFocusRadius,
+  ENTRY_SWAP_ALTITUDE,
+  ENTRY_VEIL_PEAK,
   entryHaze,
   groundPointerDirection,
   groundViewQuaternion,
@@ -198,11 +202,46 @@ group("orbit camera maths", () => {
     }
   });
 
-  test("the entry haze peaks near the swap and is gone in orbit and on the ground", () => {
-    assert.ok(entryHaze(450e3, false) > 0.9 || entryHaze(450e3, false) > entryHaze(2.5e6, false));
-    assertCloseTo(entryHaze(4e6, false), 0, 1e-9);
-    assertCloseTo(entryHaze(10, true), 0, 1e-9);
-    assert.ok(entryHaze(450e3, true) > 0.9);
+  test("the dust veil is thin, peaks at the swap on both sides, and is gone in orbit and low down", () => {
+    const swap = ENTRY_SWAP_ALTITUDE;
+    assert.ok(ENTRY_VEIL_PEAK <= 0.35, "the terrain must stay readable through the veil");
+    assert.equal(entryHaze(swap, false), ENTRY_VEIL_PEAK);
+    assert.equal(entryHaze(swap, true), ENTRY_VEIL_PEAK);
+    assert.equal(entryHaze(4e6, false), 0);
+    assert.equal(entryHaze(10, true), 0);
+    assert.equal(entryHaze(15e3, true), 0);
+    for (const [a, b] of [[2e6, 5e5], [5e5, 1.5e5]] as const) assert.ok(entryHaze(a, false) < entryHaze(b, false), `${a} vs ${b}`);
+    for (const [a, b] of [[2e4, 4e4], [4e4, 7e4]] as const) assert.ok(entryHaze(a, true) < entryHaze(b, true), `${a} vs ${b}`);
+  });
+
+  test("the descent fog is the ground fog at eye height and keeps the ground below at one fog depth from high up", () => {
+    const base = 0.0014;
+    assert.ok(Math.abs(descentFogDensity(base, 0) - base) < 1e-15);
+    assert.ok(Math.abs(descentFogDensity(base, 1.7) - base) / base < 1e-5);
+    let last = Infinity;
+    for (const h of [10, 100, 1e3, 1e4, 8e4]) {
+      const d = descentFogDensity(base, h);
+      assert.ok(d < last && d > 0, `${h}: ${d}`);
+      last = d;
+    }
+    // Looking straight down from high up: exp2 argument at the ground tends to the fog depth (0.6).
+    for (const h of [2e4, 8e4]) assert.ok(Math.abs(descentFogDensity(base, h) * h - 0.6) < 0.01, `${h}`);
+    // The old fixed density hid the ground completely from a few km up.
+    assert.ok(Math.exp(-((base * 5e3) ** 2)) < 1e-10 && Math.exp(-((descentFogDensity(base, 5e3) * 5e3) ** 2)) > 0.6);
+  });
+
+  test("the ground side of the fall starts exactly where the orbit side stopped and ends at the altitude", () => {
+    for (const elevation of [-7000, -4500, 0, 1500, 21000]) {
+      // At the swap the ground camera (site elevation + height) is the orbit camera (swap above the datum).
+      assert.ok(Math.abs(elevation + descentGroundHeight(ENTRY_SWAP_ALTITUDE, elevation) - ENTRY_SWAP_ALTITUDE) < 1e-6, `${elevation}`);
+      assert.ok(Math.abs(descentGroundHeight(1.7, elevation) - 1.7) < 0.5, `${elevation}`);
+      let last = -Infinity;
+      for (let A = 1.7; A <= ENTRY_SWAP_ALTITUDE; A *= 1.5) {
+        const h = descentGroundHeight(A, elevation);
+        assert.ok(h > last && h > 0, `${elevation} @ ${A}: ${h}`);
+        last = h;
+      }
+    }
   });
 });
 

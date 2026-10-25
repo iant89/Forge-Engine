@@ -92,6 +92,9 @@ import {
   orbitFacing,
   projectOrbitPoint,
   detailFocusRadius,
+  descentFogDensity,
+  descentGroundHeight,
+  ENTRY_SWAP_ALTITUDE,
   groundPointerDirection,
   isSkyPick,
   pixelRay,
@@ -233,9 +236,12 @@ const DRAW_STORAGE_KEY = "forge.marsOrbit.drawDistance";
 /** Displacement multiplier of the globe's relief (orbit-scale relief is otherwise invisible). */
 const GLOBE_EXAGGERATION = 2.2;
 
-/** Altitude at which the globe and the ground world swap (hidden under the entry haze), metres. */
-const SWAP_ALTITUDE = 450e3;
+/** Altitude at which the globe and the ground world swap (softened by the dust veil), metres. */
+const SWAP_ALTITUDE = ENTRY_SWAP_ALTITUDE;
+/** The planet turns the site under the camera first; then the camera falls. */
 const DIVE_ORBIT_SECONDS = 2.8;
+/** The fall, orbit altitude to eye height, timed as one log-height ease across the swap. */
+const DIVE_FALL_SECONDS = 7;
 const DIVE_GROUND_SECONDS = 4.2;
 /** Real seconds per sol while standing on the ground. */
 const GROUND_SOL_SECONDS = 300;
@@ -459,6 +465,10 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
 
   // dive bookkeeping
   let diveT = 0;
+  /** Seconds into the fall (it starts once the planet has turned the site under the camera). */
+  let fallT = 0;
+  /** `fallT` at the swap: the ground side's share of the fall runs from here to `DIVE_FALL_SECONDS`. */
+  let fallSwapT = 0;
   let diveAlt0 = 0;
   let diveHeight0 = 0;
   let divePitch0 = ORBIT_VIEW_PITCH;
@@ -919,11 +929,21 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   let drawScale = [1, 2, 4].includes(options.drawDistance ?? storedScale ?? 1) ? Math.min(maxDrawScale, options.drawDistance ?? storedScale ?? 1) : 1;
   /** Angular radius of ground (and its atlas faces) the terrain may reach at the current draw distance. */
   const groundRadiusRad = (): number => (cfg.viewDistance * drawScale * 1.6 + 10e3) / R;
+  /** Ground fog for the camera's height: thinned with the draw distance, and with height on a dive. */
+  const groundFogDensity = (): number => descentFogDensity(GROUND_FOG_DENSITY / drawScale, groundHeight);
+  let lastFogDensity = -1;
+  function pushGroundFog(force: boolean): void {
+    if (!weather) return;
+    const d = groundFogDensity();
+    if (!force && Math.abs(d - lastFogDensity) <= lastFogDensity * 0.02) return;
+    lastFogDensity = d;
+    weather.setBaseFogDensity(d);
+  }
   function setDrawScale(scale: number): void {
     drawScale = Math.min(maxDrawScale, scale);
     try { globalThis.localStorage?.setItem(DRAW_STORAGE_KEY, String(drawScale)); } catch { /* private mode */ }
     terrain?.setViewDistance(cfg.viewDistance * drawScale);
-    weather?.setBaseFogDensity(GROUND_FOG_DENSITY / drawScale);
+    pushGroundFog(true);
     // Farther ground may reach atlas faces that are not loaded yet: fetch them, then rebuild once.
     if (site && mode === "ground") {
       const token = groundToken;
@@ -1028,7 +1048,6 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       schedules: [({ daylight }) => { fill.intensity = 0.16 + daylight * 0.64; }],
     });
     solar.externalSunDirection = new Vec3(0, 1, 0);
-    scene.add(solar);
 
     weather = new WeatherSystem({
       name: "marsOrbitWeather",
@@ -1044,7 +1063,6 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       driveVehicles: false,
       driveWater: false,
     });
-    scene.add(weather);
 
     devils = new DustDevilField({
       name: "mars-orbit-devils",
@@ -1052,13 +1070,30 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       seed: 0xd0575,
       groundHeight: (x, z) => terrain?.getHeightAt(x, z) ?? groundY,
     });
-    scene.add(devils);
+  }
+
+  /**
+   * Hand the scene to the ground world, at the swap (under the entry haze): its sun clock, weather and
+   * devils start driving the sky, fog and lighting, and the ground's settings replace the orbit view's.
+   * Until then only the terrain is attached (it streams in the background), so the approach keeps the
+   * orbit look — applying the ground's exp2 fog at the double-tap turned the globe into a flat disc of
+   * fog colour hundreds of kilometres away.
+   */
+  function attachGroundSystems(): void {
+    if (solar && !solar.scene) scene.add(solar);
+    if (weather && !weather.scene) scene.add(weather);
+    if (devils && !devils.scene) scene.add(devils);
+    applyGroundSettings();
+    pushGroundFog(true);
+    if (solar) solar.externalSunDirection!.copyFrom(groundSun(scratchB));
+    solar?.apply();
   }
 
   function destroyGround(): void {
-    if (devils) { scene.removeObject(devils); devils = null; }
-    if (weather) { scene.removeObject(weather); weather = null; }
-    if (solar) { solar.externalSunDirection = null; scene.removeObject(solar); solar = null; }
+    // Systems not attached yet (a return before the swap) are disposed here rather than by the scene.
+    if (devils) { if (!scene.removeObject(devils)) devils.dispose?.(); devils = null; }
+    if (weather) { if (!scene.removeObject(weather)) weather.dispose?.(); weather = null; }
+    if (solar) { solar.externalSunDirection = null; if (!scene.removeObject(solar)) solar.dispose?.(); solar = null; }
     if (terrain) { scene.removeObject(terrain); terrain.dispose(); terrain = null; }
     layered?.dispose();
     layered = null;
@@ -1101,7 +1136,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene.settings.sky.mie = 1;
     scene.settings.sky.rayleigh = 1;
     scene.settings.sky.multiScattering = true;
-    scene.setFog("exp2", { density: GROUND_FOG_DENSITY / drawScale });
+    scene.setFog("exp2", { density: groundFogDensity() });
     scene.settings.exposure = 0.95;
     // Water-ice cloud deck high over the site: its coverage is the weather's ice-cloud cover.
     scene.setClouds({ enabled: true, coverage: 0.05, density: 0.55, height: 9000, thickness: 3500, scale: 0.00016, layers: 2, silverLining: 0.6, surfaceShadows: true, shadowStrength: 0.6 });
@@ -1159,11 +1194,9 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       site.elevation = sampler.sample(siteDir.x, siteDir.y, siteDir.z, { elevation: 0, r: 0, g: 0, b: 0 }).elevation;
       groundY = site.elevation;
       buildGround(site);
-      applyGroundSettings();
-      weather?.setBaseFogDensity(GROUND_FOG_DENSITY / drawScale);
       groundPending = false;
-      if (solar) solar.externalSunDirection!.copyFrom(groundSun(scratchB));
-      solar?.apply();
+      // The ground's sky, fog and sun take over at the swap (attachGroundSystems), not here.
+      if (mode === "dive" && phase === "dive: descent") attachGroundSystems();
     };
     groundPending = false;
     if (!instant && !atlasCtl.groundReady(siteDir, groundRadius)) {
@@ -1184,6 +1217,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     diveDirection = "down";
     phase = "dive: approach";
     diveT = 0;
+    fallT = 0;
     diveAlt0 = orbitAlt;
     camX = 0;
     camZ = 0;
@@ -1203,18 +1237,22 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   function swapToGround(): void {
     phase = "dive: descent";
     diveT = 0;
-    diveHeight0 = SWAP_ALTITUDE;
+    fallSwapT = fallT;
     divePitch0 = ORBIT_VIEW_PITCH;
     diveYaw0 = 0;
     setGlobeVisible(false);
+    measureBackdropSink();
+    attachGroundSystems();
     scene.settings.sky.seaLevel = site?.elevation ?? 0;
-    groundHeight = SWAP_ALTITUDE;
+    // The orbit camera stood SWAP_ALTITUDE above the datum; the ground camera is placed above the site.
+    groundHeight = descentGroundHeight(SWAP_ALTITUDE, site?.elevation ?? 0);
     updateGroundWeather(true);
   }
 
   function finishDive(): void {
     mode = "ground";
     phase = "ground";
+    hideGlobeBackdrop();
     groundHeight = EYE_HEIGHT;
     yaw = diveYaw0 + 0.7;
     pitch = -0.08;
@@ -1236,6 +1274,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     diveHeight0 = Math.max(groundHeight, EYE_HEIGHT);
     divePitch0 = pitch;
     ascendYaw = yaw;
+    measureBackdropSink();
     spin.touch();
     if (instant) {
       swapToOrbit();
@@ -1246,6 +1285,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   function swapToOrbit(): void {
     phase = "ascend: orbit";
     diveT = 0;
+    hideGlobeBackdrop();
     setGlobeVisible(true);
     applyOrbitSettings();
     scene.settings.sky.seaLevel = 0;
@@ -1414,38 +1454,116 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
 
   const ease = (u: number): number => u * u * (3 - 2 * u);
 
+  /** Altitude above the datum `fallT` seconds into the fall: one log-height ease from orbit to eye height. */
+  const fallAltitude = (): number => lerpLog(diveAlt0, EYE_HEIGHT, ease(clamp(fallT / DIVE_FALL_SECONDS, 0, 1)));
+
   function updateDive(dt: number): void {
     diveT += dt;
     if (phase.endsWith("approach")) {
-      const u = clamp(diveT / DIVE_ORBIT_SECONDS, 0, 1);
-      orbitAlt = lerpLog(diveAlt0, SWAP_ALTITUDE, ease(u));
+      // Turn first: the altitude holds while the spin brings the site under the camera; then fall.
+      if (!spin.isAnimating) fallT += dt;
+      let altitude = fallAltitude();
+      if (altitude <= SWAP_ALTITUDE && groundPending) {
+        // Still waiting for the site's atlas faces: hover at the swap until they arrive.
+        fallT -= dt;
+        altitude = Math.max(SWAP_ALTITUDE, fallAltitude());
+      }
+      orbitAlt = Math.max(altitude, SWAP_ALTITUDE);
       camera.fovY = ORBIT_FOV;
       const clip = orbitClipPlanes(R, orbitAlt);
       camera.near = clip.near;
       camera.far = clip.far;
       scene.settings.sky.seaLevel = 0;
-      if (u >= 1 && !spin.isAnimating && !groundPending) swapToGround();
+      if (altitude <= SWAP_ALTITUDE && !groundPending) swapToGround();
       return;
     }
-    // descent through the ground world's atmosphere
-    const u = clamp(diveT / DIVE_GROUND_SECONDS, 0, 1);
-    groundHeight = lerpLog(diveHeight0, EYE_HEIGHT, ease(u));
-    pitch = divePitch0 + (-0.08 - divePitch0) * smoothstep(0.3, 1, u);
-    yaw = diveYaw0 + 0.7 * smoothstep(0.2, 1, u);
+    // descent through the ground world's atmosphere, on the same fall clock
+    fallT += dt;
+    const u = clamp((fallT - fallSwapT) / Math.max(0.1, DIVE_FALL_SECONDS - fallSwapT), 0, 1);
+    groundHeight = Math.max(EYE_HEIGHT, descentGroundHeight(fallAltitude(), site?.elevation ?? 0));
+    pitch = divePitch0 + (-0.08 - divePitch0) * smoothstep(0.45, 1, u);
+    yaw = diveYaw0 + 0.7 * smoothstep(0.4, 1, u);
     placeGroundCamera(dt, true);
+    placeGlobeBackdrop();
     if (u >= 1) finishDive();
+  }
+
+  /**
+   * Below the swap the globe stays drawn as a backdrop under the terrain, so a falling camera sees real
+   * ground to the horizon and not just the terrain's few-kilometre disc. In the site frame the globe sits
+   * where the orbit view had it (centre `−R`, site up), lowered so its exaggerated relief stays under the
+   * terrain: by the site's own exaggeration plus `backdropSink`, the most it rises above the site
+   * anywhere on the disc. It eases down from the swap so the hand-over does not jump, and hides once the
+   * terrain and the fog fill the view.
+   */
+  let backdropSink = 0;
+  const backdropBasis = { up: new Vec3(), east: new Vec3(), north: new Vec3() };
+  function measureBackdropSink(): void {
+    if (!site) return;
+    const b = planetSiteBasis(site.latDeg, site.lonDeg, 0, backdropBasis);
+    const reach = cfg.viewDistance * drawScale;
+    let rise = 0;
+    for (const f of [0.35, 0.7, 1]) {
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const x = Math.cos(a) * reach * f;
+        const z = Math.sin(a) * reach * f;
+        scratchA.set(b.up.x * R + b.east.x * x + b.north.x * z, b.up.y * R + b.east.y * x + b.north.y * z, b.up.z * R + b.east.z * x + b.north.z * z);
+        scratchA.normalize();
+        rise = Math.max(rise, sampler.elevation(scratchA.x, scratchA.y, scratchA.z) - site.elevation);
+      }
+    }
+    backdropSink = rise * GLOBE_EXAGGERATION + 400;
+  }
+
+  let backdropShown = false;
+  function placeGlobeBackdrop(): void {
+    if (!globe || !globeEntity || !site) return;
+    const show = globe.ready && groundHeight > Math.max(1500, 0.6 * cfg.viewDistance * drawScale);
+    if (show) {
+      const lower = (site.elevation * (GLOBE_EXAGGERATION - 1) + backdropSink) * (1 - smoothstep(SWAP_ALTITUDE / 3, SWAP_ALTITUDE, groundHeight));
+      for (const e of [globeEntity, detailEntity]) {
+        if (!e) continue;
+        e.transform.position = scratchB.set(0, -R - lower, 0);
+        e.transform.rotation = tmpQ.copyFrom(site.quat);
+      }
+      // The detail patch follows the falling camera, as it does an orbit zoom.
+      const radius = detailFocusRadius(R, groundHeight, camera.fovY, aspect());
+      if (radius > 0) {
+        latLonToDirection(site.latDeg, site.lonDeg, scratchA);
+        globe.setDetailFocus(scratchA.x, scratchA.y, scratchA.z, radius);
+      }
+    }
+    if (show === backdropShown && !show) return;
+    backdropShown = show;
+    const gr = scene.world.getComponent(globeEntity.id, Renderable);
+    if (gr) gr.visible = show;
+    const dr = detailEntity ? scene.world.getComponent(detailEntity.id, Renderable) : null;
+    if (dr) dr.visible = show && globe.detailVisible;
+  }
+
+  /** Put the globe back where the orbit view keeps it (and hidden, until `setGlobeVisible`). */
+  function hideGlobeBackdrop(): void {
+    backdropShown = false;
+    for (const e of [globeEntity, detailEntity]) {
+      if (!e) continue;
+      e.transform.position = scratchB.set(0, -R, 0);
+      const r = scene.world.getComponent(e.id, Renderable);
+      if (r) r.visible = false;
+    }
   }
 
   function updateAscend(dt: number): void {
     diveT += dt;
     if (phase.endsWith("climb")) {
       const u = clamp(diveT / DIVE_GROUND_SECONDS, 0, 1);
-      groundHeight = lerpLog(diveHeight0, SWAP_ALTITUDE, ease(u));
+      groundHeight = lerpLog(diveHeight0, descentGroundHeight(SWAP_ALTITUDE, site?.elevation ?? 0), ease(u));
       pitch = divePitch0 + (ORBIT_VIEW_PITCH - divePitch0) * smoothstep(0.1, 0.8, u);
       yaw = ascendYaw * (1 - smoothstep(0.1, 0.9, u));
       camX *= 1 - smoothstep(0.1, 0.9, u) * 0.2;
       camZ *= 1 - smoothstep(0.1, 0.9, u) * 0.2;
       placeGroundCamera(dt, true);
+      placeGlobeBackdrop();
       if (u >= 1) {
         // Back to the globe at the site, still under the haze.
         const q = site?.quat;
@@ -1499,17 +1617,23 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     camera.near = clamp(groundHeight * 0.01, 0.3, 4000);
     camera.far = Math.max(6000, groundHeight * 12, cfg.viewDistance * drawScale * 1.6);
     scene.settings.sky.seaLevel = groundY;
+    pushGroundFog(false);
     sunToSceneGround();
   }
 
   const lastGroundSun = new Vec3();
+  let lastObserverHeight = -1;
   function sunToSceneGround(): void {
     if (!solar || !site) return;
     groundSun(scratchB);
-    if (scratchB.dot(lastGroundSun) < 0.99999) {
+    // The sun's colour follows the camera's height too: white above the dust on a dive, butterscotch below.
+    const observer = clamp(groundHeight, 0, SWAP_ALTITUDE);
+    const climbed = Math.abs(observer - lastObserverHeight) > Math.max(25, lastObserverHeight * 0.03);
+    if (scratchB.dot(lastGroundSun) < 0.99999 || climbed) {
       lastGroundSun.copyFrom(scratchB);
+      lastObserverHeight = observer;
       solar.externalSunDirection!.copyFrom(scratchB);
-      solar.observerHeight = clamp(groundHeight, 0, 20000);
+      solar.observerHeight = observer;
       solar.apply();
       weather?.apply();
     }

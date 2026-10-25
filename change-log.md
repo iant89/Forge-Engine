@@ -31667,6 +31667,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Draw distance notes and the docs:check KNOWN-ISSUES rule",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2546",
+    "date": "2026-10-25T05:10:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Dive: ground systems join the scene at the swap; turn-then-fall on one log-height clock; swap at 80 km; globe backdrop under the terrain while descending; height-scaled fog; sun follows real height",
+    "why": "Double-clicking the planet turned it into an orange disc (ground fog/sky attached during the approach) and the fall did not read as a drop through the atmosphere"
+  },
+  {
+    "id": "2547",
+    "date": "2026-10-25T05:10:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitMath.ts",
+    "what": "ENTRY_SWAP_ALTITUDE, ENTRY_VEIL_PEAK, thin entryHaze, descentFogDensity, descentGroundHeight",
+    "why": "Pure, tested policy for the new dive"
+  },
+  {
+    "id": "2548",
+    "date": "2026-10-25T05:10:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/examples/marsOrbitScene.test.ts",
+    "what": "Veil, descent fog and ground-height continuity tests replace the opaque-haze test",
+    "why": "Pin the new dive policy"
+  },
+  {
+    "id": "2549",
+    "date": "2026-10-25T05:10:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Orbit → ground section rewritten for the new dive",
+    "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2550",
+    "date": "2026-10-25T05:10:00Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Orange-disc root cause and the ground-fog-from-altitude lesson",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

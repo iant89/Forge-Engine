@@ -3219,3 +3219,10 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   streamed after 5 min headless. Even Normal is budget-limited (selection is facing-prioritised, which is why turning loads chunks).
   The real far horizon needs a far-field ring/coarse chunks — not built. `docs:check` rejects KNOWN-ISSUES entries tagged with a
   *verified* capability, so engine limits on verified features go in the feature's own doc.
+
+- **2026-10-25 — Mars orbit dive "orange circle".** Symptom: double-click the planet → it became a flat orange disc, then zoomed.
+  Root cause: the ground world's `DayNightCycle`/`WeatherSystem` were added to the scene when built (start of the dive), so the
+  ground's exp2 fog (0.0014/m: opaque past ~1.5 km) and ground sky applied to the globe during the approach. Fix: build early,
+  attach at the swap (`attachGroundSystems`). Lesson: a horizontal ground fog is opaque from altitude — scale it with camera height
+  (`descentFogDensity`). The fall now keeps the globe drawn under the terrain (sunk below its exaggerated relief) as the backdrop
+  beyond the terrain disc; see docs/PLANET-ORBIT.md "Orbit → ground".

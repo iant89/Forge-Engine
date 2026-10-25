@@ -39,10 +39,20 @@ frame line up. The sun is rotated into the world with the planet, so the termina
 ### Orbit → ground
 
 1. A double-tap picks the lat/lon (`pixelRay` → `pickPlanetDirection`).
-2. The spin controller eases to the site orientation (2.8 s) while altitude log-eases toward 450 km; the ground world
-   (`TerrainWorld`, `DayNightCycle`, `WeatherSystem`, `DustDevilField`) is built at the start of the dive.
-3. At the swap altitude the globe hides, the sky settings change from "seen from space" to "standing in it", and
-   a butterscotch entry haze (`entryHaze`) covers the swap while the camera descends to eye height (1.7 m, 4.2 s).
+2. The spin controller turns the site under the camera (2.8 s) at constant altitude; then the camera falls straight
+   down. The whole fall, orbit altitude to eye height (1.7 m), is one log-height ease (7 s) that runs on across the
+   swap, so the fall never stalls or jumps. The ground world (`TerrainWorld`, `DayNightCycle`, `WeatherSystem`,
+   `DustDevilField`) is built at the start of the dive but joins the scene only at the swap. Attached earlier, its
+   ground fog and sky would turn the globe into a flat orange disc during the approach.
+3. At the swap altitude (`ENTRY_SWAP_ALTITUDE`, 80 km) the sky settings change from "seen from space" to "standing in
+   it", and a thin dust veil (`entryHaze`, at most 0.3 opacity) softens the change. Below the swap:
+   - The globe and its detail patch stay drawn as a backdrop under the terrain. They are lowered by the site's relief
+     exaggeration plus the most the exaggerated relief rises anywhere on the terrain disc, so they never poke through
+     it. They hide once the terrain and fog fill the view.
+   - The ground fog is thinned with height (`descentFogDensity`), so the ground below is always at the same fog depth.
+   - The ground sun follows the real height (`observerHeight` up to the swap altitude).
+   - `descentGroundHeight` maps the datum-relative fall onto the site-relative ground camera, so the two cameras meet
+     exactly at the swap.
 4. Return reverses it and frees the ground world's GPU memory.
 
 On the ground, drag to look, wheel/pinch to change eye height (1.7–700 m), WASD to walk. The ground sky, dust haze,

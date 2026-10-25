@@ -59,17 +59,44 @@ export function lerpLog(a: number, b: number, u: number): number {
   return Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * clamp(u, 0, 1));
 }
 
+/** Altitude at which a dive hands the globe over to the ground world (and a climb hands it back), metres. */
+export const ENTRY_SWAP_ALTITUDE = 80e3;
+/** Peak opacity of the thin dust veil that softens the swap; the terrain stays readable through it. */
+export const ENTRY_VEIL_PEAK = 0.3;
+
 /**
- * The butterscotch entry haze (0..1) that hides the swap between the baked globe and the ground
- * world. Orbit-scale altitudes ramp up as the camera closes on the surface; once on the ground side of
- * the swap the ground-relative height fades it out again.
+ * The butterscotch dust veil (0..{@link ENTRY_VEIL_PEAK}) over the swap between the baked globe and
+ * the ground world. It thickens as an orbit-scale camera closes on {@link ENTRY_SWAP_ALTITUDE} and,
+ * once on the ground side, thins away again by 15 km. It peaks at the swap and is the same on both sides.
  *
  * @param altitude metres above the surface
  * @param groundSide true once the terrain world (not the globe) is what is drawn
  */
 export function entryHaze(altitude: number, groundSide: boolean): number {
-  if (groundSide) return smoothstep(2.5e4, 3.8e5, altitude);
-  return 1 - smoothstep(3.5e5, 2.2e6, altitude);
+  if (groundSide) return ENTRY_VEIL_PEAK * smoothstep(1.5e4, ENTRY_SWAP_ALTITUDE, altitude);
+  return ENTRY_VEIL_PEAK * (1 - smoothstep(ENTRY_SWAP_ALTITUDE, 7e5, altitude));
+}
+
+/**
+ * The `exp2` fog density for a camera `height` metres above the ground, from the ground-level
+ * `base`. Ground fog is a horizontal haze: at eye height it is `base`, and from high up it would
+ * cover everything. Higher up the density falls as `depth / height`, so the ground straight below
+ * always sits at the same fog depth (`exp(−depth²)` transmittance, about 0.7 for the default 0.6).
+ */
+export function descentFogDensity(base: number, height: number, depth = 0.6): number {
+  const k = (base * Math.max(0, height)) / depth;
+  return base / Math.sqrt(1 + k * k);
+}
+
+/**
+ * Height above the ground (m) on the ground side of a dive, from the altitude above the datum `A`
+ * that the whole fall is timed in. The orbit camera's altitude is measured from the datum but the
+ * ground camera's height from the site's elevation `siteElevation`. The two meet exactly at the swap
+ * (`A = swap` gives `swap − siteElevation`) and converge to `A` near the ground, so the fall never
+ * jumps. Monotonic in `A` for |siteElevation| < swap.
+ */
+export function descentGroundHeight(A: number, siteElevation: number, swap = ENTRY_SWAP_ALTITUDE): number {
+  return A - siteElevation * clamp(A / swap, 0, 1);
 }
 
 /** Camera quaternion (x, y, z, w) for a ground view with compass heading `yaw` and look-up `pitch`, radians. */
