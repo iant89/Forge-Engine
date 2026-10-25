@@ -1170,7 +1170,9 @@ async function checkMarsOrbitRealtimeReturn() {
   await page.waitForFunction(() => window.__forge?.marsOrbitState?.() != null, null, { polling: 250, timeout: 90000 });
   await page.waitForFunction(() => window.__forge.marsOrbitState().globeProgress >= 0.3, null, { polling: 500, timeout: 150000 });
   await page.evaluate(() => window.__forge.marsOrbitDive(-42, 70, { hours: 13, ls: 225 }));
-  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 100, timeout: 600000 });
+  // The dive is ~10 s of scene time (turn, then a 7 s fall) at dt ≤ 0.1. At 1280×720 SwiftShader draws the
+  // descent (terrain plus backdrop) well under 1 fps, so allow 20 min of wall time; a hang still fails.
+  await page.waitForFunction(() => window.__forge.marsOrbitState().mode === "ground", null, { polling: 500, timeout: 1200000 });
   await page.waitForFunction(() => window.__forge.marsOrbitState().terrainReadyChunks >= 4, null, { polling: 500, timeout: 150000 });
   await sleep(1000);
   await page.evaluate(() => window.__forge.marsOrbitReturn());
