@@ -1508,7 +1508,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
    * ground to the horizon and not just the terrain's few-kilometre disc. In the site frame the globe sits
    * where the orbit view had it (centre `−R`, site up), lowered so its exaggerated relief stays under the
    * terrain: by the site's own exaggeration plus `backdropSink`, the most it rises above the site
-   * anywhere on the disc. It eases down from the swap so the hand-over does not jump, and hides once the
+   * anywhere on the disc (sampled at the detail patch's resolution, which is what is drawn). It eases down from the swap so the hand-over does not jump, and hides once the
    * terrain and the fog fill the view.
    */
   let backdropSink = 0;
@@ -1551,8 +1551,11 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     }
     if (show === backdropShown && !show) return;
     backdropShown = show;
+    // The base sphere's facets are far coarser than a crater: over a basin floor its surface sits kilometres
+    // above the real ground, so a camera falling to the floor ends up inside it. Below the swap only the
+    // detail patch, meshed at the patch's own resolution, is drawn once it is baked.
     const gr = scene.world.getComponent(globeEntity.id, Renderable);
-    if (gr) gr.visible = show;
+    if (gr) gr.visible = show && !globe.detailVisible;
     const dr = detailEntity ? scene.world.getComponent(detailEntity.id, Renderable) : null;
     if (dr) dr.visible = show && globe.detailVisible;
   }
