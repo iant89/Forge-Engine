@@ -629,12 +629,12 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     .mo-mark .lbl{display:none;position:absolute;left:14px;top:50%;transform:translateY(-50%);white-space:nowrap;font:600 12px system-ui,sans-serif;color:#fff7ee;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,.9);pointer-events:none}
     .mo-mark:hover .lbl,.mo-mark:focus-visible .lbl,.mo-mark.sel .lbl,#mo-marks.labels .lbl{display:block}
     #mo-card{display:none;position:absolute;left:12px;bottom:120px;width:min(330px,calc(100vw - 24px))}
-    #mo-card .mo-kind{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+    #mo-card .mo-kind{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.75;padding-right:36px}
     #mo-card h2{font-size:16px;margin:2px 0 2px}
     #mo-card .mo-coords{font-size:12px;opacity:.75;margin-bottom:6px}
     #mo-card p{margin:0 0 10px}
     #mo-card .mo-actions{display:flex;gap:8px}
-    #mo-card-close{position:absolute;right:6px;top:6px;min-height:0;padding:4px 9px;font-size:14px}
+    #mo-card-close{position:absolute;right:6px;top:6px;z-index:2;min-height:0;padding:4px 9px;font-size:14px}
     @media (max-width:640px){#mo-card{bottom:auto;top:52px;left:6px;width:calc(100vw - 12px - min(260px,58vw) - 12px)}}
     @media (max-width:640px){#mo-right{top:52px;width:min(260px,58vw)}#mo-events .mo-ev:nth-child(n+4){display:none}#mo-bottom{left:6px;right:64px;transform:none;width:auto;max-width:none;bottom:92px;gap:6px}#mo-slider{flex:1 1 100%;justify-content:center}#mo-slider input{width:26vw}.mo-btn{padding:8px 10px}}
   `;

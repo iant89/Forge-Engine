@@ -31463,6 +31463,18 @@ JSON array below; agents maintain it by hand until then.
     "file": "tools/browser-check.mjs",
     "what": "Close the landmark card with a mouse click at the button's box instead of page.click()",
     "why": "page.click() waits for animation-frame stability, which headless SwiftShader at <1 fps did not grant (30 s timeout)"
+  },
+  {
+    "id": "2529",
+    "date": "2026-10-25T01:51:24Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Landmark card close button gets z-index 2; the kind label leaves room for it",
+    "why": "The kind label's opacity < 1 made it a stacking context painted over the absolutely positioned close button, so clicking the x did nothing (found by the browser gate)"
   }
 ]
 ```
