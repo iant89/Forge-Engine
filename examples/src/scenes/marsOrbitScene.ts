@@ -225,6 +225,9 @@ const ORBIT_FOV = 40 * DEG;
 const GROUND_FOV = 62 * DEG;
 /** Base exp2 fog density on the ground at the tier's draw distance (thinned in proportion as it grows). */
 const GROUND_FOG_DENSITY = 0.0014;
+/** Extra fog at full dust storm, and per unit of rain (the weather's own default), at eye height. */
+const GROUND_STORM_FOG_DENSITY = 0.0026;
+const GROUND_RAIN_FOG_DENSITY = 0.02;
 /** Ground draw-distance choices, as multiples of the tier's terrain view distance. */
 const DRAW_DISTANCES = [
   { scale: 1, label: "Normal" },
@@ -929,14 +932,26 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   let drawScale = [1, 2, 4].includes(options.drawDistance ?? storedScale ?? 1) ? Math.min(maxDrawScale, options.drawDistance ?? storedScale ?? 1) : 1;
   /** Angular radius of ground (and its atlas faces) the terrain may reach at the current draw distance. */
   const groundRadiusRad = (): number => (cfg.viewDistance * drawScale * 1.6 + 10e3) / R;
-  /** Ground fog for the camera's height: thinned with the draw distance, and with height on a dive. */
-  const groundFogDensity = (): number => descentFogDensity(GROUND_FOG_DENSITY / drawScale, groundHeight);
+  /**
+   * Ground fog for the camera's height. Every part of it thins with height on a dive: the base haze
+   * (itself thinned with the draw distance) and the weather's storm and rain haze. They are all
+   * scaled by the factor that keeps the haziest state at one fog depth from above
+   * (`descentFogDensity`).
+   */
+  const groundFogDensity = (): number => (GROUND_FOG_DENSITY / drawScale) * groundFogScale();
+  const groundFogScale = (): number => {
+    const worst = GROUND_FOG_DENSITY / drawScale + GROUND_STORM_FOG_DENSITY;
+    return descentFogDensity(worst, groundHeight) / worst;
+  };
   let lastFogDensity = -1;
   function pushGroundFog(force: boolean): void {
     if (!weather) return;
     const d = groundFogDensity();
     if (!force && Math.abs(d - lastFogDensity) <= lastFogDensity * 0.02) return;
     lastFogDensity = d;
+    const k = groundFogScale();
+    weather.stormFogDensity = GROUND_STORM_FOG_DENSITY * k;
+    weather.rainFogDensity = GROUND_RAIN_FOG_DENSITY * k;
     weather.setBaseFogDensity(d);
   }
   function setDrawScale(scale: number): void {
@@ -1054,7 +1069,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       seed: 1337,
       initial: weatherState,
       target: weatherState,
-      stormFogDensity: 0.0026,
+      stormFogDensity: GROUND_STORM_FOG_DENSITY,
       humidityTurbidity: 1,
       stormTurbidity: 4.5,
       minimumSunLight: 0.25,
