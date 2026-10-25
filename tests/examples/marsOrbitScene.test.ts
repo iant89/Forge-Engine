@@ -5,8 +5,9 @@
  * @covers examples/src/diag/touchDiagnostics.ts
  * @covers examples/src/scenes/marsOrbitMath.ts
  * @covers examples/src/scenes/marsOrbitEvents.ts
+ * @covers examples/src/scenes/marsOrbitLandmarks.ts
  * @covers examples/src/sceneSelection.ts
- * @desc fe-39 Mars Orbit Explorer demo: gesture rules, diagnostics text, camera maths, and the weather-event script
+ * @desc fe-39 Mars Orbit Explorer demo: gesture rules, diagnostics text, camera maths, the weather-event script and the landmark table
  */
 
 export const suite = {
@@ -17,9 +18,10 @@ export const suite = {
     "examples/src/diag/touchDiagnostics.ts",
     "examples/src/scenes/marsOrbitMath.ts",
     "examples/src/scenes/marsOrbitEvents.ts",
+    "examples/src/scenes/marsOrbitLandmarks.ts",
     "examples/src/sceneSelection.ts",
   ],
-  desc: "fe-39 Mars Orbit Explorer demo: gesture rules, diagnostics text, camera maths, and the weather-event script",
+  desc: "fe-39 Mars Orbit Explorer demo: gesture rules, diagnostics text, camera maths, the weather-event script and the landmark table",
 };
 /**
  * The demo's own pieces (`?scene=mars-orbit`): the pointer gesture rules that make mouse and iOS touch
@@ -29,7 +31,10 @@ export const suite = {
  */
 import assert from "node:assert/strict";
 import { assertCloseTo, finish, group, test } from "selrun";
-import { PlanetWeatherSystem, createPlanetWeatherSample, solsForLocalHours } from "@forge/engine";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { MarsHeightAtlasStreamer, PlanetWeatherSystem, createPlanetWeatherSample, latLonToDirection, solsForLocalHours, Vec3 } from "@forge/engine";
 import { GestureRecogniser } from "../../examples/src/controls/gestures.js";
 import { formatDiagPointer } from "../../examples/src/diag/touchDiagnostics.js";
 import {
@@ -39,6 +44,8 @@ import {
   groundPointerDirection,
   groundViewQuaternion,
   isSkyPick,
+  orbitFacing,
+  projectOrbitPoint,
   lerpLog,
   orbitAltitudeRange,
   orbitClipPlanes,
@@ -46,6 +53,7 @@ import {
   pixelRay,
 } from "../../examples/src/scenes/marsOrbitMath.js";
 import { MARS_ORBIT_DESTINATIONS, MARS_ORBIT_EVENTS } from "../../examples/src/scenes/marsOrbitEvents.js";
+import { MARS_LANDMARK_KIND_LABEL, MARS_LANDMARKS } from "../../examples/src/scenes/marsOrbitLandmarks.js";
 import { resolveDemoSceneName } from "../../examples/src/sceneSelection.js";
 
 function recorder() {
@@ -231,6 +239,89 @@ group("the event script", () => {
   test("the scene name resolves with its aliases", () => {
     assert.equal(resolveDemoSceneName("mars-orbit"), "mars-orbit");
     assert.equal(resolveDemoSceneName("planet"), "mars-orbit");
+  });
+});
+
+group("landmarks", () => {
+  test("every landmark is complete, unique and in range", () => {
+    const ids = new Set<string>();
+    for (const l of MARS_LANDMARKS) {
+      assert.ok(!ids.has(l.id), `duplicate ${l.id}`);
+      ids.add(l.id);
+      assert.ok(l.name.length > 2 && MARS_LANDMARK_KIND_LABEL[l.kind], l.id);
+      assert.ok(l.latDeg >= -90 && l.latDeg <= 90, `${l.id} latitude`);
+      assert.ok(l.lonDeg >= 0 && l.lonDeg < 360, `${l.id} longitude is east-positive 0–360`);
+      assert.ok(l.description.length >= 60 && l.description.length <= 280, `${l.id}: brief but useful (${l.description.length} chars)`);
+    }
+    assert.ok(MARS_LANDMARKS.length >= 12);
+    for (const kind of ["volcano", "canyon", "basin", "landing", "polar"] as const) {
+      assert.ok(MARS_LANDMARKS.some((l) => l.kind === kind), `has a ${kind}`);
+    }
+  });
+
+  test("volcanoes, basins and canyons sit where MOLA says they are", async () => {
+    // A sign or hemisphere slip in a coordinate puts a summit in a basin: check the real heights.
+    const molaDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../examples/public/mars/mola");
+    const diskFetch = ((input: RequestInfo | URL) =>
+      Promise.resolve(new Response(readFileSync(path.join(molaDir, String(input).replace(/^.*\/mars\/mola\//, "")))))) as typeof fetch;
+    const streamer = await MarsHeightAtlasStreamer.open("/mars/mola/", { fetchImpl: diskFetch });
+    await streamer.loadSize("tablet");
+    const d = new Vec3();
+    /** Extreme height within ±1.5° of a landmark (its marker is a point on a big feature). */
+    const extreme = (id: string, mode: "max" | "min"): number => {
+      const l = MARS_LANDMARKS.find((x) => x.id === id)!;
+      let best = mode === "max" ? -Infinity : Infinity;
+      for (let la = -1.5; la <= 1.5; la += 0.25) {
+        for (let lo = -1.5; lo <= 1.5; lo += 0.25) {
+          latLonToDirection(l.latDeg + la, l.lonDeg + lo, d);
+          const h = streamer.atlas.sample(d.x, d.y, d.z);
+          best = mode === "max" ? Math.max(best, h) : Math.min(best, h);
+        }
+      }
+      return best;
+    };
+    const expect: Array<[string, "max" | "min", number]> = [
+      ["olympus-mons", "max", 18000],
+      ["tharsis-montes", "max", 10000],
+      ["elysium-mons", "max", 10000],
+      ["hellas", "min", -6000],
+      ["argyre", "min", -1500],
+      ["utopia", "min", -3000],
+      ["valles-marineris", "min", -3000],
+    ];
+    for (const [id, mode, limit] of expect) {
+      const h = extreme(id, mode);
+      assert.ok(mode === "max" ? h > limit : h < limit, `${id}: ${mode} height ${h.toFixed(0)} m vs ${limit}`);
+    }
+  });
+
+  test("markers project onto the pixel the orbit picker would pick, and hide on the far side", () => {
+    const w = 1280;
+    const h = 720;
+    const fov = 0.7;
+    const alt = 5e6;
+    for (const [px, py] of [[640, 360], [100, 80], [1200, 650]] as const) {
+      // pixelRay in the orbit basis: right +X, up +Z, forward −Y (as the scene's picker builds it).
+      const ray = pixelRay(px, py, w, h, fov);
+      const t = 1e6;
+      const p = projectOrbitPoint(ray.x * t, alt - ray.z * t, ray.y * t, alt, fov, w, h);
+      assert.ok(p.inFront);
+      assertCloseTo(p.x, px, 6);
+      assertCloseTo(p.y, py, 6);
+    }
+    assert.equal(projectOrbitPoint(0, alt + 10, 0, alt, fov, w, h).inFront, false, "behind the eye");
+    const R = 3389.5e3;
+    // Planet centre at (0, −R, 0): the sub-camera point faces the eye, the far side does not.
+    assertCloseTo(orbitFacing(0, 1, 0, 0, 0, 0, alt), 1, 9);
+    assert.ok(orbitFacing(0, -1, 0, 0, -2 * R, 0, alt) < 0);
+    // From 5,000 km the limb is ~66° from the sub-camera point: 60° out is grazing, 90° out is hidden.
+    const at = (deg: number): number => {
+      const nx = Math.sin((deg * Math.PI) / 180);
+      const ny = Math.cos((deg * Math.PI) / 180);
+      return orbitFacing(nx, ny, 0, nx * R, ny * R - R, 0, alt);
+    };
+    assert.ok(at(60) > 0 && at(60) < 0.5, `60° out: ${at(60)}`);
+    assert.ok(at(90) < 0, "beyond the limb");
   });
 });
 

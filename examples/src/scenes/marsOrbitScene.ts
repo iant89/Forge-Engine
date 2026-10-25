@@ -79,6 +79,7 @@ import { createMarsSurfaceTextures } from "../textures/procedural.js";
 import type { DemoSceneHandle } from "./cubesScene.js";
 import { createMarsOrbitAtlas, type MarsOrbitAtlasInfo } from "./marsOrbitAtlas.js";
 import { MARS_ORBIT_DESTINATIONS, MARS_ORBIT_EVENTS } from "./marsOrbitEvents.js";
+import { MARS_LANDMARK_KIND_LABEL, MARS_LANDMARKS, type MarsLandmark } from "./marsOrbitLandmarks.js";
 import {
   ORBIT_VIEW_PITCH,
   clamp,
@@ -88,6 +89,8 @@ import {
   orbitAltitudeRange,
   orbitClipPlanes,
   orbitFitAltitude,
+  orbitFacing,
+  projectOrbitPoint,
   detailFocusRadius,
   groundPointerDirection,
   isSkyPick,
@@ -137,6 +140,8 @@ export interface MarsOrbitState {
   globeReady: boolean;
   globeProgress: number;
   globeBakedColumns: number;
+  /** Landmark markers: switched on, the ids drawn on screen now, and the one whose card is open. */
+  landmarks: { on: boolean; visible: string[]; selected: string | null };
   /** The zoomed-in detail patch: shown, baking, and the shown cap radius in degrees. */
   globeDetail: { visible: boolean; busy: boolean; radiusDeg: number };
   autoSpin: number;
@@ -209,6 +214,9 @@ const DEG = Math.PI / 180;
 const R = MARS_ATMOSPHERE.planetRadius;
 const ORBIT_FOV = 40 * DEG;
 const GROUND_FOV = 62 * DEG;
+/** Displacement multiplier of the globe's relief (orbit-scale relief is otherwise invisible). */
+const GLOBE_EXAGGERATION = 2.2;
+
 /** Altitude at which the globe and the ground world swap (hidden under the entry haze), metres. */
 const SWAP_ALTITUDE = 450e3;
 const DIVE_ORBIT_SECONDS = 2.8;
@@ -316,7 +324,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       meshSegments: cfg.mesh,
       textureWidth: cfg.texture,
       gridPasses: real ? cfg.realPasses : cfg.passes,
-      elevationExaggeration: 2.2,
+      elevationExaggeration: GLOBE_EXAGGERATION,
       // Real relief is subtler at orbit scale than the procedural model's: boost the baked shading.
       reliefStrength: real ? 36 : undefined,
       reliefGain: real ? 1.6 : undefined,
@@ -614,12 +622,38 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     #mo-slider input{width:min(34vw,180px);accent-color:#e9a566}
     #mo-ground{display:none;font-size:12px}
     #mo-dest{pointer-events:auto;background:rgba(34,22,16,.78);color:#fbeee0;border:1px solid rgba(255,214,176,.35);border-radius:9px;padding:9px;font:600 13px system-ui,sans-serif;min-height:40px}
+    #mo-marks{position:absolute;left:0;top:0;pointer-events:none;overflow:hidden}
+    .mo-mark{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;width:16px;height:16px;padding:0;border-radius:50%;border:2px solid rgba(255,255,255,.92);background:var(--k);box-shadow:0 0 0 3px rgba(0,0,0,.28),0 1px 6px rgba(0,0,0,.5);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+    .mo-mark::before{content:"";position:absolute;inset:-10px;border-radius:50%}
+    .mo-mark:hover,.mo-mark:focus-visible,.mo-mark.sel{outline:none;box-shadow:0 0 0 3px rgba(0,0,0,.28),0 0 0 6px rgba(255,236,214,.55)}
+    .mo-mark .lbl{display:none;position:absolute;left:14px;top:50%;transform:translateY(-50%);white-space:nowrap;font:600 12px system-ui,sans-serif;color:#fff7ee;text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,.9);pointer-events:none}
+    .mo-mark:hover .lbl,.mo-mark:focus-visible .lbl,.mo-mark.sel .lbl,#mo-marks.labels .lbl{display:block}
+    #mo-card{display:none;position:absolute;left:12px;bottom:120px;width:min(330px,calc(100vw - 24px))}
+    #mo-card .mo-kind{font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+    #mo-card h2{font-size:16px;margin:2px 0 2px}
+    #mo-card .mo-coords{font-size:12px;opacity:.75;margin-bottom:6px}
+    #mo-card p{margin:0 0 10px}
+    #mo-card .mo-actions{display:flex;gap:8px}
+    #mo-card-close{position:absolute;right:6px;top:6px;min-height:0;padding:4px 9px;font-size:14px}
+    @media (max-width:640px){#mo-card{bottom:auto;top:52px;left:6px;width:calc(100vw - 12px - min(260px,58vw) - 12px)}}
     @media (max-width:640px){#mo-right{top:52px;width:min(260px,58vw)}#mo-events .mo-ev:nth-child(n+4){display:none}#mo-bottom{left:6px;right:64px;transform:none;width:auto;max-width:none;bottom:92px;gap:6px}#mo-slider{flex:1 1 100%;justify-content:center}#mo-slider input{width:26vw}.mo-btn{padding:8px 10px}}
   `;
   document.head.appendChild(css);
   const hud = document.createElement("div");
   hud.id = "mo-hud";
   hud.innerHTML = `
+    <div id="mo-marks"></div>
+    <div id="mo-card" class="mo-panel" role="dialog" aria-live="polite" aria-labelledby="mo-card-name">
+      <button id="mo-card-close" class="mo-btn" type="button" aria-label="Close">×</button>
+      <div class="mo-kind" id="mo-card-kind"></div>
+      <h2 id="mo-card-name"></h2>
+      <div class="mo-coords" id="mo-card-coords"></div>
+      <p id="mo-card-desc"></p>
+      <div class="mo-actions">
+        <button class="mo-btn" id="mo-card-fly" type="button">Fly there</button>
+        <button class="mo-btn" id="mo-card-show" type="button">Centre view</button>
+      </div>
+    </div>
     <div id="mo-right">
       <button id="mo-return" class="mo-btn" type="button">⬆ Return to orbit</button>
       <div id="mo-top" class="mo-panel">
@@ -635,6 +669,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       <button class="mo-btn" id="mo-rate" type="button">Season ▶ 1×</button>
       <div id="mo-hours" style="display:none;align-items:center;gap:8px"><label for="mo-h">Time</label><input id="mo-h" type="range" min="0" max="24" step="0.1" value="14" style="width:min(34vw,180px);accent-color:#e9a566"><span id="mo-h-val"></span></div>
       <select id="mo-dest" aria-label="Fly to"><option value="">Fly to…</option>${MARS_ORBIT_DESTINATIONS.map((d) => `<option value="${d.id}">${d.label}</option>`).join("")}</select>
+      <button class="mo-btn on" id="mo-landmarks" type="button" aria-pressed="true">Landmarks</button>
       <button class="mo-btn" id="mo-diag" type="button">Touch diagnostics</button>
     </div>`;
   document.body.appendChild(hud);
@@ -656,6 +691,106 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   const elHoursVal = $("mo-h-val");
   const elDest = $<HTMLSelectElement>("mo-dest");
   const elDiag = $<HTMLButtonElement>("mo-diag");
+  const elMarks = $("mo-marks");
+  const elCard = $("mo-card");
+  const elLandmarks = $<HTMLButtonElement>("mo-landmarks");
+
+  // ------------------------------------------------------------------ landmarks
+  // Markers for well-known places (marsOrbitLandmarks.ts), drawn over the globe in orbit; clicking one
+  // opens a card that says what it is and why it is famous, with Fly there / Centre view.
+  const KIND_COLOUR: Readonly<Record<MarsLandmark["kind"], string>> = {
+    volcano: "#ff8a5c", canyon: "#ffd166", basin: "#8ecae6", plain: "#c9b2ec", landing: "#7bdc8a", polar: "#f4f8ff",
+  };
+  const landmarkDirs = MARS_LANDMARKS.map((l) => latLonToDirection(l.latDeg, l.lonDeg, new Vec3()));
+  const markEls = MARS_LANDMARKS.map((l) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "mo-mark";
+    b.hidden = true;
+    b.dataset.landmark = l.id;
+    b.style.setProperty("--k", KIND_COLOUR[l.kind]);
+    b.setAttribute("aria-label", `${l.name} (${MARS_LANDMARK_KIND_LABEL[l.kind]})`);
+    const label = document.createElement("span");
+    label.className = "lbl";
+    label.textContent = l.name;
+    b.appendChild(label);
+    elMarks.appendChild(b);
+    return b;
+  });
+  let landmarksOn = true;
+  let selectedLandmark: MarsLandmark | null = null;
+  const visibleLandmarks: string[] = [];
+  const markWorld = new Vec3();
+  const formatLatLon = (lat: number, lon: number): string => {
+    const e = ((lon % 360) + 360) % 360;
+    const lonText = e > 180 ? `${(360 - e).toFixed(1)}° W` : `${e.toFixed(1)}° E`;
+    return `${Math.abs(lat).toFixed(1)}° ${lat >= 0 ? "N" : "S"}, ${lonText}`;
+  };
+  function selectLandmark(id: string | null): void {
+    selectedLandmark = id ? MARS_LANDMARKS.find((l) => l.id === id) ?? null : null;
+    markEls.forEach((el, i) => el.classList.toggle("sel", MARS_LANDMARKS[i] === selectedLandmark));
+    const l = selectedLandmark;
+    elCard.style.display = l && mode === "orbit" ? "block" : "none";
+    if (!l) return;
+    $("mo-card-kind").textContent = MARS_LANDMARK_KIND_LABEL[l.kind];
+    $("mo-card-name").textContent = l.name;
+    $("mo-card-coords").textContent = formatLatLon(l.latDeg, l.lonDeg);
+    $("mo-card-desc").textContent = l.description;
+  }
+  function setLandmarksOn(on: boolean): void {
+    landmarksOn = on;
+    elLandmarks.classList.toggle("on", on);
+    elLandmarks.setAttribute("aria-pressed", String(on));
+    if (!on) selectLandmark(null);
+    updateLandmarks();
+  }
+  /** Place the markers over the globe: front side only, faded toward the limb. */
+  function updateLandmarks(): void {
+    const show = landmarksOn && mode === "orbit" && globe !== null;
+    elMarks.style.display = show ? "" : "none";
+    visibleLandmarks.length = 0;
+    if (!show) return;
+    const rect = canvas.getBoundingClientRect();
+    const { w, h } = viewport();
+    elMarks.style.left = `${rect.left}px`;
+    elMarks.style.top = `${rect.top}px`;
+    elMarks.style.width = `${w}px`;
+    elMarks.style.height = `${h}px`;
+    // Names on every marker once zoomed in (they no longer crowd each other); otherwise on hover/focus.
+    elMarks.classList.toggle("labels", orbitAlt < orbitFitAltitude(R, ORBIT_FOV, aspect()) * 0.45);
+    for (let i = 0; i < MARS_LANDMARKS.length; i++) {
+      const l = MARS_LANDMARKS[i]!;
+      const el = markEls[i]!;
+      rotateByQuat(spin.orientation, landmarkDirs[i]!, markWorld);
+      const r = R + (globe?.elevationAt(l.latDeg, l.lonDeg) ?? 0) * GLOBE_EXAGGERATION;
+      const px = markWorld.x * r;
+      const py = markWorld.y * r - R;
+      const pz = markWorld.z * r;
+      const facing = orbitFacing(markWorld.x, markWorld.y, markWorld.z, px, py, pz, orbitAlt);
+      const p = projectOrbitPoint(px, py, pz, orbitAlt, ORBIT_FOV, w, h);
+      const on = facing > 0.12 && p.inFront && p.x >= -12 && p.x <= w + 12 && p.y >= -12 && p.y <= h + 12;
+      el.hidden = !on;
+      if (!on) continue;
+      el.style.transform = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) translate(-50%,-50%)`;
+      el.style.opacity = Math.min(1, (facing - 0.12) * 4).toFixed(2);
+      visibleLandmarks.push(l.id);
+    }
+  }
+  elMarks.addEventListener("click", (e) => {
+    const mark = (e.target as HTMLElement).closest<HTMLElement>("[data-landmark]");
+    if (mark) selectLandmark(selectedLandmark?.id === mark.dataset.landmark ? null : mark.dataset.landmark ?? null);
+  }, { signal: sig });
+  elLandmarks.addEventListener("click", () => setLandmarksOn(!landmarksOn), { signal: sig });
+  $("mo-card-close").addEventListener("click", () => selectLandmark(null), { signal: sig });
+  $("mo-card-fly").addEventListener("click", () => {
+    const l = selectedLandmark;
+    if (!l) return;
+    selectLandmark(null);
+    diveTo(l.latDeg, l.lonDeg);
+  }, { signal: sig });
+  $("mo-card-show").addEventListener("click", () => {
+    if (selectedLandmark) focusOn(selectedLandmark.latDeg, selectedLandmark.lonDeg);
+  }, { signal: sig });
 
   elReturn.addEventListener("click", () => returnToOrbit(), { signal: sig });
   elLs.addEventListener("input", () => setSolarLongitude(Number(elLs.value)), { signal: sig });
@@ -1058,6 +1193,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     elGround.style.display = mode === "ground" ? "block" : "none";
     elHoursWrap.style.display = mode === "ground" ? "flex" : "none";
     elDest.style.display = mode === "orbit" ? "" : "none";
+    elLandmarks.style.display = mode === "orbit" ? "" : "none";
+    if (mode !== "orbit" && selectedLandmark) selectLandmark(null);
     if (mode === "ground" && site) {
       const hrs = localHours();
       elHoursVal.textContent = clockText(hrs);
@@ -1149,6 +1286,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
         globe.invalidateAtmosphere();
       }
     }
+
+    updateLandmarks();
 
     // Entry haze.
     const target = hazeTarget();
@@ -1320,6 +1459,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       globeReady: globe?.ready ?? false,
       globeProgress: globe?.progress ?? 0,
       globeBakedColumns: globe?.bakedColumns ?? 0,
+      landmarks: { on: landmarksOn, visible: [...visibleLandmarks], selected: selectedLandmark?.id ?? null },
       globeDetail: { visible: globe?.detailVisible ?? false, busy: globe?.detailBusy ?? false, radiusDeg: globe?.detailRadiusDeg ?? 0 },
       atlas: { ...atlasInfo },
       autoSpin: spin.autoSpinBlend,
@@ -1363,7 +1503,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene,
     cameraEntity,
     camera: { pointerInput: false, keyboard: false, minDistance: 1, maxDistance: 1e9 },
-    controlsHint: "Drag: spin the planet · double-click / double-tap: land there (on the ground: the sky to fly back up) · wheel / pinch: zoom · Esc: back to orbit · T: touch diagnostics",
+    controlsHint: "Drag: spin the planet · click a marker: what it is · double-click / double-tap: land there (on the ground: the sky to fly back up) · wheel / pinch: zoom · Esc: back to orbit · T: touch diagnostics",
     cameraOverride,
     overlay: () => {
       const s = handleState();

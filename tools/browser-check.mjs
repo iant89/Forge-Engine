@@ -980,6 +980,33 @@ async function checkMarsOrbit() {
   const turned = Math.abs(((lon1 - lon0 + 540) % 360) - 180);
   if (!(turned > 3)) throw new Error(`dragging turned the planet by only ${turned.toFixed(2)}°`);
 
+  // Landmark markers: a real click on one opens its card, which names it; the close button hides it.
+  const marks = await page.evaluate(() => window.__forge.marsOrbitState().landmarks);
+  if (!marks.on || marks.visible.length < 3) throw new Error(`too few landmark markers on the globe: ${JSON.stringify(marks)}`);
+  let picked = null;
+  for (const id of marks.visible) {
+    const box = await page.locator(`[data-landmark="${id}"]`).boundingBox();
+    if (!box) continue;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const free = await page.evaluate(([x, y, want]) => document.elementFromPoint(x, y)?.closest("[data-landmark]")?.getAttribute("data-landmark") === want, [cx, cy, id]);
+    if (!free) continue;
+    await page.mouse.click(cx, cy);
+    picked = id;
+    break;
+  }
+  if (!picked) throw new Error(`no landmark marker was clickable: ${JSON.stringify(marks)}`);
+  await page.waitForFunction((id) => window.__forge.marsOrbitState().landmarks.selected === id, picked, { polling: 200, timeout: 30000 })
+    .catch(() => { throw new Error(`clicking the ${picked} marker did not select it`); });
+  const card = await page.evaluate(() => ({ text: document.getElementById("mo-card")?.innerText ?? "", shown: getComputedStyle(document.getElementById("mo-card")).display !== "none" }));
+  const pickedName = await page.locator(`[data-landmark="${picked}"] .lbl`).textContent();
+  if (!card.shown || !card.text.includes(pickedName) || card.text.length < pickedName.length + 60) {
+    throw new Error(`the ${picked} card did not show its name and description: ${JSON.stringify(card)}`);
+  }
+  await page.screenshot({ path: "tools/.browser-check-mars-orbit-landmark.png", timeout: 60000 });
+  await page.click("#mo-card-close");
+  await page.waitForFunction(() => window.__forge.marsOrbitState().landmarks.selected === null, null, { polling: 200, timeout: 30000 });
+
   // Zoomed in, the globe bakes a detail patch under the camera; zoomed back out it is dropped.
   await page.waitForFunction(() => window.__forge.marsOrbitState().globeReady, null, { polling: 500, timeout: 400000 });
   await page.evaluate(() => window.__forge.marsOrbitZoom(0.12));
@@ -1012,6 +1039,7 @@ async function checkMarsOrbit() {
     throw new Error(`landed at the wrong place: ${JSON.stringify(ground.state.site)}`);
   }
   if (!(ground.state.weather.dust > 0.5)) throw new Error(`the storm site has no dust: ${JSON.stringify(ground.state.weather)}`);
+  if (ground.state.landmarks.visible.length !== 0) throw new Error(`landmark markers drawn on the ground: ${JSON.stringify(ground.state.landmarks)}`);
   await sleep(1500);
   await page.screenshot({ path: "tools/.browser-check-mars-orbit-ground.png", timeout: 60000 });
 
@@ -1042,7 +1070,7 @@ async function checkMarsOrbit() {
   const realtime = await checkMarsOrbitRealtimeReturn();
   console.log(
     `mars orbit: globe ${(first.globeProgress * 100).toFixed(0)}%→, drag turned ${turned.toFixed(1)}°, ` +
-      `detail patch ${detailState.detail.radiusDeg.toFixed(1)}° (frame mean=${detailFrame.mean.toFixed(1)}), ` +
+      `landmark card ${picked} (${marks.visible.length} markers), detail patch ${detailState.detail.radiusDeg.toFixed(1)}° (frame mean=${detailFrame.mean.toFixed(1)}), ` +
       `ground dust=${ground.state.weather.dust.toFixed(2)} (${ground.state.weather.dominantId}), terrain ${ground.state.terrainReadyChunks}/${ground.state.terrainChunks} chunks, ` +
       `frame mean=${cover.mean.toFixed(1)}, GPU errors=${end.stats.gpuErrors}, atlas ${atlas0.size} ${(atlas0.bytesDownloaded / 1e6).toFixed(1)} MB; ` +
       `real-time return: frame mean=${realtime.mean.toFixed(1)}, distinct=${realtime.distinct}, GPU errors=${realtime.gpuErrors}`,

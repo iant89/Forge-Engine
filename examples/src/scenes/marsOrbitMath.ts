@@ -119,6 +119,36 @@ export function isSkyPick(directionY: number, hitTerrain: boolean): boolean {
   return !hitTerrain && directionY > Math.sin(SKY_PICK_MIN_ELEVATION);
 }
 
+/**
+ * Screen position (CSS px) of a world point for the orbit camera: eye at `(0, altitude, 0)` looking down
+ * −Y with +X right and +Z up the screen (the basis `pixelRay` picking uses, so this is its inverse).
+ * `inFront` is false for a point behind the eye.
+ */
+export function projectOrbitPoint(
+  x: number, y: number, z: number, altitude: number, fovYRad: number, width: number, height: number,
+): { x: number; y: number; inFront: boolean } {
+  const forward = altitude - y;
+  const tanY = Math.tan(fovYRad / 2);
+  const tanX = tanY * (width / Math.max(1, height));
+  const depth = Math.max(forward, 1e-9);
+  const nx = x / (depth * tanX);
+  const ny = z / (depth * tanY);
+  return { x: ((nx + 1) / 2) * width, y: ((1 - ny) / 2) * height, inFront: forward > 0 };
+}
+
+/**
+ * How squarely a surface point faces an orbit camera at `(0, altitude, 0)`: the cosine between the outward
+ * normal and the direction to the eye (≤ 0 on the far side; small near the limb). `nx, ny, nz` is the
+ * unit normal, `px, py, pz` the point, both in world space.
+ */
+export function orbitFacing(nx: number, ny: number, nz: number, px: number, py: number, pz: number, altitude: number): number {
+  const ex = -px;
+  const ey = altitude - py;
+  const ez = -pz;
+  const l = Math.hypot(ex, ey, ez) || 1;
+  return (nx * ex + ny * ey + nz * ez) / l;
+}
+
 /** The orbit camera is the ground view with yaw 0 and pitch −90°: straight down, north up the screen. */
 export const ORBIT_VIEW_PITCH = -Math.PI / 2;
 

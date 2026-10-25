@@ -3193,3 +3193,7 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   (examples/src/scenes/marsOrbitAtlas.ts) makes the ground fetch the 2048² faces (≈2.6 km) per landing site everywhere (1024² at
   ≤ 2 GB). Finer than 2.6 km needs a new offline bake from the 2.1 GB USGS GeoTIFF — `planetarymaps.usgs.gov` is blocked by this
   sandbox's network policy (proxy 403), and ~18 MB/face (4096²) is too heavy for the repo; host it outside and use `atlasBaseUrl`.
+- **Landmark markers (fe-41):** DOM buttons over the canvas, placed per frame by `projectOrbitPoint`/`orbitFacing`
+  (marsOrbitMath.ts). The orbit camera basis is fixed (right +X, up +Z, forward −Y), so projection is the exact inverse of the
+  picker's `pixelRay` — keep them in step if the orbit camera ever gains yaw. Landmark coordinates are pinned against real MOLA
+  heights in tests (volcano maxima / basin minima within ±1.5°), which is the cheap way to catch an east/west or N/S slip.

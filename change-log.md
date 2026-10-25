@@ -31343,6 +31343,114 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "Ground level policy and the blocked 463 m source",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2519",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitLandmarks.ts",
+    "what": "New: 20 well-known Mars places (volcanoes, canyons, basins, plains, landing sites, polar caps) with coordinates and short descriptions",
+    "why": "User request: clickable landmark markers with a description of why each place is well known"
+  },
+  {
+    "id": "2520",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "Landmark markers over the globe (follow the spin, hide on the far side), info card with Fly there / Centre view, Landmarks toggle, state.landmarks",
+    "why": "User request"
+  },
+  {
+    "id": "2521",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitMath.ts",
+    "what": "projectOrbitPoint and orbitFacing",
+    "why": "Place markers on screen as the exact inverse of the orbit picker"
+  },
+  {
+    "id": "2522",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/examples/marsOrbitScene.test.ts",
+    "what": "Landmark table checks, MOLA heights at volcano/basin/canyon markers, projection round trip and limb facing",
+    "why": "Catch wrong coordinates and projection errors"
+  },
+  {
+    "id": "2523",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/tools/selrun.test.ts",
+    "what": "Coverage-claim count 1145 -> 1146",
+    "why": "New @covers for marsOrbitLandmarks.ts"
+  },
+  {
+    "id": "2524",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tools/browser-check.mjs",
+    "what": "mars-orbit: a real click on a landmark marker opens its card; close hides it; no markers on the ground",
+    "why": "Real-browser coverage of the landmarks"
+  },
+  {
+    "id": "2525",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "Landmarks section and gate coverage",
+    "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2526",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/VERIFICATION.md",
+    "what": "1,146 coverage claims",
+    "why": "Keep the gate description truthful"
+  },
+  {
+    "id": "2527",
+    "date": "2026-10-25T01:43:59Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Landmark projection note",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

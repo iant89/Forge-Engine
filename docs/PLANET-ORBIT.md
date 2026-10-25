@@ -50,6 +50,21 @@ frost, clouds and devils are all read from the same `PlanetWeatherSystem` the or
 and mapped by `planetGroundWeather`. Frost is `surface.snow` and burns off as the sun climbs; devil activity follows
 the sun elevation.
 
+## Landmarks
+
+Markers for twenty well-known places sit on the globe in orbit (`examples/src/scenes/marsOrbitLandmarks.ts`): the big volcanoes
+(Olympus Mons, Tharsis Montes, Elysium Mons), Valles Marineris and Noctis Labyrinthus, the Hellas, Argyre and Utopia basins, Syrtis
+Major and Cydonia, the polar caps, and the landing sites from Viking 1 to Perseverance. They are colour-coded by kind, follow the
+planet as it turns, fade toward the limb and hide on the far side; names show on hover/focus, and on every marker once zoomed in.
+**Click (or tap) a marker** for a card saying what the place is and why it is well known, with **Fly there** (land on it) and
+**Centre view** (turn the planet to it). The **Landmarks** button in the bottom bar hides them. They are DOM buttons placed each frame by
+`projectOrbitPoint` (the inverse of the orbit picker's `pixelRay`) and `orbitFacing` in `marsOrbitMath.ts`, so they are keyboard
+focusable and do not touch the renderer.
+
+Coordinates are planetocentric with east-positive longitude (the MOLA frame); `tests/examples/marsOrbitScene.test.ts` checks the real
+MOLA heights around the volcano, basin and canyon markers, so a sign or hemisphere slip fails. `marsOrbitState().landmarks` reports
+`{ on, visible, selected }`.
+
 ## Zooming in: the detail patch
 
 One equirectangular texture for the whole planet is ≈10–20 km per texel, which the closest orbit zoom (900 km) magnifies to
@@ -128,7 +143,8 @@ finer offline bake (e.g. 4096² faces, ~1.3 km, ~18 MB each) or a tiled streamer
 * Unit: `tests/environment/planetOrbit.test.ts` (frames, calendar, spin, weather, aureole, external sun, sampler,
   globe on the mock device, devils) and `tests/examples/marsOrbitScene.test.ts` (gestures, diagnostics text, camera
   maths, the event script).
-* Browser: `npm run check:browser:mars-orbit` (globe renders and bakes, a mouse drag turns it, a zoom-in bakes and shows the detail
+* Browser: `npm run check:browser:mars-orbit` (globe renders and bakes, a mouse drag turns it, a real click on a landmark marker
+  opens its card with its name and description and the close button hides it, no markers on the ground, a zoom-in bakes and shows the detail
   patch with a lit frame and no GPU errors and a zoom-out drops it, diagnostics toggle, dive to a storm site with dust and terrain,
   a double-click on the ground stays, a double-click on the sky returns). It runs under headless SwiftShader at a few fps, so it uses
   `?moinstant=1`; it does **not** measure real-time easing or real-GPU / iOS performance.
