@@ -94,7 +94,8 @@ import {
   detailFocusRadius,
   descentFogDensity,
   descentGroundHeight,
-  groundIceCover,
+  groundFrostCover,
+  polarLayerLooks,
   ENTRY_SWAP_ALTITUDE,
   groundPointerDirection,
   isSkyPick,
@@ -1039,6 +1040,24 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     scene.add(terrain);
   }
 
+  /**
+   * The ground layers for a site. On a polar cap they are the cap's own ice (water ice in the north,
+   * CO₂ on the south residual cap, a darker seasonal slab elsewhere), and steep trough walls show the
+   * layered deposits (`polarLayerLooks`). The cap is read at the current season. "Residual" is the
+   * share of that cover still there at the hemisphere's midsummer.
+   */
+  function polarSiteLayers(s: SiteState): ReturnType<typeof marsSurfaceLayers> {
+    const base = marsSurfaceLayers().map((layer, i) => ({ ...layer, color: Color.fromSrgbHex(SURFACE_TINTS[i]!) }));
+    const caps = planet.caps;
+    const cover = caps.coverage(s.latDeg, s.lonDeg, ls());
+    if (cover <= 0.002) return base;
+    const south = s.latDeg < 0;
+    const summerLs = ((south ? caps.southPeakLs : caps.northPeakLs) + 180) % 360;
+    const residual = Math.min(1, caps.coverage(s.latDeg, s.lonDeg, summerLs) / cover);
+    const looks = polarLayerLooks(base.map((l) => ({ color: [l.color.r, l.color.g, l.color.b] as const, roughness: l.roughness })), cover, residual, south);
+    return base.map((l, i) => ({ ...l, color: new Color(looks[i]!.color[0], looks[i]!.color[1], looks[i]!.color[2], 1), roughness: looks[i]!.roughness }));
+  }
+
   function buildGround(s: SiteState): void {
     const tile = (() => {
       const wanted = { chunkSize: 256, resolution: 33 };
@@ -1048,7 +1067,7 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     maps = gpu ? createMarsSurfaceTextures(gpu, cfg.surfaceTexture) : null;
     layered = new LayeredTerrainMaterial({
       label: "mars-orbit-layers",
-      layers: marsSurfaceLayers().map((layer, i) => ({ ...layer, color: Color.fromSrgbHex(SURFACE_TINTS[i]!) })),
+      layers: polarSiteLayers(s),
       maps: maps ?? undefined,
     });
     apron = layered.toMaterial();
@@ -1188,8 +1207,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       devils.focusX = camX;
       devils.focusZ = camZ;
     }
-    // Morning frost sublimates off by mid-morning; polar-cap ice stays all day (groundIceCover).
-    const target = groundIceCover(sample.frost, sample.cap, groundSun(scratchB).y);
+    // Morning frost sublimates off by mid-morning. Polar-cap ice is the terrain's own material (polarSiteLayers).
+    const target = groundFrostCover(sample.frost, sample.cap, groundSun(scratchB).y);
     frost += (target - frost) * (snap ? 1 : 0.35);
     scene.settings.surface.snow = frost;
   }

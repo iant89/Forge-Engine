@@ -45,7 +45,9 @@ import {
   ENTRY_SWAP_ALTITUDE,
   ENTRY_VEIL_PEAK,
   entryHaze,
-  groundIceCover,
+  groundFrostCover,
+  MARS_POLAR_ALBEDO,
+  polarLayerLooks,
   groundPointerDirection,
   groundViewQuaternion,
   isSkyPick,
@@ -247,18 +249,45 @@ group("orbit camera maths", () => {
 });
 
 group("ground ice", () => {
-  test("polar-cap ice stays all day at full strength; morning frost is a dusting that burns off", () => {
+  test("morning frost is a dusting that burns off; the cap is left to the terrain's ice", () => {
     const night = -0.2, morning = 0.05, noon = 0.6;
-    // A site on the cap: covered at noon as at night (the old policy sublimated the cap away by mid-morning).
-    for (const sun of [night, morning, noon]) assert.equal(groundIceCover(1, 1, sun), 1, `cap at sun ${sun}`);
-    assert.ok(Math.abs(groundIceCover(0.6, 0.6, noon) - 0.6) < 1e-12, "a cap edge keeps its partial cover");
-    // Frost alone: a dusting before sunrise, gone by mid-morning, never more than half cover.
-    assert.equal(groundIceCover(1, 0, night), 0.5);
-    assert.equal(groundIceCover(1, 0, noon), 0);
-    assert.ok(groundIceCover(1, 0, morning) < 0.5 && groundIceCover(1, 0, morning) > 0);
-    // Bare ground stays bare; inputs are clamped.
-    assert.equal(groundIceCover(0, 0, night), 0);
-    assert.equal(groundIceCover(3, 2, noon), 1);
+    assert.equal(groundFrostCover(1, 0, night), 0.5);
+    assert.equal(groundFrostCover(1, 0, noon), 0);
+    assert.ok(groundFrostCover(1, 0, morning) < 0.5 && groundFrostCover(1, 0, morning) > 0);
+    // On the cap the weather reports frost = cap: no separate frost layer over the ice.
+    for (const sun of [night, morning, noon]) assert.equal(groundFrostCover(1, 1, sun), 0);
+    assert.equal(groundFrostCover(0, 0, night), 0);
+  });
+
+  test("a polar site's ground is the cap's ice, with layered deposits on the steep layer", () => {
+    // Base: the demo's dust, rock, sand, crust looks (linear), roughly.
+    const base = [
+      { color: [0.58, 0.19, 0.08] as const, roughness: 0.95 },
+      { color: [0.11, 0.08, 0.06] as const, roughness: 0.88 },
+      { color: [0.64, 0.35, 0.15] as const, roughness: 0.9 },
+      { color: [0.32, 0.13, 0.07] as const, roughness: 0.92 },
+    ];
+    const lum = (c: readonly number[]) => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+    // Off the cap nothing changes.
+    assert.deepEqual(polarLayerLooks(base, 0, 1, false), base);
+    const north = polarLayerLooks(base, 1, 1, false);
+    const south = polarLayerLooks(base, 1, 1, true);
+    const seasonal = polarLayerLooks(base, 1, 0, false);
+    assert.deepEqual(north[0]!.color, MARS_POLAR_ALBEDO.northResidual);
+    assert.deepEqual(south[0]!.color, MARS_POLAR_ALBEDO.southResidual);
+    assert.deepEqual(north[1]!.color, MARS_POLAR_ALBEDO.layeredDeposits, "steep walls expose the layered deposits");
+    // Measured order: south CO₂ residual > north water-ice residual > seasonal slab > layered deposits > bare dust.
+    assert.ok(lum(south[0]!.color) > lum(north[0]!.color));
+    assert.ok(lum(north[0]!.color) > lum(seasonal[0]!.color));
+    assert.ok(lum(seasonal[0]!.color) > lum(MARS_POLAR_ALBEDO.layeredDeposits));
+    assert.ok(lum(MARS_POLAR_ALBEDO.layeredDeposits) > lum(base[0]!.color));
+    // The ice is not white snow: every cap albedo is redder than it is blue, and dimmer than fresh snow (0.9).
+    for (const c of [MARS_POLAR_ALBEDO.northResidual, MARS_POLAR_ALBEDO.southResidual, MARS_POLAR_ALBEDO.seasonal]) {
+      assert.ok(c[0] > c[2] && lum(c) < 0.8, `${c}`);
+    }
+    // A cap edge sits between bare ground and full ice.
+    const edge = polarLayerLooks(base, 0.5, 1, false);
+    assert.ok(lum(edge[0]!.color) > lum(base[0]!.color) && lum(edge[0]!.color) < lum(north[0]!.color));
   });
 });
 

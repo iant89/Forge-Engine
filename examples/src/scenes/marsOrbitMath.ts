@@ -100,16 +100,68 @@ export function descentGroundHeight(A: number, siteElevation: number, swap = ENT
 }
 
 /**
- * The ground's ice cover (`scene.settings.surface.snow`, 0..1) at a site, from the planet weather's
- * `frost` and `cap` (0..1) and the sun's elevation (the sine of its altitude).
- *
- * The two are different ice. Morning frost is thin, and the sun sublimates it off by mid-morning (at
- * most 0.5, a dusting). Polar-cap ice (the seasonal CO₂ cap and the residual water/CO₂ caps) is metres
- * thick: it stays all day at full strength, so only slopes too steep to hold it show bare ground.
+ * The ground's frost overlay (`scene.settings.surface.snow`, 0..1) at a site, from the planet weather's
+ * `frost` and `cap` (0..1) and the sun's elevation (the sine of its altitude). Morning frost is thin
+ * (a dusting, at most 0.5), and the sun sublimates it off by mid-morning. Polar-cap ice is not frost: the
+ * terrain itself is ice there (`polarLayerLooks`), so the overlay leaves the cap alone (the weather
+ * reports `frost ≥ cap`, so on the cap there is no separate frost to see).
  */
-export function groundIceCover(frost: number, cap: number, sunElevation: number): number {
-  const morning = clamp(frost, 0, 1) * (1 - smoothstep(0.02, 0.32, sunElevation)) * 0.5;
-  return clamp(Math.max(morning, clamp(cap, 0, 1)), 0, 1);
+export function groundFrostCover(frost: number, cap: number, sunElevation: number): number {
+  const offCap = clamp(frost, 0, 1) * (1 - clamp(cap, 0, 1));
+  return clamp(offCap * (1 - smoothstep(0.02, 0.32, sunElevation)) * 0.5, 0, 1);
+}
+
+export type LinearRgb = readonly [number, number, number];
+
+/**
+ * Linear albedos of the Martian polar surfaces, from orbital photometry (Lambert albedo; the colour is
+ * the visible-band slope).
+ *  - North residual cap: water ice with dust mixed in. Summer albedo ~0.45, faintly pink.
+ *  - South residual cap: a CO₂ ice slab, brighter (~0.7) and close to neutral.
+ *  - Seasonal CO₂ cap: a translucent slab over the dusty ground. Its albedo ranges widely (~0.25–0.6),
+ *    and it is darker and redder than the residual caps.
+ *  - Polar layered deposits: the ice-and-dust strata exposed on trough walls and scarps, reddish-tan, ~0.25.
+ */
+export const MARS_POLAR_ALBEDO = Object.freeze({
+  northResidual: [0.5, 0.44, 0.39] as LinearRgb,
+  southResidual: [0.72, 0.68, 0.64] as LinearRgb,
+  seasonal: [0.46, 0.39, 0.33] as LinearRgb,
+  layeredDeposits: [0.36, 0.26, 0.19] as LinearRgb,
+});
+
+export interface PolarLayerLook {
+  color: LinearRgb;
+  roughness: number;
+}
+
+/**
+ * The four Mars ground layers (dust, rock, sand, crust: `marsSurfaceLayers` order) recoloured for a
+ * polar site. `cover` is the cap coverage at the site (0..1). `residual` is how much of that cover
+ * survives summer (0 for the seasonal cap, 1 for the permanent cap). `south` picks the CO₂ residual
+ * cap over the north's water ice.
+ *
+ * The flat layers become the cap's ice: dust is the ice itself, sand slightly cleaner, crust dirtier.
+ * The steep rock layer becomes the layered deposits that troughs expose under the ice. At `cover = 0`
+ * every layer is returned unchanged, and a cap edge blends between the two.
+ */
+export function polarLayerLooks(base: readonly PolarLayerLook[], cover: number, residual: number, south: boolean): PolarLayerLook[] {
+  const c = clamp(cover, 0, 1);
+  const r = clamp(residual, 0, 1);
+  const cap = south ? MARS_POLAR_ALBEDO.southResidual : MARS_POLAR_ALBEDO.northResidual;
+  const mix3 = (a: LinearRgb, b: LinearRgb, t: number): LinearRgb => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const ice = mix3(MARS_POLAR_ALBEDO.seasonal, cap, r);
+  // CO₂ slab ice is glazed and smoother than frosty water ice.
+  const iceRough = south ? 0.5 + 0.1 * (1 - r) : 0.62;
+  const targets: PolarLayerLook[] = [
+    { color: ice, roughness: iceRough },
+    { color: MARS_POLAR_ALBEDO.layeredDeposits, roughness: 0.9 },
+    { color: mix3(ice, [1, 1, 1], 0.08), roughness: iceRough - 0.04 },
+    { color: mix3(ice, MARS_POLAR_ALBEDO.layeredDeposits, 0.3), roughness: iceRough + 0.1 },
+  ];
+  return base.map((b, i) => {
+    const t = targets[i] ?? targets[0]!;
+    return { color: mix3(b.color, t.color, c), roughness: b.roughness + (t.roughness - b.roughness) * c };
+  });
 }
 
 /** Camera quaternion (x, y, z, w) for a ground view with compass heading `yaw` and look-up `pitch`, radians. */
