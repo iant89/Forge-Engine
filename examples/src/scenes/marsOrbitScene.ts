@@ -151,6 +151,11 @@ export interface MarsOrbitState {
   landmarks: { on: boolean; visible: string[]; selected: string | null };
   /** The zoomed-in detail patch: shown, baking, and the shown cap radius in degrees. */
   globeDetail: { visible: boolean; busy: boolean; radiusDeg: number };
+  /**
+   * The globe drawn under the terrain below the swap. Heights are site-frame y in metres: the camera,
+   * the terrain under it, and the globe's surface at the site after lowering.
+   */
+  backdrop: { shown: boolean; lower: number; cameraY: number; terrainY: number; globeY: number };
   autoSpin: number;
   spinPhase: string;
   inertia: number;
@@ -1532,11 +1537,13 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   }
 
   let backdropShown = false;
+  let backdropLower = 0;
   function placeGlobeBackdrop(): void {
     if (!globe || !globeEntity || !site) return;
     const show = globe.ready && groundHeight > Math.max(1500, 0.6 * cfg.viewDistance * drawScale);
     if (show) {
       const lower = (site.elevation * (GLOBE_EXAGGERATION - 1) + backdropSink) * (1 - smoothstep(SWAP_ALTITUDE / 3, SWAP_ALTITUDE, groundHeight));
+      backdropLower = lower;
       for (const e of [globeEntity, detailEntity]) {
         if (!e) continue;
         e.transform.position = scratchB.set(0, -R - lower, 0);
@@ -1699,6 +1706,13 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       landmarks: { on: landmarksOn, visible: [...visibleLandmarks], selected: selectedLandmark?.id ?? null },
       globeDetail: { visible: globe?.detailVisible ?? false, busy: globe?.detailBusy ?? false, radiusDeg: globe?.detailRadiusDeg ?? 0 },
       atlas: { ...atlasInfo },
+      backdrop: {
+        shown: backdropShown,
+        lower: backdropLower,
+        cameraY: groundY + groundHeight,
+        terrainY: groundY,
+        globeY: site ? site.elevation * GLOBE_EXAGGERATION - backdropLower : 0,
+      },
       autoSpin: spin.autoSpinBlend,
       spinPhase: spin.phase,
       inertia: spin.inertiaSpeed,
