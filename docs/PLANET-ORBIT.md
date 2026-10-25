@@ -132,7 +132,9 @@ The **ground** does not use the globe's level: on every size it is built from th
 nodes, ~4.6 MB each, `marsGroundLevel`), fetched only for the face(s) under the site; a device reporting ≤ 2 GB of memory gets the
 1024² faces instead. So a phone orbits on its 2 MB atlas and lands on 2.6 km data. The dive fetches them during the 2.8 s orbit
 approach (otherwise it waits up to 12 s with "loading terrain detail…") before the terrain is built, so tiles are generated once
-with the finest heights; the globe's detail patch also picks them up where they are loaded. The HUD overlay reads
+with the finest heights; the globe's detail patch also picks them up where they are loaded. If the wait gives up (or with
+`?moinstant=1`), the terrain is rebuilt once when the faces arrive: a terrain generates its tiles over time, and one that mixed the two
+levels had ~57 m steps between chunks on Olympus Mons, which its skirts turned into walls above the horizon. The HUD overlay reads
 `elev <size> <res>² <status>`, where `<res>` is the finest level loaded.
 
 Nothing finer than 2.6 km ships: the source is the 463 m USGS GeoTIFF (2.1 GB), and seeing its full resolution on the ground needs a

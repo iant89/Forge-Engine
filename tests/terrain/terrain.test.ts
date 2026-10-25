@@ -403,6 +403,30 @@ group("Terrain - Phase 10 LOD meshes", () => {
 });
 
 group("Terrain - Phase 10 cache, priority, workers, horizon, materials", () => {
+  test("the horizon skirt follows the loaded terrain, not the camera height, where its rim is not loaded", () => {
+    // The skirt's rim sits at the edge of the loaded disc, so many rim points fall in chunks that are not
+    // resident. Those used to take the camera's height: on a slope (or with the eye raised) the skirt
+    // stood up as pale walls at eye level above the terrain edge, changing shape as the view moved.
+    const world = new EntityWorld();
+    const terrain = new TerrainWorld({ seed: 7, chunkSize: 64, chunkResolution: 9, viewDistance: 200, maxLOD: 2, warmUpChunks: 49, syncGeneration: true });
+    const ctx = createMockContext(world);
+    const scene = new Scene({ name: "horizon-rim" });
+    scene.add(terrain);
+    const eyeY = 5000;
+    terrain.focusPosition.set(0, eyeY, 0);
+    terrain.update(ctx, 0.016);
+    const ready = [...terrain.chunks.values()].filter((c) => c.state === "ready" && c.tile);
+    assert.ok(ready.length > 4, "terrain loaded");
+    let maxTerrain = -Infinity;
+    for (const c of ready) maxTerrain = Math.max(maxTerrain, c.tile!.bounds.max.y);
+    const ids = scene.world.findByName("terrain_horizon_skirt");
+    assert.equal(ids.length, 1, "a horizon skirt was built");
+    const bounds = scene.world.getComponent(ids[0]!, Renderable)!.boundsOverride!;
+    assert.ok(bounds.max.y <= maxTerrain + 1, `skirt top ${bounds.max.y.toFixed(1)} m vs terrain top ${maxTerrain.toFixed(1)} m (eye at ${eyeY} m)`);
+    scene.dispose();
+    world.dispose();
+  });
+
   test("caches generated cells by seed/chunk/version/settings/resolution", () => {
     const cache = new TerrainGenerationCache({ maxEntries: 8, maxBytes: 1 << 20 });
     const pipe = GeneratorPipeline.createDefault(99);

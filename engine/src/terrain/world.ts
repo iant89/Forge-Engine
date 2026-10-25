@@ -844,10 +844,26 @@ export class TerrainWorld extends SceneObject {
    * Height from a resident ready tile only. Falls back to a cheap approx (focus Y) so horizon
    * rebuild never triggers synchronous cell generation for missing chunks.
    */
+  /**
+   * Resident height at (x, z) for the horizon skirt's rim. The rim sits at the edge of the loaded disc,
+   * so it often falls in a chunk that is not resident: then take the nearest resident height inward,
+   * toward the focus. (The camera's height used to stand in, which on a slope or with a raised eye
+   * stood the skirt up as walls at eye level.) Never generates a cell.
+   */
   private residentHeightAt(worldX: number, worldZ: number): number {
-    const key = chunkCoordKey(Math.floor(worldX / this.chunkSize), Math.floor(worldZ / this.chunkSize));
-    const hm = this.chunks.get(key)?.tile?.heightmap;
-    if (hm) return hm.getHeight(worldX, worldZ);
+    const fx = this.focusPosition.x;
+    const fz = this.focusPosition.z;
+    const dx = worldX - fx;
+    const dz = worldZ - fz;
+    const dist = Math.hypot(dx, dz);
+    const step = this.chunkSize * 0.25;
+    for (let d = dist; d >= 0; d -= step) {
+      const t = dist > 0 ? d / dist : 0;
+      const x = fx + dx * t;
+      const z = fz + dz * t;
+      const hm = this.chunks.get(chunkCoordKey(Math.floor(x / this.chunkSize), Math.floor(z / this.chunkSize)))?.tile?.heightmap;
+      if (hm) return hm.getHeight(x, z);
+    }
     return this.focusPosition.y;
   }
 

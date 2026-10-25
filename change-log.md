@@ -31475,6 +31475,78 @@ JSON array below; agents maintain it by hand until then.
     "file": "examples/src/scenes/marsOrbitScene.ts",
     "what": "Landmark card close button gets z-index 2; the kind label leaves room for it",
     "why": "The kind label's opacity < 1 made it a stacking context painted over the absolutely positioned close button, so clicking the x did nothing (found by the browser gate)"
+  },
+  {
+    "id": "2530",
+    "date": "2026-10-25T03:10:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "examples/src/scenes/marsOrbitScene.ts",
+    "what": "makeTerrain records the atlas resolution at the site; maybeUpgradeTerrain rebuilds the terrain once when finer faces arrive after it was built",
+    "why": "User report: weird shapes above the horizon on Olympus; chunks from mixed 512²/2048² heights had ~57 m steps that skirts turned into walls"
+  },
+  {
+    "id": "2531",
+    "date": "2026-10-25T03:10:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/terrain/world.ts",
+    "what": "residentHeightAt walks inward to the nearest resident height instead of returning the camera's height",
+    "why": "The horizon skirt rim stood up to eye level on slopes or with a raised eye"
+  },
+  {
+    "id": "2532",
+    "date": "2026-10-25T03:10:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/terrain/terrain.test.ts",
+    "what": "Horizon skirt stays at terrain height with the eye 5 km up",
+    "why": "Regression for the skirt rim; fails on the old code"
+  },
+  {
+    "id": "2533",
+    "date": "2026-10-25T03:10:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tools/browser-check.mjs",
+    "what": "Per-size atlas check: after landing on Olympus, every chunk seam must become <= 2 m",
+    "why": "Real-browser regression for mixed atlas levels"
+  },
+  {
+    "id": "2534",
+    "date": "2026-10-25T03:10:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/PLANET-ORBIT.md",
+    "what": "The terrain is rebuilt once when late ground faces arrive",
+    "why": "Keep the scene doc truthful"
+  },
+  {
+    "id": "2535",
+    "date": "2026-10-25T03:10:31Z",
+    "type": "change",
+    "pr": null,
+    "branch": "mars-orbit-improvements",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Mixed-atlas-level walls and the skirt-rim bug, with the bisect recipe",
+    "why": "Lessons for the next agent"
   }
 ]
 ```

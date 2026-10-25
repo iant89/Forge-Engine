@@ -889,6 +889,47 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
   }
 
   // ------------------------------------------------------------------ ground world
+  // The terrain's tiles are generated over time from whatever atlas faces are loaded *then*: a terrain
+  // that outlives the arrival of the finer faces under its site would mix two height levels, tens of
+  // metres apart on a volcano flank (its skirts standing up as walls along the seams). So remember the
+  // level it was built from, and rebuild it once if a finer one arrives (`maybeUpgradeTerrain`).
+  let terrainAtlasRes = 0;
+  const terrainSiteDir = new Vec3();
+  let groundTile: { tile: { chunkSize: number; resolution: number }; advice: ReturnType<typeof adviseMarsTile> } | null = null;
+  function makeTerrain(s: SiteState): TerrainWorld {
+    const { tile, advice } = groundTile!;
+    latLonToDirection(s.latDeg, s.lonDeg, terrainSiteDir);
+    terrainAtlasRes = atlasCtl.atlas?.resolutionAt(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z) ?? 0;
+    return new TerrainWorld({
+      seed: 1337,
+      chunkSize: tile.chunkSize,
+      chunkResolution: tile.resolution,
+      viewDistance: cfg.viewDistance,
+      maxLOD: 3,
+      visibleChunks: cfg.visibleChunks,
+      generationsPerFrame: 1,
+      uploadsPerFrame: 2,
+      warmUpChunks: 9,
+      skirtDepth: advice.ok ? advice.recommendedSkirtDepth : 32,
+      syncGeneration: false,
+      pipeline: createMarsPipeline({ site: { name: "orbit-site", description: "chosen on the globe", latDeg: s.latDeg, lonDeg: s.lonDeg, headingDeg: 0 }, heightAtlas: atlasCtl.atlas }),
+      material: apron!,
+      layeredMaterial: layered!,
+    });
+  }
+
+  /** Rebuild the terrain from the finer atlas level if it arrived after the terrain was built. */
+  function maybeUpgradeTerrain(): void {
+    const atlas = atlasCtl.atlas;
+    if (!terrain || !site || !atlas || !groundTile) return;
+    if (atlas.resolutionAt(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z) <= terrainAtlasRes) return;
+    scene.removeObject(terrain);
+    terrain.dispose();
+    site.elevation = sampler.sample(terrainSiteDir.x, terrainSiteDir.y, terrainSiteDir.z, { elevation: 0, r: 0, g: 0, b: 0 }).elevation;
+    terrain = makeTerrain(site);
+    scene.add(terrain);
+  }
+
   function buildGround(s: SiteState): void {
     const tile = (() => {
       const wanted = { chunkSize: 256, resolution: 33 };
@@ -902,22 +943,8 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
       maps: maps ?? undefined,
     });
     apron = layered.toMaterial();
-    terrain = new TerrainWorld({
-      seed: 1337,
-      chunkSize: tile.chunkSize,
-      chunkResolution: tile.resolution,
-      viewDistance: cfg.viewDistance,
-      maxLOD: 3,
-      visibleChunks: cfg.visibleChunks,
-      generationsPerFrame: 1,
-      uploadsPerFrame: 2,
-      warmUpChunks: 9,
-      skirtDepth: advice.ok ? advice.recommendedSkirtDepth : 32,
-      syncGeneration: false,
-      pipeline: createMarsPipeline({ site: { name: "orbit-site", description: "chosen on the globe", latDeg: s.latDeg, lonDeg: s.lonDeg, headingDeg: 0 }, heightAtlas: atlasCtl.atlas }),
-      material: apron,
-      layeredMaterial: layered,
-    });
+    groundTile = { tile, advice };
+    terrain = makeTerrain(s);
     scene.add(terrain);
 
     solar = new DayNightCycle({
@@ -1079,11 +1106,14 @@ export function buildMarsOrbitScene(engine: Engine | null, options: MarsOrbitSce
     if (!instant && !atlasCtl.groundReady(siteDir, groundRadiusRad)) {
       groundPending = true;
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, 12000));
-      void Promise.race([atlasCtl.loadGround(siteDir, groundRadiusRad), timeout]).then(() => {
+      const load = atlasCtl.loadGround(siteDir, groundRadiusRad);
+      void Promise.race([load, timeout]).then(() => {
         if (token === groundToken && mode === "dive" && groundPending) buildNow();
       });
+      // If the wait gave up, rebuild the terrain from the finer faces when they do arrive (once).
+      void load.then(() => { if (token === groundToken) maybeUpgradeTerrain(); });
     } else {
-      if (instant) void atlasCtl.loadGround(siteDir, groundRadiusRad);
+      if (instant) void atlasCtl.loadGround(siteDir, groundRadiusRad).then(() => { if (token === groundToken) maybeUpgradeTerrain(); });
       buildNow();
     }
     // The ground world's sun is the planet's, expressed in the site frame; the cycle is only the clock.

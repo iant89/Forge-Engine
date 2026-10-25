@@ -3197,3 +3197,19 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   (marsOrbitMath.ts). The orbit camera basis is fixed (right +X, up +Z, forward −Y), so projection is the exact inverse of the
   picker's `pixelRay` — keep them in step if the orbit camera ever gains yaw. Landmark coordinates are pinned against real MOLA
   heights in tests (volcano maxima / basin minima within ±1.5°), which is the cheap way to catch an east/west or N/S slip.
+
+## 2026-10-25 — "weird shape" over the horizon on Olympus Mons (mixed atlas levels)
+
+- **Symptom (iPhone report):** pale flat shapes / brown streaked walls above the terrain edge on a volcano flank, changing as
+  you turn. **Root cause:** the ground's tiles were generated over time from whatever MOLA faces were loaded then; the 2048² faces
+  arrived mid-session (after the 12 s wait, or at once with `?moinstant`), so neighbouring chunks came from 512² vs 2048² heights —
+  measured **~57 m steps** at chunk seams on Olympus. Chunk skirts filled the steps as vertical walls; fog turned them into pale shapes.
+  Fix: the scene records the atlas resolution at the site when it builds the terrain and rebuilds it once when a finer level
+  arrives (`maybeUpgradeTerrain` in marsOrbitScene.ts). `MarsTerrainStage.identity` already changes with loaded faces, but
+  `TerrainWorld` never regenerates resident chunks — **never let an atlas gain faces under a live terrain without rebuilding it.**
+- Second, smaller bug found on the way: `TerrainWorld.residentHeightAt` (horizon skirt rim) returned the **camera's height**
+  for rim points in unloaded chunks, so on slopes or with a raised eye the skirt stood up to eye level. Now walks inward to
+  the nearest resident height. Pinned by `tests/terrain/terrain.test.ts`.
+- Bisect recipe that worked: `settings.fog.mode = "none"` reveals what fog hides; hide entity groups by name
+  (`terrain_horizon_skirt`, `terrain_<cx>,<cz>`) via `componentsOf(id)` → `visible = false`; then measure seam heights from
+  `scene.objects.find(o => o.chunks)` tiles' `heightmap.getHeight` on both sides of a shared edge.

@@ -1113,6 +1113,29 @@ async function checkMarsOrbitAtlasSize(size) {
   // does not wait for them; they arrive a moment after the landing.
   await page.waitForFunction(() => window.__forge.marsOrbitState().atlas.facesDetail >= 1, null, { polling: 500, timeout: 120000 })
     .catch(() => {});
+  // The faces arrive after an instant landing: the terrain is rebuilt from them, and every chunk must come
+  // from the same height level (fe-41: mixed levels left ~57 m steps on Olympus, skirts standing up as walls).
+  const measureSeams = () => page.evaluate(() => {
+    const terrain = window.__forge.marsOrbitScene().objects.find((o) => o.chunks);
+    const ready = [...terrain.chunks.values()].filter((c) => c.tile);
+    const cs = terrain.chunkSize;
+    let worst = 0;
+    for (const c of ready) {
+      const n = ready.find((o) => o.cx === c.cx && o.cz === c.cz - 1);
+      if (!n) continue;
+      for (let k = 0; k <= 8; k++) {
+        const x = (c.cx + k / 8) * cs * 0.999 + 1e-4;
+        worst = Math.max(worst, Math.abs(c.tile.heightmap.getHeight(x, c.cz * cs + 0.01) - n.tile.heightmap.getHeight(x, c.cz * cs - 0.01)));
+      }
+    }
+    return { worst, chunks: ready.length };
+  });
+  let seams = await measureSeams();
+  for (let tries = 0; tries < 60 && !(seams.worst <= 2 && seams.chunks >= 6); tries++) {
+    await sleep(2000);
+    seams = await measureSeams();
+  }
+  if (!(seams.worst <= 2)) throw new Error(`?mola=${size}: ${seams.worst.toFixed(1)} m height step between terrain chunks (mixed atlas levels?)`);
   const ground = await page.evaluate(() => ({ state: window.__forge.marsOrbitState(), stats: window.__forge.stats() }));
   if (!(ground.state.atlas.facesDetail >= 1) || ground.state.atlas.groundSize !== "desktop" || ground.state.atlas.resolution !== 2048) {
     throw new Error(`?mola=${size} landed without fetching a 2048² face: ${JSON.stringify(ground.state.atlas)}`);
@@ -1122,7 +1145,7 @@ async function checkMarsOrbitAtlasSize(size) {
   await page.screenshot({ path: `tools/.browser-check-mars-orbit-${size}-ground.png`, timeout: 60000 });
   console.log(
     `mars orbit atlas ${size}: ${loaded.resolution}² base, ${ground.state.atlas.facesDetail} detail face(s), ` +
-      `${(ground.state.atlas.bytesDownloaded / 1e6).toFixed(1)} MB fetched (${ground.state.atlas.cacheHits} cache hits), terrain ${ground.state.terrainReadyChunks} chunks, GPU errors=${ground.stats.gpuErrors}`,
+      `${(ground.state.atlas.bytesDownloaded / 1e6).toFixed(1)} MB fetched (${ground.state.atlas.cacheHits} cache hits), terrain ${ground.state.terrainReadyChunks} chunks, worst seam ${seams.worst.toFixed(1)} m, GPU errors=${ground.stats.gpuErrors}`,
   );
 }
 
