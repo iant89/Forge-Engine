@@ -164,6 +164,21 @@ export function polarLayerLooks(base: readonly PolarLayerLook[], cover: number, 
   });
 }
 
+/**
+ * Exposure multiplier for a ground camera at `latDeg` in season `lsDeg`, set for the site's midday light
+ * the way a rover camera's (or an eye's) adaptation is. Near the poles the noon sun stands low, and the
+ * ground gets a fraction of the equator's light. At fixed exposure, bright cap ice there renders as dark
+ * as equatorial dust. The scale is the irradiance ratio of a reference noon sun (60° up, a typical
+ * low-latitude noon) to the site's noon sun, from 1 (no change wherever the noon sun is higher) up to
+ * `max`. The subsolar latitude uses Mars's 25.19° obliquity.
+ */
+export function siteExposureScale(latDeg: number, lsDeg: number, max = 2.2): number {
+  const decl = Math.asin(Math.sin(25.19 * Math.PI / 180) * Math.sin(lsDeg * Math.PI / 180)) * 180 / Math.PI;
+  const noonElevation = 90 - Math.abs(latDeg - decl);
+  const site = Math.sin(clamp(noonElevation, 1, 90) * Math.PI / 180);
+  return clamp(Math.sin(60 * Math.PI / 180) / site, 1, max);
+}
+
 /** Camera quaternion (x, y, z, w) for a ground view with compass heading `yaw` and look-up `pitch`, radians. */
 export function groundViewQuaternion(yaw: number, pitch: number, out: [number, number, number, number]): [number, number, number, number] {
   // q = Ry(yaw) · Rx(-pitch): +Z forward, +X right, +Y up; positive pitch looks up.

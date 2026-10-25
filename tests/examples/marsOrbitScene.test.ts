@@ -48,6 +48,7 @@ import {
   groundFrostCover,
   MARS_POLAR_ALBEDO,
   polarLayerLooks,
+  siteExposureScale,
   groundPointerDirection,
   groundViewQuaternion,
   isSkyPick,
@@ -257,6 +258,17 @@ group("ground ice", () => {
     // On the cap the weather reports frost = cap: no separate frost layer over the ice.
     for (const sun of [night, morning, noon]) assert.equal(groundFrostCover(1, 1, sun), 0);
     assert.equal(groundFrostCover(0, 0, night), 0);
+  });
+
+  test("the ground camera is exposed for the site's noon light: unchanged at low latitudes, up to 2.2x at the poles", () => {
+    for (const ls of [0, 90, 180, 270]) assert.equal(siteExposureScale(0, ls), 1, `equator at Ls ${ls}`);
+    assert.equal(siteExposureScale(-5.4, 120), 1);
+    // Planum Boreum in northern summer: the noon sun ~25° up, ~0.45 of the reference irradiance.
+    const north = siteExposureScale(87, 120);
+    assert.ok(north > 2 && north <= 2.2, `${north}`);
+    // Summer at a pole is brighter than the same pole in spring, and the scale is capped through polar night.
+    assert.ok(siteExposureScale(-86, 270) < siteExposureScale(-86, 0));
+    assert.equal(siteExposureScale(87, 270), 2.2);
   });
 
   test("a polar site's ground is the cap's ice, with layered deposits on the steep layer", () => {
