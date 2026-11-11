@@ -620,6 +620,9 @@ function spotOuterConeCos(light: Light): number {
   if (innerCos - outerCos < 1e-5) outerCos = Math.max(-1, outerCos - 1e-4);
   return outerCos;
 }
+/** Debug/overlay line vertex data: two vertices of (x, y, z, packed colour) per line. */
+const FLOATS_PER_LINE = 8;
+
 /** `debugBounds` box colours (RGBA byte pack, 0xAARRGGBB): cyan in view, magenta frustum-culled. */
 const DEBUG_BOUNDS_IN_VIEW = 0xff00ffff;
 const DEBUG_BOUNDS_CULLED = 0xffff00ff;
@@ -992,13 +995,13 @@ export class Renderer implements RenderFrameContext {
   private readonly lightList: Light[] = [];
 
   // Debug lines.
-  private debugLines = new Float32Array(4096 * 4);
+  private debugLines = new Float32Array(4096 * FLOATS_PER_LINE);
   private debugLineCount = 0;
   private debugBuffer: GPUBuffer | null = null;
   private debugBufferCapacity = 0;
   // Depth-test-free overlay lines (the `debugBounds` boxes): separate buffer so the boxes can be
   // drawn through geometry while `drawLine`/`drawAabb` callers keep occlusion.
-  private overlayLines = new Float32Array(4096 * 4);
+  private overlayLines = new Float32Array(4096 * FLOATS_PER_LINE);
   private overlayLineCount = 0;
   private overlayBoxCount = 0;
   private overlayBuffer: GPUBuffer | null = null;
@@ -4770,7 +4773,7 @@ export class Renderer implements RenderFrameContext {
   private readonly boundsCornerB = new Vec3();
 
   private queueOverlayLine(a: Vec3, b: Vec3, color: number): void {
-    const need = (this.overlayLineCount + 1) * 4;
+    const need = (this.overlayLineCount + 1) * FLOATS_PER_LINE;
     if (need > this.overlayLines.length) {
       const next = new Float32Array(Math.max(need * 2, this.overlayLines.length * 2));
       next.set(this.overlayLines);
@@ -4778,7 +4781,7 @@ export class Renderer implements RenderFrameContext {
     }
     const f = this.overlayLines;
     const u = new Uint32Array(f.buffer, f.byteOffset, f.length);
-    const o = this.overlayLineCount * 4;
+    const o = this.overlayLineCount * FLOATS_PER_LINE;
     f[o] = a.x;
     f[o + 1] = a.y;
     f[o + 2] = a.z;
@@ -4833,7 +4836,8 @@ export class Renderer implements RenderFrameContext {
   // ------------------------------------------------------------------ debug API
 
   drawLine(a: Vec3, b: Vec3, color = 0xff00ff00): void {
-    const need = (this.debugLineCount + 1) * 4;
+    // Two 16-byte vertices (xyz + packed colour) per line: 8 floats, not 4.
+    const need = (this.debugLineCount + 1) * FLOATS_PER_LINE;
     if (need > this.debugLines.length) {
       const next = new Float32Array(Math.max(need * 2, this.debugLines.length * 2));
       next.set(this.debugLines);
@@ -4841,7 +4845,7 @@ export class Renderer implements RenderFrameContext {
     }
     const f = this.debugLines;
     const u = new Uint32Array(f.buffer, f.byteOffset, f.length);
-    const o = this.debugLineCount * 4;
+    const o = this.debugLineCount * FLOATS_PER_LINE;
     f[o] = a.x;
     f[o + 1] = a.y;
     f[o + 2] = a.z;

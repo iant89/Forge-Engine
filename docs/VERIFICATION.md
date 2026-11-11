@@ -1006,7 +1006,8 @@ it ever drop something that is visible":
 
 Draw calls issued, `lookAt` reaches the frame (view faces the target, sun direction points at it),
 projection aspect derives from the surface, empty scenes clear without errors, frustum culling,
-debug lines, and zero leaked GPU buffers/textures on disposal.
+debug lines (including the vertex layout: every line keeps both endpoints at 8 floats per line,
+through buffer growth — a polyline once drew dashed), and zero leaked GPU buffers/textures on disposal.
 
 ### `tests/rendering/renderingSkinning.test.ts` — GPU skinning (Phase 16.5)
 
