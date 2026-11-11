@@ -31271,6 +31271,66 @@ JSON array below; agents maintain it by hand until then.
     "file": "mnemosyne.md",
     "what": "fe-41 lessons: AP dots root cause, T-junction flange, clamp sampler, rebake ratio, headless timing, assertCloseTo digits",
     "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2513",
+    "date": "2026-11-11T18:13:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/rendering/renderer.ts",
+    "what": "drawLine and the debugBounds overlay queue advance 8 floats per line (two 16-byte vertices), via a FLOATS_PER_LINE constant; initial buffers sized in lines.",
+    "why": "Both wrote 8 floats per line but advanced by 4, so each line's end vertex was overwritten by the next line's start: polylines drew dashed with stray segments from stale buffer data, and debugBounds boxes were garbled. Found building the coal-mine game's map overlays."
+  },
+  {
+    "id": "2514",
+    "date": "2026-11-11T18:13:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/rendering/rendering.test.ts",
+    "what": "Regression test: three drawLine calls keep both endpoints at [8k..] and [8k+4..], growth past the initial capacity keeps earlier lines, and 5,003 lines render cleanly on the mock device.",
+    "why": "The existing test drew a single line, which the stride bug cannot affect."
+  },
+  {
+    "id": "2515",
+    "date": "2026-11-11T18:13:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Debug-line stride bug, drawLine colour packing, and the journaled-component lesson from building a game as an engine system.",
+    "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2516",
+    "date": "2026-11-11T18:13:54Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "change-log.md",
+    "what": "Entries for the debug-line stride fix.",
+    "why": "Change history"
+  },
+  {
+    "id": "2517",
+    "date": "2026-11-11T18:14:11Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "docs/VERIFICATION.md",
+    "what": "rendering.test.ts now also pins the debug-line vertex layout.",
+    "why": "Keep the gate description truthful"
   }
 ]
 ```

@@ -3189,3 +3189,18 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   helper and a few checks in `tests/examples/marsOrbitScene.test.ts` pass epsilons, so they are far looser than they read (not fixed).
 - Editing `engine/api-approvals.json` is (rightly) blocked for agents: the API review for these additions (`environment/3`) is the
   maintainer's to record, together with `npm run api:reference` and the pinned surface counts in `runtimeApi.test.ts`.
+
+## 2026-11-11 — debug-line stride; components added inside a system pass (coal-mine game)
+
+- **`Renderer.drawLine` dropped every other endpoint.** It wrote two 16-byte vertices (8 floats) per line but advanced its
+  offset and capacity by 4, so line k+1's start overwrote line k's end. A single line (the only existing test) was fine; any
+  polyline came out dashed with stray segments from stale buffer data, and the `debugBounds` boxes (same code in
+  `queueOverlayLine`) were garbled. Fixed with `FLOATS_PER_LINE = 8`; `tests/rendering/rendering.test.ts` pins the layout.
+- **Colour packing for `drawLine` is `0xAARRGGBB`**, and an alpha byte below 128 is *radiance in eighths* (that is how
+  `drawEmissiveLine` works), not transparency. Use alpha ≥ 128 for ordinary colours.
+- **`entity.get(Component)` returns undefined for a component added earlier in the same system pass.** `EntityWorld` journals
+  structural changes while systems run (`journalDepth > 0`) and applies them when the pass ends. Code that builds entities
+  from inside a system (a game registered as an `ISystem`) must keep references to the components it creates instead of
+  looking them up; retrying a failed build every frame silently leaks whole entity hierarchies.
+- `docs/API-REFERENCE.md` was already stale on this branch before these changes (`npm run api:reference:check` fails on a
+  clean checkout); not regenerated here.

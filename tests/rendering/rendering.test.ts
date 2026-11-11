@@ -319,6 +319,40 @@ group("Renderer with mock WebGPU device", () => {
     await device.dispose();
   });
 
+  test("debug lines keep both endpoints of every line (8 floats per line, not 4)", async () => {
+    // Regression: drawLine advanced its write offset by 4 floats while each line writes two
+    // 16-byte vertices, so line k+1's start overwrote line k's end. One line looked fine; a
+    // polyline came out dashed with stray segments from stale buffer contents.
+    const device = await GraphicsDevice.create({ forceMock: true });
+    const renderer = new Renderer(device);
+    const scene = new Scene({ name: "debug-polyline" });
+    const camEntity = scene.createTransformedEntity("camera", new Vec3(0, 0, -5));
+    scene.world.addComponent(camEntity.id, new Camera());
+    camEntity.transform.lookAt(new Vec3(0, 0, 0));
+    const ends: [Vec3, Vec3][] = [
+      [new Vec3(0, 0, 0), new Vec3(1, 0, 0)],
+      [new Vec3(1, 0, 0), new Vec3(1, 2, 0)],
+      [new Vec3(5, 6, 7), new Vec3(-3, -4, -5)],
+    ];
+    for (const [a, b] of ends) renderer.drawLine(a, b, 0xffff0000);
+    const floats = (renderer as unknown as { debugLines: Float32Array }).debugLines;
+    ends.forEach(([a, b], k) => {
+      assert.deepEqual([...floats.subarray(k * 8, k * 8 + 3)], [a.x, a.y, a.z], `line ${k} start`);
+      assert.deepEqual([...floats.subarray(k * 8 + 4, k * 8 + 7)], [b.x, b.y, b.z], `line ${k} end`);
+    });
+    // Growing past the initial capacity keeps earlier lines intact.
+    for (let i = 0; i < 5000; i++) renderer.drawLine(new Vec3(i, 0, 0), new Vec3(i, 1, 0));
+    const grown = (renderer as unknown as { debugLines: Float32Array }).debugLines;
+    assert.deepEqual([...grown.subarray(16, 19)], [5, 6, 7]);
+    assert.deepEqual([...grown.subarray((3 + 4999) * 8 + 4, (3 + 4999) * 8 + 7)], [4999, 1, 0]);
+    renderer.renderScene(scene);
+    assert.equal(renderer.stats.debugLines, 5003);
+    device.mock!.assertClean();
+    scene.dispose();
+    renderer.dispose();
+    await device.dispose();
+  });
+
   test("draws debug lines and releases debug buffers on dispose", async () => {
     const device = await GraphicsDevice.create({ forceMock: true });
     const mock = device.mock;
