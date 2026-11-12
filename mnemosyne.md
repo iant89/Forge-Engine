@@ -3204,3 +3204,15 @@ made by `tools/bake-mola-atlas.mjs` from the 2.1 GB USGS 463 m GeoTIFF — not r
   looking them up; retrying a failed build every frame silently leaks whole entity hierarchies.
 - `docs/API-REFERENCE.md` was already stale on this branch before these changes (`npm run api:reference:check` fails on a
   clean checkout); not regenerated here.
+
+## 2026-11-12 — createTransformedEntity inside a system pass lost its position
+
+- Inside a system pass `e.add(new Transform())` is journaled; the component's `onAttach` runs when the pass ends and, by
+  design, **keeps an existing transform slot's pose** (an entity posed through the world first keeps that pose). The old
+  `createTransformedEntity` put the position on the queued component only. Any `entity.transform.*` write before the flush
+  (a part's scale or rotation right after creation) allocated the slot at the origin, and that origin pose won: the entity
+  rendered at (0, 0, 0) and was culled. Machines moved every frame hid it; static run-time models (a conveyor, a stockpile
+  cone) showed it. Fix: `createTransformedEntity` poses the slot with `world.setTRS` before adding the component
+  (`tests/scene/ecs.test.ts` pins it).
+- Code that adds `new Transform()` itself and sets the pose on the component inside a system can still hit this; pose
+  through `entity.transform` / `world.setTRS` instead.
