@@ -226,6 +226,35 @@ group("Scene/ECS - Components and Queries", () => {
     world.dispose();
   });
 
+  test("a pose given to createTransformedEntity inside a system pass survives a transform write in the same pass", () => {
+    // Regression: inside a system pass the Transform component is queued and attaches when the
+    // pass ends, keeping an existing transform slot's pose. A write through `entity.transform` in
+    // between (here the scale) allocated the slot at the origin, so the position handed to
+    // createTransformedEntity was lost and the entity rendered at (0, 0, 0). Found building models
+    // at run time in a game system (iant89/coalmining).
+    const scene = new Scene({ name: "pose-in-pass" });
+    let made: ReturnType<Scene["createTransformedEntity"]> | null = null;
+    class Builder extends System {
+      readonly name = "builder";
+      update(): void {
+        made = scene.createTransformedEntity("part", new Vec3(10, 20, 30));
+        made.transform.scale = new Vec3(2, 3, 4);
+      }
+    }
+    scene.world.registerSystem(new Builder());
+    scene.world.runSystems(createMockContext(scene.world));
+    const p = made!.transform.position;
+    const s = made!.transform.scale;
+    assert.deepEqual([p.x, p.y, p.z], [10, 20, 30]);
+    assert.deepEqual([s.x, s.y, s.z], [2, 3, 4]);
+    // Outside a pass the same calls give the same result.
+    const outside = scene.createTransformedEntity("outside", new Vec3(1, 2, 3));
+    outside.transform.scale = new Vec3(5, 5, 5);
+    const q = outside.transform.position;
+    assert.deepEqual([q.x, q.y, q.z], [1, 2, 3]);
+    scene.dispose();
+  });
+
   test("journals structural operations during system execution to prevent mid-loop mutation", () => {
     const world = new EntityWorld();
     const e1 = world.createEntity("e1");

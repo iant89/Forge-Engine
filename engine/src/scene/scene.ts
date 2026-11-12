@@ -16,7 +16,7 @@ import { UsageError } from "../core/errors.js";
 import { Color } from "../math/color.js";
 import { Double3 } from "../math/double3.js";
 import { Vec3 } from "../math/vec.js";
-import { Mat4 } from "../math/mat.js";
+import { Mat4, Quat } from "../math/mat.js";
 import { AABB, Ray, RayHit } from "../math/geometry.js";
 import { CoordinateSpace } from "./coordinateSpace.js";
 import { EntityWorld, type Entity } from "./world.js";
@@ -653,7 +653,12 @@ export class Scene {
   /** Convenience used by demos: an entity with a Transform at `position`. */
   createTransformedEntity(name: string, position: Vec3): Entity {
     const e = this.createEntity(name);
-    e.add(new Transform()).setPosition(position.x, position.y, position.z);
+    // Pose the transform slot before adding the component. Inside a system pass the Transform is
+    // queued and attaches when the pass ends, keeping an existing slot's pose; a write through
+    // `entity.transform` in between (a scale or rotation) allocates the slot, so a pose held only on
+    // the queued component would be lost and the entity would sit at the origin.
+    this.world.setTRS(e.id, position, new Quat(), new Vec3(1, 1, 1));
+    e.add(new Transform());
     return e;
   }
 

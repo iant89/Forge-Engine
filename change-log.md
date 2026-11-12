@@ -31331,6 +31331,54 @@ JSON array below; agents maintain it by hand until then.
     "file": "docs/VERIFICATION.md",
     "what": "rendering.test.ts now also pins the debug-line vertex layout.",
     "why": "Keep the gate description truthful"
+  },
+  {
+    "id": "2518",
+    "date": "2026-11-12T01:32:35Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "engine/src/scene/scene.ts",
+    "what": "createTransformedEntity poses the entity's transform slot through the world (setTRS) before adding the Transform component, instead of setting the pose on the component.",
+    "why": "Inside a system pass the Transform add is journaled; a write through entity.transform before the pass ended (scale, rotation) allocated the slot at the origin, and the queued component's onAttach then kept that slot's pose. The position was lost and the entity rendered at (0,0,0) and was culled. Found building models at run time in the coal-mine game."
+  },
+  {
+    "id": "2519",
+    "date": "2026-11-12T01:32:35Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "tests/scene/ecs.test.ts",
+    "what": "Regression test: inside a system pass, createTransformedEntity followed by a scale write keeps both position and scale; the same calls outside a pass agree.",
+    "why": "Pins the fix; fails on the previous code."
+  },
+  {
+    "id": "2520",
+    "date": "2026-11-12T01:32:35Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "mnemosyne.md",
+    "what": "Lesson: pose set on a queued component is lost if the slot is allocated before the journal flushes.",
+    "why": "Lessons for the next agent"
+  },
+  {
+    "id": "2521",
+    "date": "2026-11-12T01:32:35Z",
+    "type": "change",
+    "pr": null,
+    "branch": "claude/forge-coal-mine-spec-10lcq3",
+    "model": "Claude Opus",
+    "modelVersion": "5.5",
+    "file": "change-log.md",
+    "what": "Entries for the createTransformedEntity fix.",
+    "why": "Change history"
   }
 ]
 ```
